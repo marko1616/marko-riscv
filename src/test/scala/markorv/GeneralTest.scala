@@ -6,8 +6,8 @@ import chisel3.simulator.EphemeralSimulator._
 import org.scalatest.freespec.AnyFreeSpec
 import org.scalatest.matchers.must.Matchers
 
-class TestLoadStore extends AnyFreeSpec with Matchers {
-  "FB should show in io.peek" in {
+class GeneralTest extends AnyFreeSpec with Matchers {
+  "Running test in memory" in {
     simulate(new MarkoRvCore()) { cpu =>
       for (i <- 0 until 32) {
         val instr_value = cpu.io.instr_now.peek().litValue

@@ -23,14 +23,12 @@ class Memory(data_width: Int = 64, addr_width: Int = 64, size: Int = 128) extend
 
     // Little endian
     val init_values = Seq(
-        "h00800083".U(32.W),
-        "h06100FA3".U(32.W),
-        "hAAAAAAFB".U(32.W),
-        "hAAAAAAAA".U(32.W),
-        "h00000001".U(32.W),
-        "h00000002".U(32.W),
-        "h00000003".U(32.W),
-        "h00000004".U(32.W)
+        "h0ff00093".U(32.W),
+        "h06103c23".U(32.W),
+        "hfff08093".U(32.W),
+        "h06103c23".U(32.W),
+        "hffc08093".U(32.W),
+        "h06103c23".U(32.W),
     )
 
     for (i <- 0 until init_values.length) {
@@ -56,7 +54,7 @@ class Memory(data_width: Int = 64, addr_width: Int = 64, size: Int = 128) extend
     io.port2.data_out.valid := false.B
     io.port2.write_outfire := false.B
 
-    io.peek := mem(127)
+    io.peek := Cat(mem(120),mem(121),mem(122),mem(123),mem(124),mem(125),mem(126),mem(127))
 
     when(arbiter.io.chosen === 0.U) {
         when(io.port1.write_enable) {
