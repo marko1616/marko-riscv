@@ -32,7 +32,8 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
         val mem_write = Decoupled(UInt(data_width.W))
         val mem_read = Flipped(Decoupled((UInt(data_width.W))))
-        val mem_addr = Output(UInt(addr_width.W))
+        val mem_read_addr = Decoupled(UInt(addr_width.W))
+        val mem_write_addr = Output(UInt(addr_width.W))
         val mem_write_outfire = Input(Bool())
         val mem_write_width = Output(UInt(2.W))
         
@@ -42,7 +43,6 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
         })
 
         val state_peek = Output(UInt(3.W))
-        val debug_peek = Output(UInt(64.W))
     })
 
     // State def
@@ -57,7 +57,9 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val load_data = Reg(UInt(data_width.W))
 
     // default
-    io.mem_addr := 0.U(addr_width.W)
+    io.mem_write_addr := 0.U(addr_width.W)
+    io.mem_read_addr.valid := false.B
+    io.mem_read_addr.bits := 0.U(addr_width.W)
     io.mem_write.bits := 0.U(data_width.W)
     io.mem_write.valid := false.B
     io.lsu_instr.ready := false.B
@@ -69,7 +71,6 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     io.write_back.bits.reg := 0.U(5.W)
 
     io.state_peek := state.asUInt
-    io.debug_peek := params.source2.asUInt
 
     switch(state) {
         is(State.stat_idle) {
@@ -90,7 +91,8 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 load_data := params.immediate.asUInt
                 state := State.stat_writeback
             }.otherwise {
-                io.mem_addr := (params.source1.asUInt + params.immediate.asUInt)
+                io.mem_read_addr.bits := (params.source1.asUInt + params.immediate.asUInt)
+                io.mem_read_addr.valid := true.B
                 io.mem_read.ready := true.B
                 when(io.mem_read.valid) {
                     val raw_data = io.mem_read.bits
@@ -118,7 +120,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             val size = opcode(1, 0)
             val store_data = params.source2.asUInt
             
-            io.mem_addr := (params.source1.asUInt + params.immediate.asUInt)
+            io.mem_write_addr := (params.source1.asUInt + params.immediate.asUInt)
             io.mem_write.valid := true.B
             io.mem_write_width := size
 

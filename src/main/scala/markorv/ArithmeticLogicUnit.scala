@@ -40,57 +40,56 @@ class ArithmeticLogicUnit extends Module {
     val ALU_SRA = "b1010".U
     val ALU_SUB = "b0000".U
 
+    // Define a helper function to set write_back values
+    def perform_op(result: UInt): Unit = {
+        io.write_back.valid := true.B
+        io.write_back.bits.reg := io.alu_instr.bits.params.rd
+        write_back_orig := result
+    }
+
     when(io.alu_instr.valid) {
         switch(io.alu_instr.bits.alu_opcode(3,0)) {
             is(ALU_ADD) {
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.alu_instr.bits.params.rd
-                write_back_orig := io.alu_instr.bits.params.source1 + io.alu_instr.bits.params.source2
+                perform_op(io.alu_instr.bits.params.source1 + io.alu_instr.bits.params.source2)
             }
             is(ALU_SUB) {
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.alu_instr.bits.params.rd
-                write_back_orig := io.alu_instr.bits.params.source1 - io.alu_instr.bits.params.source2
+                perform_op(io.alu_instr.bits.params.source1 - io.alu_instr.bits.params.source2)
             }
             is(ALU_SLT) {
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.alu_instr.bits.params.rd
-                write_back_orig := (io.alu_instr.bits.params.source1.asSInt < io.alu_instr.bits.params.source2.asSInt).asUInt
+                perform_op((io.alu_instr.bits.params.source1.asSInt < io.alu_instr.bits.params.source2.asSInt).asUInt)
             }
             is(ALU_SLTU) {
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.alu_instr.bits.params.rd
-                write_back_orig := (io.alu_instr.bits.params.source1 < io.alu_instr.bits.params.source2).asUInt
+                perform_op((io.alu_instr.bits.params.source1 < io.alu_instr.bits.params.source2).asUInt)
             }
             is(ALU_XOR) {
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.alu_instr.bits.params.rd
-                write_back_orig := io.alu_instr.bits.params.source1 ^ io.alu_instr.bits.params.source2
+                perform_op(io.alu_instr.bits.params.source1 ^ io.alu_instr.bits.params.source2)
             }
             is(ALU_OR) {
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.alu_instr.bits.params.rd
-                write_back_orig := io.alu_instr.bits.params.source1 | io.alu_instr.bits.params.source2
+                perform_op(io.alu_instr.bits.params.source1 | io.alu_instr.bits.params.source2)
             }
             is(ALU_AND) {
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.alu_instr.bits.params.rd
-                write_back_orig := io.alu_instr.bits.params.source1 & io.alu_instr.bits.params.source2
+                perform_op(io.alu_instr.bits.params.source1 & io.alu_instr.bits.params.source2)
             }
             is(ALU_SLL) {
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.alu_instr.bits.params.rd
-                write_back_orig := io.alu_instr.bits.params.source1 << io.alu_instr.bits.params.source2(5,0)
+                when(io.alu_instr.bits.alu_opcode(4)) {
+                    perform_op(io.alu_instr.bits.params.source1 << io.alu_instr.bits.params.source2(4, 0))
+                }.otherwise {
+                    perform_op(io.alu_instr.bits.params.source1 << io.alu_instr.bits.params.source2(5, 0))
+                }
             }
             is(ALU_SRL) {
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.alu_instr.bits.params.rd
-                write_back_orig := io.alu_instr.bits.params.source1 >> io.alu_instr.bits.params.source2(5, 0)
+                when(io.alu_instr.bits.alu_opcode(4)) {
+                    perform_op(io.alu_instr.bits.params.source1 >> io.alu_instr.bits.params.source2(4, 0))
+                }.otherwise {
+                    perform_op(io.alu_instr.bits.params.source1 >> io.alu_instr.bits.params.source2(5, 0))
+                }
             }
             is(ALU_SRA) {
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.alu_instr.bits.params.rd
-                write_back_orig := (io.alu_instr.bits.params.source1.asSInt >> io.alu_instr.bits.params.source2(5, 0)).asUInt
+                when(io.alu_instr.bits.alu_opcode(4)) {
+                    perform_op((io.alu_instr.bits.params.source1.asSInt >> io.alu_instr.bits.params.source2(4, 0)).asUInt)
+                }.otherwise {
+                    perform_op(io.alu_instr.bits.params.source1 >> io.alu_instr.bits.params.source2(5, 0))
+                }
             }
         }
     }

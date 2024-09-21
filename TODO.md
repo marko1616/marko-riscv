@@ -1,6 +1,8 @@
 ### TODO List（Instruction）
 
-#### Immediate Instructions
+<details>
+<summary><strong> Immediate Instructions </strong>✅</summary>
+
 - [x] lui
 - [x] auipc
 - [x] addi
@@ -16,8 +18,11 @@
 - [x] srliw
 - [x] srai
 - [x] sraiw
+</details>
 
-#### Register-Register Instructions
+<details>
+<summary><strong> Register-Register Instructions </strong>✅</summary>
+
 - [x] add
 - [x] sub
 - [x] addw
@@ -33,8 +38,11 @@
 - [x] sraw
 - [x] or
 - [x] and
+</details>
 
-#### Memory Instructions
+<details>
+<summary><strong> Memory Instructions </strong>✅</summary>
+
 - [x] lb
 - [x] lh
 - [x] lw
@@ -46,30 +54,42 @@
 - [x] sh
 - [x] sw
 - [x] sd
+</details>
 
-#### Control Instructions
-- [ ] jal
-- [ ] jalr
-- [ ] beq
-- [ ] bne
-- [ ] blt
-- [ ] bge
-- [ ] bltu
-- [ ] bgeu
+<details>
+<summary><strong> Control Instructions </strong>✅</summary>
 
-#### Fence Instructions
+- [x] jal
+- [x] jalr
+- [x] beq
+- [x] bne
+- [x] blt
+- [x] bge
+- [x] bltu
+- [x] bgeu
+</details>
+
+<details>
+<summary><strong> Fence Instructions </strong></summary>
+
 - [ ] fence
 - [ ] fence.i
+</details>
 
-#### CSR Instructions
+<details>
+<summary><strong> CSR Instructions </strong></summary>
+
 - [ ] csrrw
 - [ ] csrrs
 - [ ] csrrc
 - [ ] csrrwi
 - [ ] csrrsi
 - [ ] csrrci
+</details>
 
-#### System Instructions
+<details>
+<summary><strong> System Instructions </strong></summary>
+
 - [ ] ecall
 - [ ] ebreak
 - [ ] uret
@@ -77,8 +97,11 @@
 - [ ] mret
 - [ ] wfi
 - [ ] sfence.vma
+</details>
 
-#### A Extension Instructions（Low Piro）
+<details>
+<summary><strong> A Extension Instructions（Low Piro）</strong></summary>
+
 - [ ] lr.w
 - [ ] lr.d
 - [ ] sc.w
@@ -101,8 +124,11 @@
 - [ ] amominu.d
 - [ ] amomaxu.w
 - [ ] amomaxu.d
+</details>
 
-#### M Extension Instructions（Low Piro）
+<details>
+<summary><strong> M Extension Instructions（Low Piro）</strong></summary>
+
 - [ ] mul
 - [ ] mulh
 - [ ] mulhsu
@@ -116,11 +142,15 @@
 - [ ] divuw
 - [ ] remw
 - [ ] remuw
+</details>
 
-### TODO List（System）
-- [ ] L1 Instruction cache
+<details>
+<summary><strong> System Tasks </strong></summary>
+
+- [x] L1 Instruction cache
 - [ ] L1 Data cache
 - [ ] TLB
 - [ ] MMU(SV-48)
 - [ ] PCIE(FPGA)(Low Piro)
 - [ ] DDR Memory(FPGA)(Low Piro)
+</details>
