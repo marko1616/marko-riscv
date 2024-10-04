@@ -25,9 +25,11 @@ class InstrFetchQueue(
         val read_cache_line =
             Flipped(Decoupled(new CacheLine(n_set, n_way, n_byte)))
 
+        val reg_read = Output(UInt(5.W))
+        val reg_data = Input(UInt(64.W))
+
         val fetch_bundle = Decoupled(new FetchQueueEntities)
         val pc = Input(UInt(64.W))
-
         val flush = Input(Bool())
     })
 
@@ -57,6 +59,8 @@ class InstrFetchQueue(
 
     bpu.io.bpu_instr.instr := 0.U
     bpu.io.bpu_instr.pc := 0.U
+    bpu.io.reg_read <> io.reg_read
+    bpu.io.reg_data <> io.reg_data
 
     io.read_cache_line.ready := false.B
     io.read_addr.valid := false.B

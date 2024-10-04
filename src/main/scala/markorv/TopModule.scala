@@ -40,6 +40,8 @@ class MarkoRvCore extends Module {
     instr_fetch_queue.io.read_addr <> instr_cache.io.read_addr
     instr_fetch_queue.io.read_cache_line <> instr_cache.io.read_cache_line
     instr_fetch_queue.io.pc <> instr_fetch_unit.io.peek_pc
+    instr_fetch_queue.io.reg_read <> register_file.io.read_addr3
+    instr_fetch_queue.io.reg_data <> register_file.io.read_data3
 
     mem.io.port2.write_addr := 0.U(64.W)
     mem.io.port2.write_enable := false.B

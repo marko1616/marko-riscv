@@ -7,8 +7,10 @@ class RegFile(data_width: Int = 64) extends Module {
     val io = IO(new Bundle {
         val read_addr1 = Input(UInt(5.W))
         val read_addr2 = Input(UInt(5.W))
+        val read_addr3 = Input(UInt(5.W))
         val read_data1 = Output(UInt(data_width.W))
         val read_data2 = Output(UInt(data_width.W))
+        val read_data3 = Output(UInt(data_width.W))
 
         val write_addr1 = Input(UInt(5.W))
         val write_data1 = Input(UInt(data_width.W))
@@ -34,6 +36,7 @@ class RegFile(data_width: Int = 64) extends Module {
 
     io.read_data1 := Mux(io.read_addr1 === 0.U, 0.U, regs(io.read_addr1))
     io.read_data2 := Mux(io.read_addr2 === 0.U, 0.U, regs(io.read_addr2))
+    io.read_data3 := Mux(io.read_addr3 === 0.U, 0.U, regs(io.read_addr3))
 
     io.acquired := false.B
     io.peek_occupied := reg_acquire_flags

@@ -40,13 +40,16 @@ class BranchUnit extends Module {
             }
             is("b00011".U) {
                 // jalr
+                val jump_addr = Wire(UInt(64.W))
+                jump_addr := (io.branch_instr.bits.params.source1 + io.branch_instr.bits.params.immediate) & ~(1.U(64.W))
                 io.write_back.valid := true.B
                 io.write_back.bits.reg := io.branch_instr.bits.params.rd
                 io.write_back.bits.data := io.branch_instr.bits.params.pc + 4.U
 
-                io.flush := true.B
-                io.rev_pc := (io.branch_instr.bits.params.source1 + io.branch_instr.bits.params.immediate) & ~(1
-                    .U(64.W))
+                when(io.branch_instr.bits.pred_pc =/= jump_addr) {
+                    io.flush := true.B
+                    io.rev_pc := jump_addr
+                }
             }
             is("b00000".U) {
                 // beq
