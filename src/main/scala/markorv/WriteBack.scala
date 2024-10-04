@@ -57,7 +57,7 @@ class WriteBack extends Module {
         io.reg_write2 := io.write_back2.bits.reg
         io.write_data2 := io.write_back2.bits.data
     }
-    
+
     when(io.write_back3.valid) {
         io.reg_write3 := io.write_back3.bits.reg
         io.write_data3 := io.write_back3.bits.data

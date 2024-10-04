@@ -43,13 +43,16 @@ class BranchUnit extends Module {
                 io.write_back.valid := true.B
                 io.write_back.bits.reg := io.branch_instr.bits.params.rd
                 io.write_back.bits.data := io.branch_instr.bits.params.pc + 4.U
-                
+
                 io.flush := true.B
-                io.rev_pc := (io.branch_instr.bits.params.source1 + io.branch_instr.bits.params.immediate) & ~(1.U(64.W))
+                io.rev_pc := (io.branch_instr.bits.params.source1 + io.branch_instr.bits.params.immediate) & ~(1
+                    .U(64.W))
             }
             is("b00000".U) {
                 // beq
-                when(io.branch_instr.bits.params.source1 === io.branch_instr.bits.params.source2) {
+                when(
+                  io.branch_instr.bits.params.source1 === io.branch_instr.bits.params.source2
+                ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
                     io.rev_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
@@ -59,7 +62,9 @@ class BranchUnit extends Module {
             }
             is("b00010".U) {
                 // bne
-                when(io.branch_instr.bits.params.source1 =/= io.branch_instr.bits.params.source2) {
+                when(
+                  io.branch_instr.bits.params.source1 =/= io.branch_instr.bits.params.source2
+                ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
                     io.rev_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
@@ -69,7 +74,9 @@ class BranchUnit extends Module {
             }
             is("b01000".U) {
                 // blt
-                when(io.branch_instr.bits.params.source1.asSInt < io.branch_instr.bits.params.source2.asSInt) {
+                when(
+                  io.branch_instr.bits.params.source1.asSInt < io.branch_instr.bits.params.source2.asSInt
+                ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
                     io.rev_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
@@ -79,7 +86,9 @@ class BranchUnit extends Module {
             }
             is("b01010".U) {
                 // bge
-                when(io.branch_instr.bits.params.source1.asSInt >= io.branch_instr.bits.params.source2.asSInt) {
+                when(
+                  io.branch_instr.bits.params.source1.asSInt >= io.branch_instr.bits.params.source2.asSInt
+                ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
                     io.rev_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
@@ -89,7 +98,9 @@ class BranchUnit extends Module {
             }
             is("b01100".U) {
                 // bltu
-                when(io.branch_instr.bits.params.source1 < io.branch_instr.bits.params.source2) {
+                when(
+                  io.branch_instr.bits.params.source1 < io.branch_instr.bits.params.source2
+                ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
                     io.rev_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
@@ -99,7 +110,9 @@ class BranchUnit extends Module {
             }
             is("b01110".U) {
                 // bgeu
-                when(io.branch_instr.bits.params.source1 >= io.branch_instr.bits.params.source2) {
+                when(
+                  io.branch_instr.bits.params.source1 >= io.branch_instr.bits.params.source2
+                ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
                     io.rev_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {

@@ -14,10 +14,16 @@ class FetchQueueEntities extends Bundle {
     val recovery_pc = UInt(64.W)
 }
 
-class InstrFetchQueue(queue_size: Int = 16, n_set: Int = 8, n_way: Int = 4, n_byte: Int = 16) extends Module {
+class InstrFetchQueue(
+    queue_size: Int = 16,
+    n_set: Int = 8,
+    n_way: Int = 4,
+    n_byte: Int = 16
+) extends Module {
     val io = IO(new Bundle {
         val read_addr = Decoupled(UInt(64.W))
-        val read_cache_line = Flipped(Decoupled(new CacheLine(n_set, n_way, n_byte)))
+        val read_cache_line =
+            Flipped(Decoupled(new CacheLine(n_set, n_way, n_byte)))
 
         val fetch_bundle = Decoupled(new FetchQueueEntities)
         val pc = Input(UInt(64.W))
@@ -27,15 +33,20 @@ class InstrFetchQueue(queue_size: Int = 16, n_set: Int = 8, n_way: Int = 4, n_by
 
     val bpu = Module(new BranchPredUnit)
 
-    val instr_queue = Module(new Queue(
-        new FetchQueueEntities, 
+    val instr_queue = Module(
+      new Queue(
+        new FetchQueueEntities,
         queue_size,
-        flow=true,
-        hasFlush=true))
+        flow = true,
+        hasFlush = true
+      )
+    )
     val end_pc_reg = RegInit(0.U(64.W))
     val end_pc = Wire(UInt(64.W))
 
-    val temp_cache_line = RegInit(0.U.asTypeOf(new CacheLine(n_set, n_way, n_byte)))
+    val temp_cache_line = RegInit(
+      0.U.asTypeOf(new CacheLine(n_set, n_way, n_byte))
+    )
     val cache_line_valid = RegInit(false.B)
     val cache_line_addr = RegInit(0.U(64.W))
 
@@ -59,17 +70,32 @@ class InstrFetchQueue(queue_size: Int = 16, n_set: Int = 8, n_way: Int = 4, n_by
 
     instr_queue.io.flush.getOrElse(false.B) := io.flush
 
-    when(instr_queue.io.enq.ready && end_pc(63, log2Ceil(n_byte)) === cache_line_addr(63, log2Ceil(n_byte)) && cache_line_valid && !io.flush) {
+    when(
+      instr_queue.io.enq.ready && end_pc(
+        63,
+        log2Ceil(n_byte)
+      ) === cache_line_addr(
+        63,
+        log2Ceil(n_byte)
+      ) && cache_line_valid && !io.flush
+    ) {
         // Read from fetched cache line
-        val splited_data = Wire(Vec((8*n_byte)/32, UInt(32.W)))
-        for(i <- 0 until (8*n_byte)/32) {
-            splited_data(i) := temp_cache_line.data((32*(i+1))-1, (32*i))
+        val splited_data = Wire(Vec((8 * n_byte) / 32, UInt(32.W)))
+        for (i <- 0 until (8 * n_byte) / 32) {
+            splited_data(i) := temp_cache_line.data(
+              (32 * (i + 1)) - 1,
+              (32 * i)
+            )
         }
 
         bpu.io.bpu_instr.pc := end_pc
-        bpu.io.bpu_instr.instr := splited_data(end_pc(log2Ceil((8*n_byte)/32)-1+2,2))
+        bpu.io.bpu_instr.instr := splited_data(
+          end_pc(log2Ceil((8 * n_byte) / 32) - 1 + 2, 2)
+        )
 
-        instr_queue.io.enq.bits.instr := splited_data(end_pc(log2Ceil((8*n_byte)/32)-1+2,2))
+        instr_queue.io.enq.bits.instr := splited_data(
+          end_pc(log2Ceil((8 * n_byte) / 32) - 1 + 2, 2)
+        )
         instr_queue.io.enq.bits.is_branch := bpu.io.bpu_result.is_branch
         instr_queue.io.enq.bits.pred_taken := bpu.io.bpu_result.pred_taken
         instr_queue.io.enq.bits.pred_pc := bpu.io.bpu_result.pred_pc

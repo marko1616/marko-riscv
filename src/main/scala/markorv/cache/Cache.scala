@@ -4,8 +4,10 @@ import chisel3._
 import chisel3.util._
 
 class CacheLine(n_set: Int, n_way: Int, n_byte: Int) extends Bundle {
-    val data = UInt((8*n_byte).W)
-    val tag = UInt((64-log2Ceil(n_set)-log2Ceil(n_way)-log2Ceil(n_byte)).W)
+    val data = UInt((8 * n_byte).W)
+    val tag = UInt(
+      (64 - log2Ceil(n_set) - log2Ceil(n_way) - log2Ceil(n_byte)).W
+    )
     val valid = Bool()
 }
 
@@ -13,7 +15,12 @@ class CacheWay(n_set: Int, n_way: Int, n_byte: Int) extends Bundle {
     val data = Vec(n_way, new CacheLine(n_set, n_way, n_byte))
 }
 
-class Cache(n_set: Int = 8, n_way: Int = 4, n_byte: Int = 16, upstream_bandwidth: Int = 64) extends Module {
+class Cache(
+    n_set: Int = 8,
+    n_way: Int = 4,
+    n_byte: Int = 16,
+    upstream_bandwidth: Int = 64
+) extends Module {
     val io = IO(new Bundle {
         val mem_read_addr = Decoupled(UInt(64.W))
         val mem_read_data = Flipped(Decoupled(UInt(64.W)))
@@ -40,7 +47,8 @@ class Cache(n_set: Int = 8, n_way: Int = 4, n_byte: Int = 16, upstream_bandwidth
     val read_ptr = Reg(UInt(log2Ceil(n_byte).W))
 
     object State extends ChiselEnum {
-        val stat_idle, stat_look_up, stat_read_upstream, stat_write_upstream, stat_replace = Value
+        val stat_idle, stat_look_up, stat_read_upstream, stat_write_upstream,
+            stat_replace = Value
     }
     val state = RegInit(State.stat_idle)
 
@@ -71,9 +79,13 @@ class Cache(n_set: Int = 8, n_way: Int = 4, n_byte: Int = 16, upstream_bandwidth
         is(State.stat_look_up) {
             val hit = Wire(Bool())
             hit := false.B
-            
+
             for (i <- 0 until n_way) {
-                when(last_cache_mem_read.data(i).tag === read_tag_reg && last_cache_mem_read.data(i).valid) {
+                when(
+                  last_cache_mem_read
+                      .data(i)
+                      .tag === read_tag_reg && last_cache_mem_read.data(i).valid
+                ) {
                     // Hit
                     io.read_cache_line.valid := true.B
                     io.read_cache_line.bits := last_cache_mem_read.data(i)
@@ -81,13 +93,17 @@ class Cache(n_set: Int = 8, n_way: Int = 4, n_byte: Int = 16, upstream_bandwidth
                     state := State.stat_idle
                 }
             }
-            
+
             when(!hit) {
                 // Miss
                 temp_cache_way := last_cache_mem_read
                 io.mem_read_data.ready := true.B
                 io.mem_read_addr.valid := true.B
-                io.mem_read_addr.bits := Cat(read_tag_reg, read_set_reg, 0.U(log2Ceil(n_byte).W))
+                io.mem_read_addr.bits := Cat(
+                  read_tag_reg,
+                  read_set_reg,
+                  0.U(log2Ceil(n_byte).W)
+                )
 
                 read_ptr := 0.U
                 temp_cache_line.valid := true.B
@@ -101,19 +117,31 @@ class Cache(n_set: Int = 8, n_way: Int = 4, n_byte: Int = 16, upstream_bandwidth
             io.mem_read_addr.bits := Cat(read_tag_reg, read_set_reg, read_ptr)
             when(io.mem_read_data.valid) {
                 // Read upstream data
-                val next_cache_line = Wire(Vec((8*n_byte)/upstream_bandwidth, UInt(upstream_bandwidth.W)))
-                
-                for (i <- 0 until (8*n_byte)/upstream_bandwidth) {
-                    when((i*upstream_bandwidth/8).U === read_ptr) {
+                val next_cache_line = Wire(
+                  Vec(
+                    (8 * n_byte) / upstream_bandwidth,
+                    UInt(upstream_bandwidth.W)
+                  )
+                )
+
+                for (i <- 0 until (8 * n_byte) / upstream_bandwidth) {
+                    when((i * upstream_bandwidth / 8).U === read_ptr) {
                         next_cache_line(i) := io.mem_read_data.bits
                     }.otherwise {
-                        next_cache_line(i) := temp_cache_line.data((i+1)*upstream_bandwidth - 1, i*upstream_bandwidth)
+                        next_cache_line(i) := temp_cache_line.data(
+                          (i + 1) * upstream_bandwidth - 1,
+                          i * upstream_bandwidth
+                        )
                     }
                 }
                 temp_cache_line.data := Cat(next_cache_line.reverse)
-                
-                read_ptr := read_ptr + (1 << log2Ceil(upstream_bandwidth/8)).U
-                when(read_ptr === (1 << (log2Ceil(((8*n_byte/upstream_bandwidth)*upstream_bandwidth/8)-upstream_bandwidth/8))).U) {
+
+                read_ptr := read_ptr + (1 << log2Ceil(upstream_bandwidth / 8)).U
+                when(
+                  read_ptr === (1 << (log2Ceil(
+                    ((8 * n_byte / upstream_bandwidth) * upstream_bandwidth / 8) - upstream_bandwidth / 8
+                  ))).U
+                ) {
                     // Make sure wont replace the same
                     state := State.stat_replace
                 }
@@ -124,7 +152,7 @@ class Cache(n_set: Int = 8, n_way: Int = 4, n_byte: Int = 16, upstream_bandwidth
         }
         is(State.stat_replace) {
             val next_cache_way = Wire(new CacheWay(n_set, n_way, n_byte))
-            
+
             for (i <- 0 until n_way) {
                 when(i.U === replace_way) {
                     next_cache_way.data(i) := temp_cache_line

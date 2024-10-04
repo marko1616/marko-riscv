@@ -13,7 +13,9 @@ class GeneralTest extends AnyFreeSpec with Matchers {
                 val instr_value = cpu.io.instr_now.peek().litValue
                 val pc_value = cpu.io.pc.peek().litValue
                 val peek_value = cpu.io.peek.peek().litValue
-                println(f"Cycle $i%d: instr = 0x${instr_value}%08X pc = 0x${pc_value}%08X peek = 0x${peek_value}%08X")
+                println(
+                  f"Cycle $i%d: instr = 0x${instr_value}%08X pc = 0x${pc_value}%08X peek = 0x${peek_value}%08X"
+                )
                 cpu.clock.step()
             }
         }

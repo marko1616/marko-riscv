@@ -36,7 +36,7 @@ class InstrFetchUnit extends Module {
 
     io.fetch_bundle.ready := io.instr_bundle.ready
     io.peek_pc := pc
-    
+
     when(io.fetch_bundle.valid && io.instr_bundle.ready) {
         io.instr_bundle.valid := true.B
         io.instr_bundle.bits.instr := io.fetch_bundle.bits.instr

@@ -51,7 +51,7 @@ class RegFile(data_width: Int = 64) extends Module {
     }.otherwise {
         reg_acquire_flags_next2 := reg_acquire_flags_next1
     }
-    
+
     when(io.write_addr3 =/= 0.U) {
         regs(io.write_addr3) := io.write_data3
         reg_acquire_flags_next3 := reg_acquire_flags_next2 & ~(1.U << io.write_addr3)

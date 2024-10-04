@@ -36,7 +36,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
         val mem_write_addr = Output(UInt(addr_width.W))
         val mem_write_outfire = Input(Bool())
         val mem_write_width = Output(UInt(2.W))
-        
+
         val write_back = Decoupled(new Bundle {
             val reg = Input(UInt(5.W))
             val data = Input(UInt(64.W))
@@ -78,7 +78,11 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             when(io.lsu_instr.valid) {
                 opcode := io.lsu_instr.bits.lsu_opcode
                 params := io.lsu_instr.bits.params
-                state := Mux(io.lsu_instr.bits.lsu_opcode(4), State.stat_store, State.stat_load)
+                state := Mux(
+                  io.lsu_instr.bits.lsu_opcode(4),
+                  State.stat_store,
+                  State.stat_load
+                )
             }
         }
 
@@ -96,21 +100,33 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 io.mem_read.ready := true.B
                 when(io.mem_read.valid) {
                     val raw_data = io.mem_read.bits
-                    load_data := MuxCase(raw_data, Seq(
-                        (size === 0.U) -> Mux(is_signed, 
-                            (raw_data(7, 0).asSInt.pad(64)).asUInt,  // Sign extend byte
-                            raw_data(7, 0).pad(64)                   // Zero extend byte
+                    load_data := MuxCase(
+                      raw_data,
+                      Seq(
+                        (size === 0.U) -> Mux(
+                          is_signed,
+                          (raw_data(7, 0).asSInt
+                              .pad(64))
+                              .asUInt, // Sign extend byte
+                          raw_data(7, 0).pad(64) // Zero extend byte
                         ),
-                        (size === 1.U) -> Mux(is_signed,
-                            (raw_data(15, 0).asSInt.pad(64)).asUInt, // Sign extend halfword
-                            raw_data(15, 0).pad(64)                  // Zero extend halfword
+                        (size === 1.U) -> Mux(
+                          is_signed,
+                          (raw_data(15, 0).asSInt
+                              .pad(64))
+                              .asUInt, // Sign extend halfword
+                          raw_data(15, 0).pad(64) // Zero extend halfword
                         ),
-                        (size === 2.U) -> Mux(is_signed,
-                            (raw_data(31, 0).asSInt.pad(64)).asUInt, // Sign extend word
-                            raw_data(31, 0).pad(64)                  // Zero extend word
+                        (size === 2.U) -> Mux(
+                          is_signed,
+                          (raw_data(31, 0).asSInt
+                              .pad(64))
+                              .asUInt, // Sign extend word
+                          raw_data(31, 0).pad(64) // Zero extend word
                         )
                         // size === 3.U is the default case (raw_data)
-                    ))
+                      )
+                    )
                     state := State.stat_writeback
                 }
             }
@@ -119,17 +135,20 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
         is(State.stat_store) {
             val size = opcode(1, 0)
             val store_data = params.source2.asUInt
-            
+
             io.mem_write_addr := (params.source1.asUInt + params.immediate.asUInt)
             io.mem_write.valid := true.B
             io.mem_write_width := size
 
-            io.mem_write.bits := MuxCase(store_data, Seq(
+            io.mem_write.bits := MuxCase(
+              store_data,
+              Seq(
                 (size === 0.U) -> store_data(7, 0).pad(64),
                 (size === 1.U) -> store_data(15, 0).pad(64),
                 (size === 2.U) -> store_data(31, 0).pad(64)
                 // size === 3.U is the default case (raw_data)
-            ))
+              )
+            )
 
             when(io.mem_write.ready && io.mem_write_outfire) {
                 state := State.stat_idle
