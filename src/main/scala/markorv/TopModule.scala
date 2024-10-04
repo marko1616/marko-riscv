@@ -15,8 +15,8 @@ class MarkoRvCore extends Module {
         val peek = Output(UInt(64.W))
     })
 
-    val mem = Module(new Memory(64, 64, 2048))
-    val instr_cache = Module(new Cache(8, 4, 16, 64))
+    val mem = Module(new Memory(64, 64, 4096))
+    val instr_cache = Module(new Cache(32, 4, 16, 64))
 
     val instr_fetch_queue = Module(new InstrFetchQueue)
     val instr_fetch_unit = Module(new InstrFetchUnit)

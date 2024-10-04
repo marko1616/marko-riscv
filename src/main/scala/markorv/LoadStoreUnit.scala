@@ -74,16 +74,25 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     switch(state) {
         is(State.stat_idle) {
-            io.lsu_instr.ready := io.write_back.ready
+            val next_state = WireInit(State.stat_idle)
+            val operation_addr = WireInit(0.U(addr_width.W))
+            next_state := Mux(io.lsu_instr.bits.lsu_opcode(4), State.stat_store, State.stat_load)
+            operation_addr := io.lsu_instr.bits.params.source1.asUInt + params.immediate
+
+            when(io.lsu_instr.valid && next_state === State.stat_load) {
+                // prefetch
+                io.mem_read_addr.bits := operation_addr
+                io.mem_read_addr.valid := true.B
+                io.mem_read.ready := true.B
+                state := next_state
+            }
+
             when(io.lsu_instr.valid) {
                 opcode := io.lsu_instr.bits.lsu_opcode
                 params := io.lsu_instr.bits.params
-                state := Mux(
-                  io.lsu_instr.bits.lsu_opcode(4),
-                  State.stat_store,
-                  State.stat_load
-                )
+                state := next_state
             }
+            io.lsu_instr.ready := io.write_back.ready
         }
 
         is(State.stat_load) {
@@ -95,7 +104,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 load_data := params.immediate.asUInt
                 state := State.stat_writeback
             }.otherwise {
-                io.mem_read_addr.bits := (params.source1.asUInt + params.immediate.asUInt)
+                io.mem_read_addr.bits := params.source1.asUInt + params.immediate.asUInt
                 io.mem_read_addr.valid := true.B
                 io.mem_read.ready := true.B
                 when(io.mem_read.valid) {
@@ -136,7 +145,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             val size = opcode(1, 0)
             val store_data = params.source2.asUInt
 
-            io.mem_write_addr := (params.source1.asUInt + params.immediate.asUInt)
+            io.mem_write_addr := params.source1.asUInt + params.immediate.asUInt
             io.mem_write.valid := true.B
             io.mem_write_width := size
 

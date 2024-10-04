@@ -1,50 +1,34 @@
 j main
+
 fibonacci:
-        addi    sp,sp,-48
-        sd      ra,40(sp)
-        sd      s0,32(sp)
+        addi    sp,sp,-40
+        sd      ra,32(sp)
         sd      s1,24(sp)
-        addi    s0,sp,48
+        sd      a5,16(sp)
+        mv      s1,a0
+
+        li      a5,1
+        bgtu    s1,a5,.L1
+        mv      a0,s1
+        j       .L2
+
+.L1:
+        addi    a0,s1,-1
+        jal     fibonacci
         mv      a5,a0
-        sw      a5,-36(s0)
-        lw      a5,-36(s0)
-        sext.w  a5,a5
-        bne     a5,zero,.L2
-        li      a5,0
-        j       .L3
+        addi    a0,s1,-2
+        jal     fibonacci
+        add     a0,a5,a0
+
 .L2:
-        lw      a5,-36(s0)
-        sext.w  a4,a5
-        li      a5,1
-        bne     a4,a5,.L4
-        li      a5,1
-        j       .L3
-.L4:
-        lw      a5,-36(s0)
-        addiw   a5,a5,-1
-        sext.w  a5,a5
-        mv      a0,a5
-        jal     fibonacci
-        mv      a5,a0
-        mv      s1,a5
-        lw      a5,-36(s0)
-        addiw   a5,a5,-2
-        sext.w  a5,a5
-        mv      a0,a5
-        jal     fibonacci
-        mv      a5,a0
-        addw    a5,s1,a5
-        sext.w  a5,a5
-.L3:
-        mv      a0,a5
-        ld      ra,40(sp)
-        ld      s0,32(sp)
+        ld      a5,16(sp)
         ld      s1,24(sp)
-        addi    sp,sp,48
+        ld      ra,32(sp)
+        addi    sp,sp,40
         jr      ra
 
 main:
-        li    sp,2047
-        li    a0, 2
-        jal   fibonacci
-        sd    a0,1016(x0)
+        li      sp,2048
+        li      a0,4
+        jal     fibonacci
+        sd      a0,1016(x0)
