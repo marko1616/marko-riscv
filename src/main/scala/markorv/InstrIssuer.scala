@@ -26,9 +26,13 @@ class InstrIssueUnit extends Module {
             val recovery_pc = UInt(64.W)
             val params = new DecoderOutParams(64)
         })
+
+        val outfire = Output(Bool())
     })
 
-    io.issue_task.ready := io.lsu_out.ready && io.alu_out.ready && io.branch_out.ready
+    val exec_unit_ready = Wire(Bool())
+    exec_unit_ready := io.lsu_out.ready && io.alu_out.ready && io.branch_out.ready
+    io.issue_task.ready := exec_unit_ready
 
     io.lsu_out.valid := false.B
     io.alu_out.valid := false.B
@@ -44,16 +48,21 @@ class InstrIssueUnit extends Module {
     io.branch_out.bits.recovery_pc := 0.U
     io.branch_out.bits.params := 0.U.asTypeOf(new DecoderOutParams(64))
 
-    when (io.issue_task.valid) {
+    io.outfire := false.B
+
+    when (io.issue_task.valid && exec_unit_ready) {
         when(io.issue_task.bits.operate_unit === 0.U) {
+            io.outfire := true.B
             io.alu_out.valid := true.B
             io.alu_out.bits.alu_opcode := io.issue_task.bits.alu_opcode
             io.alu_out.bits.params := io.issue_task.bits.params
         }.elsewhen(io.issue_task.bits.operate_unit === 1.U) {
+            io.outfire := true.B
             io.lsu_out.valid := true.B
             io.lsu_out.bits.lsu_opcode := io.issue_task.bits.lsu_opcode
             io.lsu_out.bits.params := io.issue_task.bits.params
         }.elsewhen(io.issue_task.bits.operate_unit === 2.U) {
+            io.outfire := true.B
             io.branch_out.valid := true.B
             io.branch_out.bits.branch_opcode := io.issue_task.bits.branch_opcode
             io.branch_out.bits.pred_taken := io.issue_task.bits.pred_taken

@@ -333,7 +333,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
         io.acquire_reg := acquire_reg
     }
     when(
-      io.acquired && io.instr_bundle.valid && valid_instr && !occupied_reg && io.issue_task.ready
+      io.acquired && valid_instr && io.instr_bundle.valid && io.issue_task.ready && !occupied_reg
     ) {
         issue_task.params := params
         issue_task.operate_unit := operate_unit
@@ -344,6 +344,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
         io.outfire := true.B
     }
     when(!valid_instr) {
-        io.instr_bundle.ready := true.B
+        io.instr_bundle.ready := io.issue_task.ready
     }
 }

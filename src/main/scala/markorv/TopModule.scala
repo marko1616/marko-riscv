@@ -82,57 +82,62 @@ class MarkoRvCore extends Module {
     register_file.io.flush := branch_unit.io.flush
 
     PipelineConnect(
-      instr_fetch_unit.io.instr_bundle,
-      instr_decoder.io.instr_bundle,
-      instr_decoder.io.outfire,
-      branch_unit.io.flush
+        instr_fetch_unit.io.instr_bundle,
+        instr_decoder.io.instr_bundle,
+        instr_decoder.io.outfire,
+        branch_unit.io.flush
     )
-    instr_decoder.io.issue_task <> instr_issuer.io.issue_task
+    PipelineConnect(
+        instr_decoder.io.issue_task,
+        instr_issuer.io.issue_task,
+        instr_issuer.io.outfire,
+        branch_unit.io.flush
+    )
 
     // Execute Units
     PipelineConnect(
-      instr_issuer.io.alu_out,
-      arithmetic_logic_unit.io.alu_instr,
-      true.B,
-      branch_unit.io.flush
+        instr_issuer.io.alu_out,
+        arithmetic_logic_unit.io.alu_instr,
+        true.B,
+        branch_unit.io.flush
     )
     PipelineConnect(
-      instr_issuer.io.lsu_out,
-      load_store_unit.io.lsu_instr,
-      load_store_unit.io.state_peek === 0.U,
-      branch_unit.io.flush
+        instr_issuer.io.lsu_out,
+        load_store_unit.io.lsu_instr,
+        load_store_unit.io.state_peek === 0.U,
+        branch_unit.io.flush
     )
     PipelineConnect(
-      instr_issuer.io.branch_out,
-      branch_unit.io.branch_instr,
-      true.B,
-      branch_unit.io.flush
+        instr_issuer.io.branch_out,
+        branch_unit.io.branch_instr,
+        true.B,
+        branch_unit.io.flush
     )
 
     // Write Back
     PipelineConnect(
-      load_store_unit.io.write_back,
-      write_back.io.write_back1,
-      write_back.io.outfire1,
-      branch_unit.io.flush
+        load_store_unit.io.write_back,
+        write_back.io.write_back1,
+        write_back.io.outfire1,
+        branch_unit.io.flush
     )
     PipelineConnect(
-      arithmetic_logic_unit.io.write_back,
-      write_back.io.write_back2,
-      write_back.io.outfire2,
-      branch_unit.io.flush
+        arithmetic_logic_unit.io.write_back,
+        write_back.io.write_back2,
+        write_back.io.outfire2,
+        branch_unit.io.flush
     )
     PipelineConnect(
-      branch_unit.io.write_back,
-      write_back.io.write_back3,
-      write_back.io.outfire3,
-      branch_unit.io.flush
+        branch_unit.io.write_back,
+        write_back.io.write_back3,
+        write_back.io.outfire3,
+        branch_unit.io.flush
     )
 }
 
 object MarkoRvCore extends App {
     ChiselStage.emitSystemVerilogFile(
-      new MarkoRvCore,
-      firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
+        new MarkoRvCore,
+        firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
     )
 }

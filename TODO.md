@@ -70,21 +70,9 @@
 </details>
 
 <details>
-<summary><strong> Fence Instructions </strong></summary>
+<summary><strong> Fence </strong></summary>
 
 - [ ] fence
-- [ ] fence.i
-</details>
-
-<details>
-<summary><strong> CSR Instructions </strong></summary>
-
-- [ ] csrrw
-- [ ] csrrs
-- [ ] csrrc
-- [ ] csrrwi
-- [ ] csrrsi
-- [ ] csrrci
 </details>
 
 <details>
@@ -145,12 +133,28 @@
 </details>
 
 <details>
+<summary><strong> Zifencei Extension Instructions </strong></summary>
+
+- [ ] fence.i
+</details>
+
+<details>
+<summary><strong> Zicsr Extension Instructions</strong></summary>
+
+- [ ] csrrw
+- [ ] csrrs
+- [ ] csrrc
+- [ ] csrrwi
+- [ ] csrrsi
+- [ ] csrrci
+</details>
+
+<details>
 <summary><strong> System Tasks </strong></summary>
 
 - [x] L1 Instruction cache
 - [ ] L1 Data cache
 - [ ] TLB
 - [ ] MMU(SV-48)
-- [ ] PCIE(FPGA)(Low Piro)
-- [ ] DDR Memory(FPGA)(Low Piro)
+- [ ] AXI Bus
 </details>
