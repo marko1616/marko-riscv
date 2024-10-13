@@ -21,6 +21,7 @@ class MarkoRvCore extends Module {
     val instr_fetch_queue = Module(new InstrFetchQueue)
     val instr_fetch_unit = Module(new InstrFetchUnit)
     val instr_decoder = Module(new InstrDecoder)
+    val instr_issuer = Module(new InstrIssueUnit)
 
     val load_store_unit = Module(new LoadStoreUnit)
     val arithmetic_logic_unit = Module(new ArithmeticLogicUnit)
@@ -86,22 +87,23 @@ class MarkoRvCore extends Module {
       instr_decoder.io.outfire,
       branch_unit.io.flush
     )
+    instr_decoder.io.issue_task <> instr_issuer.io.issue_task
 
     // Execute Units
     PipelineConnect(
-      instr_decoder.io.alu_out,
+      instr_issuer.io.alu_out,
       arithmetic_logic_unit.io.alu_instr,
       true.B,
       branch_unit.io.flush
     )
     PipelineConnect(
-      instr_decoder.io.lsu_out,
+      instr_issuer.io.lsu_out,
       load_store_unit.io.lsu_instr,
       load_store_unit.io.state_peek === 0.U,
       branch_unit.io.flush
     )
     PipelineConnect(
-      instr_decoder.io.branch_out,
+      instr_issuer.io.branch_out,
       branch_unit.io.branch_instr,
       true.B,
       branch_unit.io.flush

@@ -20,28 +20,21 @@ class RegisterSourceRequests(data_width: Int = 64) extends Bundle {
     val source2_read_word = Bool()
 }
 
+class IssueTask extends Bundle {
+    val operate_unit = UInt(2.W)
+    val alu_opcode = UInt(5.W)
+    val lsu_opcode = UInt(5.W)
+    val branch_opcode = UInt(5.W)
+    val pred_taken = Bool()
+    val pred_pc = UInt(64.W)
+    val recovery_pc = UInt(64.W)
+    val params = new DecoderOutParams(64)
+}
+
 class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val io = IO(new Bundle {
         val instr_bundle = Flipped(Decoupled(new InstrIPBundle))
-
-        val lsu_out = Decoupled(new Bundle {
-            // {Load:0/Store:1}[4]{Mem:0/Imm:1}[3]{UInt:0/UInt:1}[2]{Size}[1,0]
-            val lsu_opcode = UInt(5.W)
-            val params = new DecoderOutParams(data_width)
-        })
-
-        val alu_out = Decoupled(new Bundle {
-            val alu_opcode = UInt(5.W)
-            val params = new DecoderOutParams(data_width)
-        })
-
-        val branch_out = Decoupled(new Bundle {
-            val branch_opcode = UInt(5.W)
-            val pred_taken = Bool()
-            val pred_pc = UInt(64.W)
-            val recovery_pc = UInt(64.W)
-            val params = new DecoderOutParams(data_width)
-        })
+        val issue_task = Decoupled(new IssueTask)
 
         val reg_read1 = Output(UInt(5.W))
         val reg_read2 = Output(UInt(5.W))
@@ -55,11 +48,12 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
         val outfire = Output(Bool())
     })
 
+    val issue_task = Wire(new IssueTask)
+    
     val instr = Wire(UInt(32.W))
     val pc = Wire(UInt(64.W))
     val opcode = Wire(UInt(7.W))
     val acquire_reg = Wire(UInt(5.W))
-    val next_stage_ready = Wire(Bool())
     val valid_instr = Wire(Bool())
     val occupied_reg = Wire(Bool())
     // 0 for alu 1 for lsu 2 for branch
@@ -72,7 +66,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     pc := io.instr_bundle.bits.pc
     opcode := instr(6, 0)
     acquire_reg := 0.U
-    next_stage_ready := io.lsu_out.ready && io.alu_out.ready && io.branch_out.ready
     valid_instr := false.B
     operate_unit := 0.U
 
@@ -80,18 +73,9 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     io.outfire := false.B
     io.acquire_reg := 0.U(5.W)
 
-    // init outputs
-    io.alu_out.valid := false.B
-    io.alu_out.bits.alu_opcode := 0.U
-
-    io.lsu_out.valid := false.B
-    io.lsu_out.bits.lsu_opcode := 0.U
-
-    io.branch_out.valid := false.B
-    io.branch_out.bits.branch_opcode := 0.U
-    io.branch_out.bits.pred_taken := false.B
-    io.branch_out.bits.pred_pc := 0.U
-    io.branch_out.bits.recovery_pc := 0.U
+    io.issue_task.valid := false.B
+    io.issue_task.bits := 0.U.asTypeOf(new IssueTask)
+    issue_task := 0.U.asTypeOf(new IssueTask)
 
     params.immediate := 0.U(data_width.W)
     params.source1 := 0.U(data_width.W)
@@ -103,7 +87,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
         switch(opcode) {
             is("b0110111".U) {
                 // lui
-                io.alu_out.bits.alu_opcode := 1.U
+                issue_task.alu_opcode := 1.U
                 params.source1 := (instr(31, 12) << 12).asSInt
                     .pad(64)
                     .asUInt
@@ -115,7 +99,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is("b0010111".U) {
                 // auipc
-                io.alu_out.bits.alu_opcode := 1.U
+                issue_task.alu_opcode := 1.U
                 params.source1 := (instr(31, 12) << 12).asSInt
                     .pad(64)
                     .asUInt
@@ -129,24 +113,24 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 // addi slti sltiu xori ori andi slli srli srai
                 when(instr(14, 12) === "b001".U) {
                     // slli
-                    io.alu_out.bits.alu_opcode := "b00011".U
+                    issue_task.alu_opcode := "b00011".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.elsewhen(instr(14, 12) === "b101".U && instr(30)) {
                     // srai
-                    io.alu_out.bits.alu_opcode := "b01011".U
+                    issue_task.alu_opcode := "b01011".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.elsewhen(instr(14, 12) === "b101".U) {
                     // srli
-                    io.alu_out.bits.alu_opcode := "b01010".U
+                    issue_task.alu_opcode := "b01010".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.otherwise {
-                    io.alu_out.bits.alu_opcode := Cat(
+                    issue_task.alu_opcode := Cat(
                       0.U(1.W),
                       instr(14, 12),
                       1.U(1.W)
@@ -165,24 +149,24 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 // addiw slliw srliw sraiw
                 when(instr(14, 12) === "b001".U) {
                     // slliw
-                    io.alu_out.bits.alu_opcode := "b10011".U
+                    issue_task.alu_opcode := "b10011".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.elsewhen(instr(14, 12) === "b101".U && instr(30)) {
                     // sraiw
-                    io.alu_out.bits.alu_opcode := "b11011".U
+                    issue_task.alu_opcode := "b11011".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.elsewhen(instr(14, 12) === "b101".U) {
                     // srliw
-                    io.alu_out.bits.alu_opcode := "b11010".U
+                    issue_task.alu_opcode := "b11010".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.otherwise {
-                    io.alu_out.bits.alu_opcode := Cat(
+                    issue_task.alu_opcode := Cat(
                       1.U(1.W),
                       instr(14, 12),
                       1.U(1.W)
@@ -201,18 +185,18 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 // add sub slt sltu xor or and sll srl sra
                 when(instr(14, 12) === "b001".U) {
                     // sll
-                    io.alu_out.bits.alu_opcode := "b00011".U
+                    issue_task.alu_opcode := "b00011".U
                 }.elsewhen(instr(14, 12) === "b101".U && instr(30)) {
                     // sra
-                    io.alu_out.bits.alu_opcode := "b01011".U
+                    issue_task.alu_opcode := "b01011".U
                 }.elsewhen(instr(14, 12) === "b101".U) {
                     // srl
-                    io.alu_out.bits.alu_opcode := "b01010".U
+                    issue_task.alu_opcode := "b01010".U
                 }.elsewhen(instr(14, 12) === "b000".U && instr(30)) {
                     // sub
-                    io.alu_out.bits.alu_opcode := "b00000".U
+                    issue_task.alu_opcode := "b00000".U
                 }.otherwise {
-                    io.alu_out.bits.alu_opcode := Cat(
+                    issue_task.alu_opcode := Cat(
                       1.U(1.W),
                       instr(14, 12),
                       1.U(1.W)
@@ -229,18 +213,18 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 // addw subw sllw srlw sraw
                 when(instr(14, 12) === "b001".U) {
                     // sllw
-                    io.alu_out.bits.alu_opcode := "b10011".U
+                    issue_task.alu_opcode := "b10011".U
                 }.elsewhen(instr(14, 12) === "b101".U && instr(30)) {
                     // sraw
-                    io.alu_out.bits.alu_opcode := "b11011".U
+                    issue_task.alu_opcode := "b11011".U
                 }.elsewhen(instr(14, 12) === "b101".U) {
                     // srlw
-                    io.alu_out.bits.alu_opcode := "b11010".U
+                    issue_task.alu_opcode := "b11010".U
                 }.elsewhen(instr(14, 12) === "b000".U && instr(30)) {
                     // subw
-                    io.alu_out.bits.alu_opcode := "b10000".U
+                    issue_task.alu_opcode := "b10000".U
                 }.otherwise {
-                    io.alu_out.bits.alu_opcode := Cat(
+                    issue_task.alu_opcode := Cat(
                       1.U(1.W),
                       instr(14, 12),
                       1.U(1.W)
@@ -256,7 +240,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is("b0000011".U) {
                 // Load Memory
-                io.lsu_out.bits.lsu_opcode := Cat(0.U(2.W), instr(14, 12))
+                issue_task.lsu_opcode := Cat(0.U(2.W), instr(14, 12))
                 params.immediate := instr(31, 20).asSInt
                     .pad(64)
                     .asUInt
@@ -269,7 +253,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is("b0100011".U) {
                 // Store Memory
-                io.lsu_out.bits.lsu_opcode := Cat("b10".U, instr(14, 12))
+                issue_task.lsu_opcode := Cat("b10".U, instr(14, 12))
                 params.immediate := Cat(
                   instr(31, 25),
                   instr(11, 7)
@@ -282,9 +266,9 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is("b1101111".U) {
                 // jal
-                io.branch_out.bits.branch_opcode := "b00001".U
-                io.branch_out.bits.pred_taken := io.instr_bundle.bits.pred_taken
-                io.branch_out.bits.recovery_pc := io.instr_bundle.bits.recovery_pc
+                issue_task.branch_opcode := "b00001".U
+                issue_task.pred_taken := io.instr_bundle.bits.pred_taken
+                issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
                 params.pc := pc
                 params.rd := instr(11, 7)
 
@@ -293,10 +277,10 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is("b1100111".U) {
                 // jalr
-                io.branch_out.bits.branch_opcode := "b00011".U
-                io.branch_out.bits.pred_taken := io.instr_bundle.bits.pred_taken
-                io.branch_out.bits.pred_pc := io.instr_bundle.bits.pred_pc
-                io.branch_out.bits.recovery_pc := io.instr_bundle.bits.recovery_pc
+                issue_task.branch_opcode := "b00011".U
+                issue_task.pred_taken := io.instr_bundle.bits.pred_taken
+                issue_task.pred_pc := io.instr_bundle.bits.pred_pc
+                issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
                 params.pc := pc
                 params.rd := instr(11, 7)
 
@@ -310,10 +294,10 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is("b1100011".U) {
                 // branch
-                io.branch_out.bits.branch_opcode := Cat(0.U, instr(14, 12), 0.U)
-                io.branch_out.bits.pred_taken := io.instr_bundle.bits.pred_taken
-                io.branch_out.bits.pred_pc := io.instr_bundle.bits.pred_pc
-                io.branch_out.bits.recovery_pc := io.instr_bundle.bits.recovery_pc
+                issue_task.branch_opcode := Cat(0.U, instr(14, 12), 0.U)
+                issue_task.pred_taken := io.instr_bundle.bits.pred_taken
+                issue_task.pred_pc := io.instr_bundle.bits.pred_pc
+                issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
 
                 reg_source_requests.source1 := instr(19, 15)
                 reg_source_requests.source2 := instr(24, 20)
@@ -323,10 +307,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
         }
     }
-
-    io.alu_out.bits.params := params
-    io.lsu_out.bits.params := params
-    io.branch_out.bits.params := params
 
     val reg_data1 = Wire(UInt(64.W))
     val reg_data2 = Wire(UInt(64.W))
@@ -349,19 +329,17 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     occupied_reg := io.occupied_regs(reg_source_requests.source1) || io.occupied_regs(reg_source_requests.source2)
     acquire_reg := params.rd
 
-    when(next_stage_ready && !occupied_reg) {
+    when(valid_instr && io.instr_bundle.valid && io.issue_task.ready && !occupied_reg) {
         io.acquire_reg := acquire_reg
     }
     when(
-      io.acquired && io.instr_bundle.valid && valid_instr && !occupied_reg && next_stage_ready
+      io.acquired && io.instr_bundle.valid && valid_instr && !occupied_reg && io.issue_task.ready
     ) {
-        when(operate_unit === 0.U) {
-            io.alu_out.valid := true.B
-        }.elsewhen(operate_unit === 1.U) {
-            io.lsu_out.valid := true.B
-        }.elsewhen(operate_unit === 2.U) {
-            io.branch_out.valid := true.B
-        }
+        issue_task.params := params
+        issue_task.operate_unit := operate_unit
+        io.issue_task.valid := true.B
+        io.issue_task.bits := issue_task
+
         io.instr_bundle.ready := true.B
         io.outfire := true.B
     }
