@@ -87,6 +87,7 @@ class MarkoRvCore extends Module {
       branch_unit.io.flush
     )
 
+    // Execute Units
     PipelineConnect(
       instr_decoder.io.alu_out,
       arithmetic_logic_unit.io.alu_instr,
@@ -106,6 +107,7 @@ class MarkoRvCore extends Module {
       branch_unit.io.flush
     )
 
+    // Write Back
     PipelineConnect(
       load_store_unit.io.write_back,
       write_back.io.write_back1,
