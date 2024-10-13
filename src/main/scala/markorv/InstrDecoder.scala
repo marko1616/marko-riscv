@@ -110,8 +110,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 params.source2 := 0.U
                 params.rd := instr(11, 7)
 
-                acquire_reg := instr(11, 7)
-
                 valid_instr := true.B
                 operate_unit := 0.U
             }
@@ -123,8 +121,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                     .asUInt
                 params.source2 := pc
                 params.rd := instr(11, 7)
-
-                acquire_reg := instr(11, 7)
 
                 valid_instr := true.B
                 operate_unit := 0.U
@@ -162,8 +158,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 reg_source_requests.source1 := instr(19, 15)
                 params.rd := instr(11, 7)
 
-                acquire_reg := instr(11, 7)
-
                 valid_instr := true.B
                 operate_unit := 0.U
             }
@@ -200,8 +194,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 reg_source_requests.source1 := instr(19, 15)
                 params.rd := instr(11, 7)
 
-                acquire_reg := instr(11, 7)
-
                 valid_instr := true.B
                 operate_unit := 0.U
             }
@@ -229,8 +221,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 reg_source_requests.source1 := instr(19, 15)
                 reg_source_requests.source2 := instr(24, 20)
                 params.rd := instr(11, 7)
-
-                acquire_reg := instr(11, 7)
 
                 valid_instr := true.B
                 operate_unit := 0.U
@@ -261,8 +251,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 reg_source_requests.source2 := instr(24, 20)
                 params.rd := instr(11, 7)
 
-                acquire_reg := instr(11, 7)
-
                 valid_instr := true.B
                 operate_unit := 0.U
             }
@@ -276,8 +264,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 params.source2 := 0.U(data_width.W)
                 params.rd := instr(11, 7)
 
-                acquire_reg := instr(11, 7)
-
                 valid_instr := true.B
                 operate_unit := 1.U
             }
@@ -290,7 +276,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 ).asSInt.pad(64).asUInt
                 reg_source_requests.source1 := instr(19, 15)
                 reg_source_requests.source2 := instr(24, 20)
-                params.rd := 0.U(5.W)
 
                 valid_instr := true.B
                 operate_unit := 1.U
@@ -302,8 +287,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 io.branch_out.bits.recovery_pc := io.instr_bundle.bits.recovery_pc
                 params.pc := pc
                 params.rd := instr(11, 7)
-
-                acquire_reg := instr(11, 7)
 
                 valid_instr := true.B
                 operate_unit := 2.U
@@ -321,8 +304,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 params.immediate := instr(31, 20).asSInt
                     .pad(64)
                     .asUInt
-
-                acquire_reg := instr(11, 7)
 
                 valid_instr := true.B
                 operate_unit := 2.U
@@ -366,6 +347,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
         params.source2 := reg_data2
     }
     occupied_reg := io.occupied_regs(reg_source_requests.source1) || io.occupied_regs(reg_source_requests.source2)
+    acquire_reg := params.rd
 
     when(next_stage_ready && !occupied_reg) {
         io.acquire_reg := acquire_reg
