@@ -56,13 +56,13 @@ class MarkoRvCore extends Module {
 
     io.peek <> mem.io.peek
 
-    instr_decoder.io.reg_read1 <> register_file.io.read_addr1
-    instr_decoder.io.reg_read2 <> register_file.io.read_addr2
-    instr_decoder.io.reg_data1 <> register_file.io.read_data1
-    instr_decoder.io.reg_data2 <> register_file.io.read_data2
-    instr_decoder.io.acquire_reg <> register_file.io.acquire_reg
-    instr_decoder.io.acquired <> register_file.io.acquired
-    instr_decoder.io.occupied_regs <> register_file.io.peek_occupied
+    instr_issuer.io.reg_read1 <> register_file.io.read_addr1
+    instr_issuer.io.reg_read2 <> register_file.io.read_addr2
+    instr_issuer.io.reg_data1 <> register_file.io.read_data1
+    instr_issuer.io.reg_data2 <> register_file.io.read_data2
+    instr_issuer.io.occupied_regs <> register_file.io.peek_occupied
+    instr_issuer.io.acquire_reg <> register_file.io.acquire_reg
+    instr_issuer.io.acquired <> register_file.io.acquired
 
     mem.io.port1.write_data <> load_store_unit.io.mem_write.bits
     mem.io.port1.write_enable <> load_store_unit.io.mem_write.valid

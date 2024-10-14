@@ -29,21 +29,13 @@ class IssueTask extends Bundle {
     val pred_pc = UInt(64.W)
     val recovery_pc = UInt(64.W)
     val params = new DecoderOutParams(64)
+    val reg_source_requests = new RegisterSourceRequests(64)
 }
 
 class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val io = IO(new Bundle {
         val instr_bundle = Flipped(Decoupled(new InstrIPBundle))
         val issue_task = Decoupled(new IssueTask)
-
-        val reg_read1 = Output(UInt(5.W))
-        val reg_read2 = Output(UInt(5.W))
-        val reg_data1 = Input(UInt(data_width.W))
-        val reg_data2 = Input(UInt(data_width.W))
-
-        val acquire_reg = Output(UInt(5.W))
-        val acquired = Input(Bool())
-        val occupied_regs = Input(UInt(32.W))
 
         val outfire = Output(Bool())
     })
@@ -53,9 +45,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val instr = Wire(UInt(32.W))
     val pc = Wire(UInt(64.W))
     val opcode = Wire(UInt(7.W))
-    val acquire_reg = Wire(UInt(5.W))
     val valid_instr = Wire(Bool())
-    val occupied_reg = Wire(Bool())
     // 0 for alu 1 for lsu 2 for branch
     val operate_unit = Wire(UInt(2.W))
     val params = Wire(new DecoderOutParams(data_width))
@@ -65,13 +55,11 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     instr := io.instr_bundle.bits.instr
     pc := io.instr_bundle.bits.pc
     opcode := instr(6, 0)
-    acquire_reg := 0.U
     valid_instr := false.B
     operate_unit := 0.U
 
     io.instr_bundle.ready := false.B
     io.outfire := false.B
-    io.acquire_reg := 0.U(5.W)
 
     io.issue_task.valid := false.B
     io.issue_task.bits := 0.U.asTypeOf(new IssueTask)
@@ -308,35 +296,12 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
         }
     }
 
-    val reg_data1 = Wire(UInt(64.W))
-    val reg_data2 = Wire(UInt(64.W))
-    io.reg_read1 := reg_source_requests.source1
-    io.reg_read2 := reg_source_requests.source2
-    reg_data1 := io.reg_data1
-    when(reg_source_requests.source1_read_word) {
-        reg_data1 := io.reg_data1(31, 0)
-    }
-    reg_data2 := io.reg_data2
-    when(reg_source_requests.source2_read_word) {
-        reg_data2 := io.reg_data2(31, 0)
-    }
-    when(reg_source_requests.source1 =/= 0.U) {
-        params.source1 := reg_data1
-    }
-    when(reg_source_requests.source2 =/= 0.U) {
-        params.source2 := reg_data2
-    }
-    occupied_reg := io.occupied_regs(reg_source_requests.source1) || io.occupied_regs(reg_source_requests.source2)
-    acquire_reg := params.rd
-
-    when(valid_instr && io.instr_bundle.valid && io.issue_task.ready && !occupied_reg) {
-        io.acquire_reg := acquire_reg
-    }
     when(
-      io.acquired && valid_instr && io.instr_bundle.valid && io.issue_task.ready && !occupied_reg
+        valid_instr && io.instr_bundle.valid && io.issue_task.ready
     ) {
         issue_task.params := params
         issue_task.operate_unit := operate_unit
+        issue_task.reg_source_requests := reg_source_requests   
         io.issue_task.valid := true.B
         io.issue_task.bits := issue_task
 

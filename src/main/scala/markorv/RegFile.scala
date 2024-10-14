@@ -62,6 +62,7 @@ class RegFile(data_width: Int = 64) extends Module {
         reg_acquire_flags_next3 := reg_acquire_flags_next2
     }
 
+    // Acquire regiser lastly to avoid allow release and acquire simultaneously.
     when(io.acquire_reg =/= 0.U && ~reg_acquire_flags(io.acquire_reg)) {
         reg_acquire_flags := reg_acquire_flags_next3 | (1.U << io.acquire_reg)
         io.acquired := true.B
