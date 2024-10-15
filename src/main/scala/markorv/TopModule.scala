@@ -72,12 +72,8 @@ class MarkoRvCore extends Module {
     mem.io.port1.write_outfire <> load_store_unit.io.mem_write_outfire
     mem.io.port1.write_width <> load_store_unit.io.mem_write_width
 
-    write_back.io.reg_write1 <> register_file.io.write_addr1
-    write_back.io.write_data1 <> register_file.io.write_data1
-    write_back.io.reg_write2 <> register_file.io.write_addr2
-    write_back.io.write_data2 <> register_file.io.write_data2
-    write_back.io.reg_write3 <> register_file.io.write_addr3
-    write_back.io.write_data3 <> register_file.io.write_data3
+    write_back.io.reg_write <> register_file.io.write_addr
+    write_back.io.write_data <> register_file.io.write_data
 
     register_file.io.flush := branch_unit.io.flush
 

@@ -12,14 +12,8 @@ class RegFile(data_width: Int = 64) extends Module {
         val read_data2 = Output(UInt(data_width.W))
         val read_data3 = Output(UInt(data_width.W))
 
-        val write_addr1 = Input(UInt(5.W))
-        val write_data1 = Input(UInt(data_width.W))
-
-        val write_addr2 = Input(UInt(5.W))
-        val write_data2 = Input(UInt(data_width.W))
-
-        val write_addr3 = Input(UInt(5.W))
-        val write_data3 = Input(UInt(data_width.W))
+        val write_addr = Input(UInt(5.W))
+        val write_data = Input(UInt(data_width.W))
 
         val acquire_reg = Input(UInt(5.W))
         val acquired = Output(Bool())
@@ -28,49 +22,46 @@ class RegFile(data_width: Int = 64) extends Module {
         val flush = Input(Bool())
     })
     val reg_acquire_flags = RegInit(0.U(32.W))
-    val reg_acquire_flags_next1 = Wire(UInt(32.W))
-    val reg_acquire_flags_next2 = Wire(UInt(32.W))
-    val reg_acquire_flags_next3 = Wire(UInt(32.W))
+    val reg_acquire_flags_next = Wire(UInt(32.W))
 
     val regs = RegInit(VecInit(Seq.fill(32)(0.U(data_width.W))))
 
-    io.read_data1 := Mux(io.read_addr1 === 0.U, 0.U, regs(io.read_addr1))
-    io.read_data2 := Mux(io.read_addr2 === 0.U, 0.U, regs(io.read_addr2))
-    io.read_data3 := Mux(io.read_addr3 === 0.U, 0.U, regs(io.read_addr3))
-
     io.acquired := false.B
-    io.peek_occupied := reg_acquire_flags
 
-    when(io.write_addr1 =/= 0.U) {
-        regs(io.write_addr1) := io.write_data1
-        reg_acquire_flags_next1 := reg_acquire_flags & ~(1.U << io.write_addr1)
+    when(io.write_addr =/= 0.U) {
+        regs(io.write_addr) := io.write_data
+        reg_acquire_flags_next := reg_acquire_flags & ~(1.U << io.write_addr)
     }.otherwise {
-        reg_acquire_flags_next1 := reg_acquire_flags
+        reg_acquire_flags_next := reg_acquire_flags
     }
 
-    when(io.write_addr2 =/= 0.U) {
-        regs(io.write_addr2) := io.write_data2
-        reg_acquire_flags_next2 := reg_acquire_flags_next1 & ~(1.U << io.write_addr2)
+    // Read data
+    when(io.write_addr === io.read_addr1) {
+        io.read_data1 := io.write_data
     }.otherwise {
-        reg_acquire_flags_next2 := reg_acquire_flags_next1
+        io.read_data1 := Mux(io.read_addr1 === 0.U, 0.U, regs(io.read_addr1))
     }
-
-    when(io.write_addr3 =/= 0.U) {
-        regs(io.write_addr3) := io.write_data3
-        reg_acquire_flags_next3 := reg_acquire_flags_next2 & ~(1.U << io.write_addr3)
+    when(io.write_addr === io.read_addr2) {
+        io.read_data2 := io.write_data
     }.otherwise {
-        reg_acquire_flags_next3 := reg_acquire_flags_next2
+        io.read_data2 := Mux(io.read_addr2 === 0.U, 0.U, regs(io.read_addr2))
     }
+    when(io.write_addr === io.read_addr3) {
+        io.read_data3 := io.write_data
+    }.otherwise {
+        io.read_data3 := Mux(io.read_addr3 === 0.U, 0.U, regs(io.read_addr3))
+    }
+    io.peek_occupied := reg_acquire_flags_next
 
     // Acquire regiser lastly to avoid allow release and acquire simultaneously.
     when(io.acquire_reg =/= 0.U && ~reg_acquire_flags(io.acquire_reg)) {
-        reg_acquire_flags := reg_acquire_flags_next3 | (1.U << io.acquire_reg)
+        reg_acquire_flags := reg_acquire_flags_next | (1.U << io.acquire_reg)
         io.acquired := true.B
     }.elsewhen(io.acquire_reg === 0.U) {
-        reg_acquire_flags := reg_acquire_flags_next3
+        reg_acquire_flags := reg_acquire_flags_next
         io.acquired := true.B
     }.otherwise {
-        reg_acquire_flags := reg_acquire_flags_next3
+        reg_acquire_flags := reg_acquire_flags_next
     }
 
     when(io.flush) {
