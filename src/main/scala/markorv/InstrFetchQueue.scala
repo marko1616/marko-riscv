@@ -22,8 +22,7 @@ class InstrFetchQueue(
 ) extends Module {
     val io = IO(new Bundle {
         val read_addr = Decoupled(UInt(64.W))
-        val read_cache_line =
-            Flipped(Decoupled(new CacheLine(n_set, n_way, n_byte)))
+        val read_cache_line = Flipped(Decoupled(new CacheLine(n_set, n_way, n_byte)))
 
         val reg_read = Output(UInt(5.W))
         val reg_data = Input(UInt(64.W))

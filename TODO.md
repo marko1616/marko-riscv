@@ -80,10 +80,36 @@
 
 - [ ] ecall
 - [ ] ebreak
-- [ ] uret
-- [ ] sret
+</details>
+
+<details>
+<summary><strong> System Extension Instructions </strong></summary>
+
 - [ ] mret
 - [ ] wfi
+</details>
+
+<details>
+<summary><strong> Zifencei Extension Instructions </strong></summary>
+
+- [ ] fence.i
+</details>
+
+<details>
+<summary><strong> Zicsr Extension Instructions</strong></summary>
+
+- [ ] csrrw
+- [ ] csrrs
+- [ ] csrrc
+- [ ] csrrwi
+- [ ] csrrsi
+- [ ] csrrci
+</details>
+
+<details>
+<summary><strong> S Extension Instructions </strong></summary>
+
+- [ ] sret
 - [ ] sfence.vma
 </details>
 
@@ -133,28 +159,40 @@
 </details>
 
 <details>
-<summary><strong> Zifencei Extension Instructions </strong></summary>
-
-- [ ] fence.i
-</details>
-
-<details>
-<summary><strong> Zicsr Extension Instructions</strong></summary>
-
-- [ ] csrrw
-- [ ] csrrs
-- [ ] csrrc
-- [ ] csrrwi
-- [ ] csrrsi
-- [ ] csrrci
-</details>
-
-<details>
 <summary><strong> System Tasks </strong></summary>
 
 - [x] L1 Instruction cache
 - [ ] L1 Data cache
+- [ ] L2 Cache
+- [ ] Exception & Interruption
 - [ ] TLB
 - [ ] MMU(SV-48)
 - [ ] AXI Bus
+</details>
+
+<details>
+<summary><strong> Causes Tasks </strong></summary>
+
+- [ ] 0x00, misaligned fetch
+- [ ] 0x01, fetch access
+- [ ] 0x02, illegal instruction
+- [ ] 0x03, breakpoint
+- [ ] 0x04, misaligned load
+- [ ] 0x05, load access
+- [ ] 0x06, misaligned store
+- [ ] 0x07, store access
+- [ ] 0x08, user ecall
+- [ ] 0x09, supervisor ecall
+- [N/A] 0x0A, virtual supervisor ecall
+- [ ] 0x0B, machine ecall
+- [ ] 0x0C, fetch page fault
+- [ ] 0x0D, load page fault
+- [ ] 0x0F, store page fault
+- [ ] 0x10, double trap
+- [ ] 0x12, software check fault
+- [ ] 0x13, hardware error fault
+- [ ] 0x14, fetch guest page fault
+- [ ] 0x15, load guest page fault
+- [N/A] 0x16, virtual instruction
+- [ ] 0x17, store guest page fault
 </details>

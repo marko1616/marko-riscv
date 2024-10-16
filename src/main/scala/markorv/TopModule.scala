@@ -34,8 +34,8 @@ class MarkoRvCore extends Module {
     instr_fetch_unit.io.set_pc <> branch_unit.io.flush
     instr_fetch_unit.io.fetch_bundle <> instr_fetch_queue.io.fetch_bundle
 
-    instr_cache.io.mem_read_addr <> mem.io.port2.read_addr
-    instr_cache.io.mem_read_data <> mem.io.port2.data_out
+    instr_cache.io.upstream_read_addr <> mem.io.port2.read_addr
+    instr_cache.io.upstream_read_data <> mem.io.port2.data_out
 
     instr_fetch_queue.io.flush <> branch_unit.io.flush
     instr_fetch_queue.io.read_addr <> instr_cache.io.read_addr
