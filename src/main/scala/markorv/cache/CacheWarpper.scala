@@ -31,6 +31,8 @@ class CacheWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module {
     val cache_replace = Reg(UInt(1.W))
     val size_mask = Wire(UInt(64.W))
     val request_aligned = Wire(Bool())
+    val raw_data = Wire(UInt(64.W))
+    raw_data := 0.U
     size_mask := ("hffffffffffffffff".U << io.read_requests.bits.size)
     request_aligned := (io.read_requests.bits.addr & ~size_mask) === 0.U
 
@@ -43,34 +45,7 @@ class CacheWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module {
                 // Cacheline hit.
                 cache_line_hit := true.B
                 io.read_data.valid := true.B
-                val raw_data = cache_line_buffer(i).data >> (8.U*(io.read_requests.bits.addr & "h000000000000000f".U)(3,0))
-                val size = io.read_requests.bits.size
-                io.read_data.bits := MuxCase(
-                    raw_data,
-                    Seq(
-                        (size === 0.U) -> Mux(
-                            io.read_requests.bits.sign,
-                            (raw_data(7, 0).asSInt
-                                .pad(64))
-                                .asUInt, // Sign extend byte
-                            raw_data(7, 0).pad(64) // Zero extend byte
-                        ),
-                        (size === 1.U) -> Mux(
-                            io.read_requests.bits.sign,
-                            (raw_data(15, 0).asSInt
-                                .pad(64))
-                                .asUInt, // Sign extend halfword
-                            raw_data(15, 0).pad(64) // Zero extend halfword
-                        ),
-                        (size === 2.U) -> Mux(
-                            io.read_requests.bits.sign,
-                            (raw_data(31, 0).asSInt
-                                .pad(64))
-                                .asUInt, // Sign extend word
-                            raw_data(31, 0).pad(64) // Zero extend word
-                        )
-                    )
-                )
+                raw_data := cache_line_buffer(i).data >> (8.U*(io.read_requests.bits.addr & "h000000000000000f".U)(3,0))
             }
         }
 
@@ -83,9 +58,38 @@ class CacheWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module {
                 cache_line_buffer(cache_replace) := io.read_cache_line.bits
                 cache_line_addr(cache_replace) := (io.read_requests.bits.addr & size_mask)
                 cache_replace := cache_replace + 1.U
+
+                io.read_data.valid := true.B
+                raw_data := io.read_cache_line.bits.data >> (8.U*(io.read_requests.bits.addr & "h000000000000000f".U)(3,0))
             }
         }
     }
 
+    io.read_data.bits := MuxCase(
+        raw_data,
+        Seq(
+            (io.read_requests.bits.size === 0.U) -> Mux(
+                io.read_requests.bits.sign,
+                (raw_data(7, 0).asSInt
+                    .pad(64))
+                    .asUInt, // Sign extend byte
+                raw_data(7, 0).pad(64) // Zero extend byte
+            ),
+            (io.read_requests.bits.size === 1.U) -> Mux(
+                io.read_requests.bits.sign,
+                (raw_data(15, 0).asSInt
+                    .pad(64))
+                    .asUInt, // Sign extend halfword
+                raw_data(15, 0).pad(64) // Zero extend halfword
+            ),
+            (io.read_requests.bits.size === 2.U) -> Mux(
+                io.read_requests.bits.sign,
+                (raw_data(31, 0).asSInt
+                    .pad(64))
+                    .asUInt, // Sign extend word
+                raw_data(31, 0).pad(64) // Zero extend word
+            )
+        )
+    )
     // TODO: unaligned
 }

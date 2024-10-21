@@ -83,13 +83,6 @@
 </details>
 
 <details>
-<summary><strong> System Extension Instructions </strong></summary>
-
-- [ ] mret
-- [ ] wfi
-</details>
-
-<details>
 <summary><strong> Zifencei Extension Instructions </strong></summary>
 
 - [ ] fence.i
@@ -107,10 +100,23 @@
 </details>
 
 <details>
-<summary><strong> S Extension Instructions </strong></summary>
+<summary><strong> Machine mode </strong></summary>
+
+- [ ] wfi
+- [ ] mret
+</details>
+
+<details>
+<summary><strong> Supervisor mode </strong></summary>
 
 - [ ] sret
 - [ ] sfence.vma
+</details>
+
+<details>
+<summary><strong> User mode </strong></summary>
+
+- [ ] uret
 </details>
 
 <details>
