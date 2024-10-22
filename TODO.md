@@ -114,12 +114,6 @@
 </details>
 
 <details>
-<summary><strong> User mode </strong></summary>
-
-- [ ] uret
-</details>
-
-<details>
 <summary><strong> A Extension Instructions（Low Piro）</strong></summary>
 
 - [ ] lr.w

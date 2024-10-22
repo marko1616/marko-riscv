@@ -151,24 +151,35 @@ class Cache(
         }
         is(State.stat_write_upstream) {
             // TODO
+            
+            temp_cache_line.data := 0.U
+            temp_cache_line.tag := 0.U
+            temp_cache_line.valid := false.B
+            temp_cache_line.dirty := false.B
         }
         is(State.stat_replace) {
             val next_cache_way = Wire(new CacheWay(n_set, n_way, n_byte))
+            state := State.stat_idle
 
             for (i <- 0 until n_way) {
                 when(i.U === replace_way) {
                     next_cache_way.data(i) := temp_cache_line
+                    // reserved for write back
+                    when(next_cache_way.data(i).dirty) {
+                        temp_cache_line := next_cache_way.data(i)
+                        state := State.stat_write_upstream
+                    }.otherwise {
+                        temp_cache_line.data := 0.U
+                        temp_cache_line.tag := 0.U
+                        temp_cache_line.valid := false.B
+                        temp_cache_line.dirty := false.B
+                    }
                 }.otherwise {
                     next_cache_way.data(i) := last_cache_mem_read.data(i)
                 }
             }
             replace_way := replace_way + 1.U
-            temp_cache_line.data := 0.U
-            temp_cache_line.tag := 0.U
-            temp_cache_line.valid := false.B
-            temp_cache_line.dirty := false.B
             cache_mems.write(read_set_reg, next_cache_way)
-            state := State.stat_idle
         }
     }
 }

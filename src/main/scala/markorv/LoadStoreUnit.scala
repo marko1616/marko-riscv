@@ -30,12 +30,15 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             val params = new DecoderOutParams(data_width)
         }))
 
-        val mem_write = Decoupled(UInt(data_width.W))
         val mem_read = Flipped(Decoupled((UInt(data_width.W))))
         val mem_read_addr = Decoupled(UInt(addr_width.W))
-        val mem_write_addr = Output(UInt(addr_width.W))
+
+        val mem_write_req = Decoupled(new Bundle {
+            val size = UInt(2.W)
+            val addr = UInt(addr_width.W)
+            val data = UInt(data_width.W)
+        })
         val mem_write_outfire = Input(Bool())
-        val mem_write_width = Output(UInt(2.W))
 
         val write_back = Decoupled(new Bundle {
             val reg = Input(UInt(5.W))
@@ -56,15 +59,17 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val params = Reg(new DecoderOutParams(data_width))
     val load_data = Reg(UInt(data_width.W))
 
+    val write_req = io.mem_write_req.bits
+
     // default
-    io.mem_write_addr := 0.U(addr_width.W)
+    io.lsu_instr.ready := false.B
+    io.mem_write_req.valid := false.B
+    write_req.size := 0.U
+    write_req.addr := 0.U
+    write_req.data := 0.U
     io.mem_read_addr.valid := false.B
     io.mem_read_addr.bits := 0.U(addr_width.W)
-    io.mem_write.bits := 0.U(data_width.W)
-    io.mem_write.valid := false.B
-    io.lsu_instr.ready := false.B
     io.mem_read.ready := false.B
-    io.mem_write_width := 0.U(2.W)
 
     io.write_back.valid := false.B
     io.write_back.bits.data := 0.U(data_width.W)
@@ -145,11 +150,10 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             val size = opcode(1, 0)
             val store_data = params.source2.asUInt
 
-            io.mem_write_addr := params.source1.asUInt + params.immediate.asUInt
-            io.mem_write.valid := true.B
-            io.mem_write_width := size
-
-            io.mem_write.bits := MuxCase(
+            io.mem_write_req.valid := true.B
+            write_req.size := size
+            write_req.addr := params.source1.asUInt + params.immediate.asUInt
+            write_req.data := MuxCase(
               store_data,
               Seq(
                 (size === 0.U) -> store_data(7, 0).pad(64),
@@ -159,7 +163,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
               )
             )
 
-            when(io.mem_write.ready && io.mem_write_outfire) {
+            when(io.mem_write_req.ready && io.mem_write_outfire) {
                 state := State.stat_idle
             }
         }

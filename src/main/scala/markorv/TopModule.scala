@@ -49,12 +49,10 @@ class MarkoRvCore extends Module {
     instr_fetch_queue.io.reg_read <> register_file.io.read_addr3
     instr_fetch_queue.io.reg_data <> register_file.io.read_data3
 
-    mem.io.port2.write_addr := 0.U(64.W)
-    mem.io.port2.write_enable := false.B
-    mem.io.port2.write_data := 0.U(64.W)
-    mem.io.port2.write_width := 0.U(2.W)
-
-    load_store_unit.io.mem_write.ready := true.B
+    mem.io.port2.mem_write_req.valid := false.B
+    mem.io.port2.mem_write_req.bits.size := 0.U
+    mem.io.port2.mem_write_req.bits.addr := 0.U
+    mem.io.port2.mem_write_req.bits.data := 0.U
 
     io.pc <> instr_fetch_unit.io.instr_bundle.bits.pc
     io.instr_now <> instr_fetch_unit.io.instr_bundle.bits.instr
@@ -70,13 +68,10 @@ class MarkoRvCore extends Module {
     instr_issuer.io.acquire_reg <> register_file.io.acquire_reg
     instr_issuer.io.acquired <> register_file.io.acquired
 
-    mem.io.port1.write_data <> load_store_unit.io.mem_write.bits
-    mem.io.port1.write_enable <> load_store_unit.io.mem_write.valid
+    mem.io.port1.mem_write_req <> load_store_unit.io.mem_write_req
+    mem.io.port1.write_outfire <> load_store_unit.io.mem_write_outfire
     mem.io.port1.data_out <> load_store_unit.io.mem_read
     mem.io.port1.read_addr <> load_store_unit.io.mem_read_addr
-    mem.io.port1.write_addr <> load_store_unit.io.mem_write_addr
-    mem.io.port1.write_outfire <> load_store_unit.io.mem_write_outfire
-    mem.io.port1.write_width <> load_store_unit.io.mem_write_width
 
     write_back.io.reg_write <> register_file.io.write_addr
     write_back.io.write_data <> register_file.io.write_data
