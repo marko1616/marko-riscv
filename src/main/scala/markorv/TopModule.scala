@@ -7,7 +7,8 @@ import _root_.circt.stage.ChiselStage
 import markorv._
 import markorv.memory._
 import markorv.cache.Cache
-import markorv.cache.CacheWarpper
+import markorv.cache.ReadOnlyCache
+import markorv.cache.CacheReadWarpper
 
 class MarkoRvCore extends Module {
     val io = IO(new Bundle {
@@ -17,8 +18,8 @@ class MarkoRvCore extends Module {
     })
 
     val mem = Module(new Memory(64, 64, 4096))
-    val instr_cache = Module(new Cache(32, 4, 16, 64))
-    val instr_cache_warpper = Module(new CacheWarpper(32, 4, 16))
+    val instr_cache = Module(new ReadOnlyCache(32, 4, 16, 64))
+    val instr_cache_read_warpper = Module(new CacheReadWarpper(32, 4, 16))
 
     val instr_fetch_queue = Module(new InstrFetchQueue)
     val instr_fetch_unit = Module(new InstrFetchUnit)
@@ -32,8 +33,8 @@ class MarkoRvCore extends Module {
     val register_file = Module(new RegFile)
     val write_back = Module(new WriteBack)
 
-    instr_cache_warpper.io.read_cache_line_addr <> instr_cache.io.read_addr
-    instr_cache_warpper.io.read_cache_line <> instr_cache.io.read_cache_line
+    instr_cache_read_warpper.io.read_cache_line_addr <> instr_cache.io.read_addr
+    instr_cache_read_warpper.io.read_cache_line <> instr_cache.io.read_cache_line
 
     instr_fetch_unit.io.pc_in <> branch_unit.io.rev_pc
     instr_fetch_unit.io.set_pc <> branch_unit.io.flush
@@ -43,8 +44,8 @@ class MarkoRvCore extends Module {
     instr_cache.io.upstream_read_data <> mem.io.port2.data_out
 
     instr_fetch_queue.io.flush <> branch_unit.io.flush
-    instr_fetch_queue.io.read_requests <> instr_cache_warpper.io.read_requests
-    instr_fetch_queue.io.read_data <> instr_cache_warpper.io.read_data
+    instr_fetch_queue.io.read_requests <> instr_cache_read_warpper.io.read_requests
+    instr_fetch_queue.io.read_data <> instr_cache_read_warpper.io.read_data
     instr_fetch_queue.io.pc <> instr_fetch_unit.io.peek_pc
     instr_fetch_queue.io.reg_read <> register_file.io.read_addr3
     instr_fetch_queue.io.reg_data <> register_file.io.read_data3

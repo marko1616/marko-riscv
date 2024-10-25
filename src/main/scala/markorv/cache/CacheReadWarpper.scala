@@ -3,7 +3,7 @@ package markorv.cache
 import chisel3._
 import chisel3.util._
 
-class CacheWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module {
+class CacheReadWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module {
     val io = IO(new Bundle {
         val read_requests = Flipped(Decoupled(new Bundle {
             val addr = UInt(64.W)
@@ -29,9 +29,9 @@ class CacheWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module {
     val cache_line_buffer = Reg(Vec(2, new CacheLine(n_set, n_way, n_byte)))
     val cache_line_addr = Reg(Vec(2, UInt(64.W)))
     val cache_replace = Reg(UInt(1.W))
+    val raw_data = Wire(UInt(64.W))
     val size_mask = Wire(UInt(64.W))
     val request_aligned = Wire(Bool())
-    val raw_data = Wire(UInt(64.W))
     raw_data := 0.U
     size_mask := ("hffffffffffffffff".U << io.read_requests.bits.size)
     request_aligned := (io.read_requests.bits.addr & ~size_mask) === 0.U

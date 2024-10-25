@@ -3,7 +3,7 @@ package markorv.cache
 import chisel3._
 import chisel3.util._
 
-class Cache(
+class ReadOnlyCache(
     n_set: Int = 8,
     n_way: Int = 4,
     n_byte: Int = 16,
@@ -15,12 +15,6 @@ class Cache(
 
         val read_addr = Flipped(Decoupled(UInt(64.W)))
         val read_cache_line = Decoupled(new CacheLine(n_set, n_way, n_byte))
-
-        val write_req = Flipped(Decoupled(new Bundle {
-            val addr = UInt(64.W)
-            val data = new CacheLine(n_set, n_way, n_byte)
-        }))
-        val write_outfire = Output(Bool())
     })
 
     val offset_width = log2Ceil(n_byte)
@@ -41,7 +35,7 @@ class Cache(
     val read_ptr = Reg(UInt(log2Ceil(n_byte).W))
 
     object State extends ChiselEnum {
-        val stat_idle, stat_look_up, stat_read_upstream, stat_write_upstream,
+        val stat_idle, stat_look_up, stat_read_upstream,
             stat_replace = Value
     }
     val state = RegInit(State.stat_idle)
@@ -142,14 +136,6 @@ class Cache(
                 }
             }
         }
-        is(State.stat_write_upstream) {
-            // TODO
-            
-            temp_cache_line.data := 0.U
-            temp_cache_line.tag := 0.U
-            temp_cache_line.valid := false.B
-            temp_cache_line.dirty := false.B
-        }
         is(State.stat_replace) {
             val next_cache_way = Wire(new CacheWay(n_set, n_way, n_byte))
             state := State.stat_idle
@@ -157,16 +143,10 @@ class Cache(
             for (i <- 0 until n_way) {
                 when(i.U === replace_way) {
                     next_cache_way.data(i) := temp_cache_line
-                    // reserved for write back
-                    when(next_cache_way.data(i).dirty) {
-                        temp_cache_line := next_cache_way.data(i)
-                        state := State.stat_write_upstream
-                    }.otherwise {
-                        temp_cache_line.data := 0.U
-                        temp_cache_line.tag := 0.U
-                        temp_cache_line.valid := false.B
-                        temp_cache_line.dirty := false.B
-                    }
+                    temp_cache_line.data := 0.U
+                    temp_cache_line.tag := 0.U
+                    temp_cache_line.valid := false.B
+                    temp_cache_line.dirty := false.B
                 }.otherwise {
                     next_cache_way.data(i) := last_cache_mem_read.data(i)
                 }
