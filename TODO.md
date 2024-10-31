@@ -83,6 +83,20 @@
 </details>
 
 <details>
+<summary><strong> Zicbom Extension Instructions </strong></summary>
+
+- [ ] cbo.clean
+- [ ] cbo.flush
+- [ ] cbo.inval
+</details>
+
+<details>
+<summary><strong> Zicboz Extension Instructions </strong></summary>
+
+- [ ] cbo.zero
+</details>
+
+<details>
 <summary><strong> Zifencei Extension Instructions </strong></summary>
 
 - [ ] fence.i

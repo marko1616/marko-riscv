@@ -69,10 +69,10 @@ class MarkoRvCore extends Module {
     instr_issuer.io.acquire_reg <> register_file.io.acquire_reg
     instr_issuer.io.acquired <> register_file.io.acquired
 
-    mem.io.port1.mem_write_req <> load_store_unit.io.mem_write_req
-    mem.io.port1.write_outfire <> load_store_unit.io.mem_write_outfire
-    mem.io.port1.data_out <> load_store_unit.io.mem_read
-    mem.io.port1.read_addr <> load_store_unit.io.mem_read_addr
+    mem.io.port1.mem_write_req <> load_store_unit.io.write_req
+    mem.io.port1.write_outfire <> load_store_unit.io.write_outfire
+    mem.io.port1.data_out <> load_store_unit.io.read_data
+    mem.io.port1.read_addr <> load_store_unit.io.read_addr
 
     write_back.io.reg_write <> register_file.io.write_addr
     write_back.io.write_data <> register_file.io.write_data

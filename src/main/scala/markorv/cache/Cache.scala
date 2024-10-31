@@ -29,6 +29,7 @@ class Cache(
         val upstream_write_outfire = Input(Bool())
     })
 
+    val upstream_n_bytes = log2Ceil(upstream_bandwidth / 8)
     val offset_width = log2Ceil(n_byte)
     val set_width = log2Ceil(n_set)
     val tag_width = 64 - offset_width - set_width
@@ -45,6 +46,7 @@ class Cache(
     val op_set_reg = Reg(UInt(set_width.W))
     val hit_index = Reg(UInt(log2Ceil(n_way).W))
 
+    val max_ptr = (1 << (log2Ceil(((8 * n_byte / upstream_bandwidth) * upstream_bandwidth / 8) - upstream_bandwidth / 8))).U
     val read_ptr = Reg(UInt(log2Ceil(n_byte).W))
     val write_ptr = Reg(UInt(log2Ceil(n_byte).W))
 
@@ -105,6 +107,7 @@ class Cache(
                     hit_index := i.U
                     when(state_op_type===1.U) {
                         // Write
+                        io.write_outfire := true.B
                         op_cache_way.data(i) := io.write_req.bits.cache_line
                         cache_mems.write(op_set, op_cache_way)
                         hit := true.B
@@ -159,24 +162,35 @@ class Cache(
                 }
                 temp_cache_line.data := Cat(next_cache_line.reverse)
 
-                read_ptr := read_ptr + (1 << log2Ceil(upstream_bandwidth / 8)).U
-                when(
-                  read_ptr === (1 << (log2Ceil(
-                    ((8 * n_byte / upstream_bandwidth) * upstream_bandwidth / 8) - upstream_bandwidth / 8
-                  ))).U
-                ) {
+                read_ptr := read_ptr + (1 << upstream_n_bytes).U
+                when(read_ptr === max_ptr) {
                     // Make sure wont replace the same
                     state := State.stat_replace
                 }
             }
         }
         is(State.stat_write_upstream) {
-            // TODO
-            
-            temp_cache_line.data := 0.U
-            temp_cache_line.tag := 0.U
-            temp_cache_line.valid := false.B
-            temp_cache_line.dirty := false.B
+            io.upstream_write_req.valid := true.B
+            io.upstream_write_req.bits.addr := Cat(temp_cache_line.tag, op_set_reg, write_ptr)
+            io.upstream_write_req.bits.data := temp_cache_line.data
+            for (i <- 0 until (8 * n_byte) / upstream_bandwidth) {
+                when((i * upstream_bandwidth / 8).U === write_ptr) {
+                    io.upstream_write_req.bits.data := temp_cache_line.data((i + 1) * upstream_bandwidth - 1,i * upstream_bandwidth)
+                }
+            }
+
+            when(io.upstream_write_outfire) {
+                write_ptr := write_ptr + (1 << upstream_n_bytes).U
+            }
+
+            when(write_ptr  === max_ptr) {
+                temp_cache_line.data := 0.U
+                temp_cache_line.tag := 0.U
+                temp_cache_line.valid := false.B
+                temp_cache_line.dirty := false.B
+
+                state := State.stat_idle
+            }
         }
         is(State.stat_replace) {
             val next_cache_way = Wire(new CacheWay(n_set, n_way, n_byte))
@@ -187,6 +201,7 @@ class Cache(
                     next_cache_way.data(i) := temp_cache_line
                     // reserved for write back
                     when(next_cache_way.data(i).dirty) {
+                        write_ptr := 0.U
                         temp_cache_line := next_cache_way.data(i)
                         state := State.stat_write_upstream
                     }.otherwise {
