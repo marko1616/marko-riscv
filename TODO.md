@@ -176,7 +176,7 @@
 <summary><strong> System Tasks </strong></summary>
 
 - [x] L1 Instruction cache
-- [ ] L1 Data cache
+- [x] L1 Data cache
 - [ ] L2 Cache
 - [ ] Exception & Interruption
 - [ ] TLB

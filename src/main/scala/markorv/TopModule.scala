@@ -7,8 +7,10 @@ import _root_.circt.stage.ChiselStage
 import markorv._
 import markorv.memory._
 import markorv.cache.Cache
+import markorv.cache.CacheLine
 import markorv.cache.ReadOnlyCache
 import markorv.cache.CacheReadWarpper
+import markorv.cache.CacheReadWriteWarpper
 
 class MarkoRvCore extends Module {
     val io = IO(new Bundle {
@@ -20,6 +22,9 @@ class MarkoRvCore extends Module {
     val mem = Module(new Memory(64, 64, 4096))
     val instr_cache = Module(new ReadOnlyCache(32, 4, 16, 64))
     val instr_cache_read_warpper = Module(new CacheReadWarpper(32, 4, 16))
+
+    val data_cache = Module(new Cache(32, 4, 16, 64))
+    val data_cache_warpper = Module(new CacheReadWriteWarpper(32, 4, 16))
 
     val instr_fetch_queue = Module(new InstrFetchQueue)
     val instr_fetch_unit = Module(new InstrFetchUnit)
@@ -33,6 +38,11 @@ class MarkoRvCore extends Module {
     val register_file = Module(new RegFile)
     val write_back = Module(new WriteBack)
 
+    data_cache_warpper.io.cache_write_req <> data_cache.io.write_req
+    data_cache_warpper.io.cache_write_outfire <> data_cache.io.write_outfire
+    data_cache.io.read_addr <> data_cache_warpper.io.read_cache_line_addr
+    data_cache.io.read_cache_line <> data_cache_warpper.io.read_cache_line
+
     instr_cache_read_warpper.io.read_cache_line_addr <> instr_cache.io.read_addr
     instr_cache_read_warpper.io.read_cache_line <> instr_cache.io.read_cache_line
 
@@ -44,7 +54,7 @@ class MarkoRvCore extends Module {
     instr_cache.io.upstream_read_data <> mem.io.port2.data_out
 
     instr_fetch_queue.io.flush <> branch_unit.io.flush
-    instr_fetch_queue.io.read_requests <> instr_cache_read_warpper.io.read_requests
+    instr_fetch_queue.io.read_req <> instr_cache_read_warpper.io.read_req
     instr_fetch_queue.io.read_data <> instr_cache_read_warpper.io.read_data
     instr_fetch_queue.io.pc <> instr_fetch_unit.io.peek_pc
     instr_fetch_queue.io.reg_read <> register_file.io.read_addr3
@@ -58,8 +68,8 @@ class MarkoRvCore extends Module {
     io.pc <> instr_fetch_unit.io.instr_bundle.bits.pc
     io.instr_now <> instr_fetch_unit.io.instr_bundle.bits.instr
 
-    register_file.io.read_addr4 := 0.U
-    io.peek <> mem.io.peek
+    register_file.io.read_addr4 := 1.U
+    io.peek <> register_file.io.read_data4
 
     instr_issuer.io.reg_read1 <> register_file.io.read_addr1
     instr_issuer.io.reg_read2 <> register_file.io.read_addr2
@@ -69,16 +79,22 @@ class MarkoRvCore extends Module {
     instr_issuer.io.acquire_reg <> register_file.io.acquire_reg
     instr_issuer.io.acquired <> register_file.io.acquired
 
-    mem.io.port1.mem_write_req <> load_store_unit.io.write_req
-    mem.io.port1.write_outfire <> load_store_unit.io.write_outfire
-    mem.io.port1.data_out <> load_store_unit.io.read_data
-    mem.io.port1.read_addr <> load_store_unit.io.read_addr
+    data_cache_warpper.io.write_req <> load_store_unit.io.write_req
+    data_cache_warpper.io.write_outfire <> load_store_unit.io.write_outfire
+    data_cache_warpper.io.read_data <> load_store_unit.io.read_data
+    data_cache_warpper.io.read_req <> load_store_unit.io.read_req
+
+    mem.io.port1.mem_write_req <> data_cache.io.upstream_write_req
+    mem.io.port1.write_outfire <> data_cache.io.upstream_write_outfire
+    mem.io.port1.data_out <> data_cache.io.upstream_read_data
+    mem.io.port1.read_addr <> data_cache.io.upstream_read_addr
 
     write_back.io.reg_write <> register_file.io.write_addr
     write_back.io.write_data <> register_file.io.write_data
 
     register_file.io.flush := branch_unit.io.flush
 
+    // Main pipeline.
     PipelineConnect(
         instr_fetch_unit.io.instr_bundle,
         instr_decoder.io.instr_bundle,
@@ -102,7 +118,7 @@ class MarkoRvCore extends Module {
     PipelineConnect(
         instr_issuer.io.lsu_out,
         load_store_unit.io.lsu_instr,
-        load_store_unit.io.state_peek === 0.U,
+        load_store_unit.io.outfire,
         branch_unit.io.flush
     )
     PipelineConnect(

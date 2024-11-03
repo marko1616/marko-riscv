@@ -30,8 +30,12 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             val params = new DecoderOutParams(data_width)
         }))
 
+        val read_req = Decoupled(new Bundle {
+            val size = UInt(2.W)
+            val addr = UInt(64.W)
+            val sign = Bool()
+        })
         val read_data = Flipped(Decoupled((UInt(data_width.W))))
-        val read_addr = Decoupled(UInt(addr_width.W))
 
         val write_req = Decoupled(new Bundle {
             val size = UInt(2.W)
@@ -42,10 +46,11 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
         val write_back = Decoupled(new Bundle {
             val reg = Input(UInt(5.W))
-            val data = Input(UInt(64.W))
+            val data = Input(UInt(data_width.W))
         })
 
-        val state_peek = Output(UInt(3.W))
+        val outfire = Output(Bool())
+        val debug_peek = Output(UInt(64.W))
     })
 
     // State def
@@ -61,46 +66,41 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     val write_req = io.write_req.bits
 
+    io.debug_peek := io.lsu_instr.valid
+
     // default
     io.lsu_instr.ready := false.B
     io.write_req.valid := false.B
     write_req.size := 0.U
     write_req.addr := 0.U
     write_req.data := 0.U
-    io.read_addr.valid := false.B
-    io.read_addr.bits := 0.U(addr_width.W)
+    io.read_req.valid := false.B
+    io.read_req.bits.size := 0.U
+    io.read_req.bits.addr := 0.U
+    io.read_req.bits.sign := false.B
     io.read_data.ready := false.B
 
     io.write_back.valid := false.B
     io.write_back.bits.data := 0.U(data_width.W)
     io.write_back.bits.reg := 0.U(5.W)
 
-    io.state_peek := state.asUInt
+    io.outfire := false.B
 
     switch(state) {
         is(State.stat_idle) {
             val next_state = WireInit(State.stat_idle)
-            val operation_addr = WireInit(0.U(addr_width.W))
             next_state := Mux(io.lsu_instr.bits.lsu_opcode(4), State.stat_store, State.stat_load)
-            operation_addr := io.lsu_instr.bits.params.source1.asUInt + params.immediate
-
-            when(io.lsu_instr.valid && next_state === State.stat_load) {
-                // prefetch
-                io.read_addr.bits := operation_addr
-                io.read_addr.valid := true.B
-                io.read_data.ready := true.B
-                state := next_state
-            }
-
             when(io.lsu_instr.valid) {
                 opcode := io.lsu_instr.bits.lsu_opcode
                 params := io.lsu_instr.bits.params
                 state := next_state
+            }.otherwise {
+                io.lsu_instr.ready := io.write_back.ready
             }
-            io.lsu_instr.ready := io.write_back.ready
         }
 
         is(State.stat_load) {
+            // TODO This func is replace by ALU. Replace in next commit.
             val is_immediate = opcode(3)
             val is_signed = !opcode(2)
             val size = opcode(1, 0)
@@ -109,38 +109,13 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 load_data := params.immediate.asUInt
                 state := State.stat_writeback
             }.otherwise {
-                io.read_addr.bits := params.source1.asUInt + params.immediate.asUInt
-                io.read_addr.valid := true.B
+                io.read_req.bits.size := size
+                io.read_req.bits.addr := params.source1.asUInt + params.immediate.asUInt
+                io.read_req.bits.sign := is_signed
+                io.read_req.valid := true.B
                 io.read_data.ready := true.B
                 when(io.read_data.valid) {
-                    val raw_data = io.read_data.bits
-                    load_data := MuxCase(
-                      raw_data,
-                      Seq(
-                        (size === 0.U) -> Mux(
-                          is_signed,
-                          (raw_data(7, 0).asSInt
-                              .pad(64))
-                              .asUInt, // Sign extend byte
-                          raw_data(7, 0).pad(64) // Zero extend byte
-                        ),
-                        (size === 1.U) -> Mux(
-                          is_signed,
-                          (raw_data(15, 0).asSInt
-                              .pad(64))
-                              .asUInt, // Sign extend halfword
-                          raw_data(15, 0).pad(64) // Zero extend halfword
-                        ),
-                        (size === 2.U) -> Mux(
-                          is_signed,
-                          (raw_data(31, 0).asSInt
-                              .pad(64))
-                              .asUInt, // Sign extend word
-                          raw_data(31, 0).pad(64) // Zero extend word
-                        )
-                        // size === 3.U is the default case (raw_data)
-                      )
-                    )
+                    load_data := io.read_data.bits
                     state := State.stat_writeback
                 }
             }
@@ -163,13 +138,15 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
               )
             )
 
-            when(io.write_req.ready && io.write_outfire) {
+            when(io.write_outfire) {
+                io.outfire := true.B
                 state := State.stat_idle
             }
         }
 
         is(State.stat_writeback) {
             when(io.write_back.ready) {
+                io.outfire := true.B
                 io.write_back.valid := true.B
                 io.write_back.bits.data := load_data
                 io.write_back.bits.reg := params.rd

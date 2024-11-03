@@ -21,7 +21,7 @@ class InstrFetchQueue(
     n_byte: Int = 16
 ) extends Module {
     val io = IO(new Bundle {
-        val read_requests = Decoupled(new Bundle {
+        val read_req = Decoupled(new Bundle {
             val addr = UInt(64.W)
             val size = UInt(2.W)
             // true for signed read
@@ -60,10 +60,10 @@ class InstrFetchQueue(
     bpu.io.reg_read <> io.reg_read
     bpu.io.reg_data <> io.reg_data
 
-    io.read_requests.valid := false.B
-    io.read_requests.bits.addr := 0.U
-    io.read_requests.bits.size := 0.U
-    io.read_requests.bits.sign := false.B
+    io.read_req.valid := false.B
+    io.read_req.bits.addr := 0.U
+    io.read_req.bits.size := 0.U
+    io.read_req.bits.sign := false.B
 
     io.read_data.ready := false.B
 
@@ -78,10 +78,10 @@ class InstrFetchQueue(
     when(instr_queue.io.enq.ready && !io.flush) {
         // Read from fetched cache line
         io.read_data.ready := true.B
-        io.read_requests.valid := true.B
-        io.read_requests.bits.addr := end_pc
-        io.read_requests.bits.size := 2.U
-        io.read_requests.bits.sign := false.B
+        io.read_req.valid := true.B
+        io.read_req.bits.addr := end_pc
+        io.read_req.bits.size := 2.U
+        io.read_req.bits.sign := false.B
 
         when(io.read_data.valid) {
             bpu.io.bpu_instr.pc := end_pc

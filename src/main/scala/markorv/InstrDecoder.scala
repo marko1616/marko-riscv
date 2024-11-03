@@ -228,7 +228,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is("b0000011".U) {
                 // Load Memory
-                issue_task.lsu_opcode := Cat(0.U(2.W), instr(14, 12))
+                issue_task.lsu_opcode := Cat("b00".U, instr(14, 12))
                 params.immediate := instr(31, 20).asSInt
                     .pad(64)
                     .asUInt
@@ -308,6 +308,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
         io.instr_bundle.ready := true.B
         io.outfire := true.B
     }
+
     when(!valid_instr) {
         io.instr_bundle.ready := io.issue_task.ready
     }
