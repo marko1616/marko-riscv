@@ -7,7 +7,7 @@ import scalalib._
 // support BSP
 import mill.bsp._
 
-object markorv_test extends SbtModule { m =>
+object markorv extends SbtModule { m =>
     override def millSourcePath = os.pwd
     override def scalaVersion = "2.13.12"
     override def scalacOptions = Seq(
