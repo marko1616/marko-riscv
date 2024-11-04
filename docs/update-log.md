@@ -1,3 +1,8 @@
+🛠️ **Next version** 🛠️
+
+* 🛠️ Fix: outfire signal at instruction issuer.
+* ✅ Feat: Better build and compile implementation.
+
 🎉 **Version 0.1 Released!** 🎉
 
 * 🛠️ Fix: register file debug port.

@@ -124,7 +124,7 @@ class MarkoRvCore extends Module {
     PipelineConnect(
         instr_issuer.io.branch_out,
         branch_unit.io.branch_instr,
-        true.B,
+        instr_issuer.io.outfire,
         branch_unit.io.flush
     )
 
