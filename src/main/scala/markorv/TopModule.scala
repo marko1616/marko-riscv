@@ -14,12 +14,14 @@ import markorv.cache.CacheReadWriteWarpper
 
 class MarkoRvCore(init_mem: String = "/home/marko1616/marko-riscv/tests/function.hex") extends Module {
     val io = IO(new Bundle {
+        val memio = Flipped(new MemoryIO(64, 64))
+
         val pc = Output(UInt(64.W))
         val instr_now = Output(UInt(64.W))
         val peek = Output(UInt(64.W))
     })
 
-    val mem = Module(new Memory(init_mem, 64, 64, 4096))
+    val mem = Module(new MemoryCtrl(64, 64))
     val instr_cache = Module(new ReadOnlyCache(32, 4, 16, 64))
     val instr_cache_read_warpper = Module(new CacheReadWarpper(32, 4, 16))
 
@@ -51,7 +53,7 @@ class MarkoRvCore(init_mem: String = "/home/marko1616/marko-riscv/tests/function
     instr_fetch_unit.io.fetch_bundle <> instr_fetch_queue.io.fetch_bundle
 
     instr_cache.io.upstream_read_addr <> mem.io.port2.read_addr
-    instr_cache.io.upstream_read_data <> mem.io.port2.data_out
+    instr_cache.io.upstream_read_data <> mem.io.port2.read_data
 
     instr_fetch_queue.io.flush <> branch_unit.io.flush
     instr_fetch_queue.io.read_req <> instr_cache_read_warpper.io.read_req
@@ -60,10 +62,12 @@ class MarkoRvCore(init_mem: String = "/home/marko1616/marko-riscv/tests/function
     instr_fetch_queue.io.reg_read <> register_file.io.read_addr3
     instr_fetch_queue.io.reg_data <> register_file.io.read_data3
 
-    mem.io.port2.mem_write_req.valid := false.B
-    mem.io.port2.mem_write_req.bits.size := 0.U
-    mem.io.port2.mem_write_req.bits.addr := 0.U
-    mem.io.port2.mem_write_req.bits.data := 0.U
+    io.memio <> mem.io.outer
+
+    mem.io.port2.write_req.valid := false.B
+    mem.io.port2.write_req.bits.size := 0.U
+    mem.io.port2.write_req.bits.addr := 0.U
+    mem.io.port2.write_req.bits.data := 0.U
 
     io.pc <> instr_fetch_unit.io.instr_bundle.bits.pc
     io.instr_now <> instr_fetch_unit.io.instr_bundle.bits.instr
@@ -84,9 +88,9 @@ class MarkoRvCore(init_mem: String = "/home/marko1616/marko-riscv/tests/function
     data_cache_warpper.io.read_data <> load_store_unit.io.read_data
     data_cache_warpper.io.read_req <> load_store_unit.io.read_req
 
-    mem.io.port1.mem_write_req <> data_cache.io.upstream_write_req
+    mem.io.port1.write_req <> data_cache.io.upstream_write_req
     mem.io.port1.write_outfire <> data_cache.io.upstream_write_outfire
-    mem.io.port1.data_out <> data_cache.io.upstream_read_data
+    mem.io.port1.read_data <> data_cache.io.upstream_read_data
     mem.io.port1.read_addr <> data_cache.io.upstream_read_addr
 
     write_back.io.reg_write <> register_file.io.write_addr
