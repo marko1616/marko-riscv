@@ -110,5 +110,5 @@ class InstrIssueUnit extends Module {
     }
 
     // Ready when dispatch is available.
-    io.issue_task.ready := exec_unit_ready && ~occupied_reg && && io.acquired
+    io.issue_task.ready := exec_unit_ready && ~occupied_reg && io.acquired
 }
