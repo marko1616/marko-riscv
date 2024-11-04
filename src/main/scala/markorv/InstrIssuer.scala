@@ -86,6 +86,7 @@ class InstrIssueUnit extends Module {
     occupied_reg := io.occupied_regs(io.issue_task.bits.reg_source_requests.source1) || io.occupied_regs(io.issue_task.bits.reg_source_requests.source2)
 
     when (io.issue_task.valid && exec_unit_ready && ~occupied_reg) {
+        // Only try to acquire register when all other are prepared.
         io.acquire_reg := params.rd
         when(io.issue_task.bits.operate_unit === 0.U && io.acquired) {
             io.outfire := true.B
@@ -106,7 +107,8 @@ class InstrIssueUnit extends Module {
             io.branch_out.bits.recovery_pc := io.issue_task.bits.recovery_pc
             io.branch_out.bits.params := params
         }
-    }.otherwise {
-        io.issue_task.ready := exec_unit_ready && ~occupied_reg
     }
+
+    // Ready when dispatch is available.
+    io.issue_task.ready := exec_unit_ready && ~occupied_reg && && io.acquired
 }

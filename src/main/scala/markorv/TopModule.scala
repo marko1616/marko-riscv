@@ -68,7 +68,7 @@ class MarkoRvCore extends Module {
     io.pc <> instr_fetch_unit.io.instr_bundle.bits.pc
     io.instr_now <> instr_fetch_unit.io.instr_bundle.bits.instr
 
-    register_file.io.read_addr4 := 1.U
+    register_file.io.read_addr4 := 10.U
     io.peek <> register_file.io.read_data4
 
     instr_issuer.io.reg_read1 <> register_file.io.read_addr1
