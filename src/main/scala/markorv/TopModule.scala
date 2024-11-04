@@ -12,14 +12,14 @@ import markorv.cache.ReadOnlyCache
 import markorv.cache.CacheReadWarpper
 import markorv.cache.CacheReadWriteWarpper
 
-class MarkoRvCore extends Module {
+class MarkoRvCore(init_mem: String = "/home/marko1616/marko-riscv/tests/function.hex") extends Module {
     val io = IO(new Bundle {
         val pc = Output(UInt(64.W))
         val instr_now = Output(UInt(64.W))
         val peek = Output(UInt(64.W))
     })
 
-    val mem = Module(new Memory(64, 64, 4096))
+    val mem = Module(new Memory(init_mem, 64, 64, 4096))
     val instr_cache = Module(new ReadOnlyCache(32, 4, 16, 64))
     val instr_cache_read_warpper = Module(new CacheReadWarpper(32, 4, 16))
 
@@ -152,6 +152,7 @@ class MarkoRvCore extends Module {
 object MarkoRvCore extends App {
     ChiselStage.emitSystemVerilogFile(
         new MarkoRvCore,
-        firtoolOpts = Array("-disable-all-randomization", "-strip-debug-info")
+        Array("--target-dir", "generated"),
+        Array("--strip-debug-info")
     )
 }

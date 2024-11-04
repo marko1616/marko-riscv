@@ -2,6 +2,7 @@ package markorv.memory
 
 import chisel3._
 import chisel3.util._
+import chisel3.util.experimental.loadMemoryFromFileInline
 
 class MemoryIO(data_width: Int, addr_width: Int) extends Bundle {
     val read_addr = Flipped(Decoupled(UInt(addr_width.W)))
@@ -14,7 +15,7 @@ class MemoryIO(data_width: Int, addr_width: Int) extends Bundle {
     val write_outfire = Output(Bool())
 }
 
-class Memory(data_width: Int = 64, addr_width: Int = 64, size: Int = 128)
+class Memory(init_mem: String = "", data_width: Int = 64, addr_width: Int = 64, size: Int = 128)
     extends Module {
     val io = IO(new Bundle {
         val port1 = new MemoryIO(data_width, addr_width)
@@ -22,66 +23,9 @@ class Memory(data_width: Int = 64, addr_width: Int = 64, size: Int = 128)
         val peek = Output(UInt(data_width.W))
     })
 
-    // Use SyncReadMem instead of Mem
     val mem = SyncReadMem(size, UInt(8.W))
-
-    // Initialize the memory with initial values
-    val init_values = Seq(
-"h40000513".U(32.W), //0x0
-"h40a03023".U(32.W), //0x4
-"h3f800513".U(32.W), //0x8
-"h3ea03c23".U(32.W), //0xc
-"h3f000513".U(32.W), //0x10
-"h3ea03823".U(32.W), //0x14
-"h3e800513".U(32.W), //0x18
-"h3ea03423".U(32.W), //0x1c
-"h3e000513".U(32.W), //0x20
-"h3ea03023".U(32.W), //0x24
-"h3d800513".U(32.W), //0x28
-"h3ca03c23".U(32.W), //0x2c
-"h3d000513".U(32.W), //0x30
-"h3ca03823".U(32.W), //0x34
-"h3c800513".U(32.W), //0x38
-"h3ca03423".U(32.W), //0x3c
-"h3c000513".U(32.W), //0x40
-"h3ca03023".U(32.W), //0x44
-"h3b800513".U(32.W), //0x48
-"h3aa03c23".U(32.W), //0x4c
-"h3b000513".U(32.W), //0x50
-"h3aa03823".U(32.W), //0x54
-"h3a800513".U(32.W), //0x58
-"h3aa03423".U(32.W), //0x5c
-"h3a000513".U(32.W), //0x60
-"h3aa03023".U(32.W), //0x64
-"h39800513".U(32.W), //0x68
-"h38a03c23".U(32.W), //0x6c
-"h39000513".U(32.W), //0x70
-"h38a03823".U(32.W), //0x74
-"h38800513".U(32.W), //0x78
-"h38a03423".U(32.W), //0x7c
-"h40003503".U(32.W), //0x80
-"h3f803503".U(32.W), //0x84
-"h3f003503".U(32.W), //0x88
-"h3e803503".U(32.W), //0x8c
-"h3e003503".U(32.W), //0x90
-"h3d803503".U(32.W), //0x94
-"h3d003503".U(32.W), //0x98
-"h3c803503".U(32.W), //0x9c
-"h3c003503".U(32.W), //0xa0
-"h3b803503".U(32.W), //0xa4
-"h3b003503".U(32.W), //0xa8
-"h3a803503".U(32.W), //0xac
-"h3a003503".U(32.W), //0xb0
-"h39803503".U(32.W), //0xb4
-"h39003503".U(32.W), //0xb8
-"h38803503".U(32.W), //0xbc
-    )
-
-    // Little endian initialization
-    for (i <- 0 until init_values.length) {
-        for (j <- 0 until 4) {
-            mem.write((i * 4 + j).U, (init_values(i) >> (j * 8))(7, 0))
-        }
+    if (init_mem.trim().nonEmpty) {
+        loadMemoryFromFileInline(mem, init_mem)
     }
 
     // Arbiter to manage access between two ports
