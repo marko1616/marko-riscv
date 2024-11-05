@@ -5,7 +5,9 @@ import chisel3.util._
 import _root_.circt.stage.ChiselStage
 
 import markorv._
-import markorv.memory._
+import markorv.io._
+import markorv.frontend._
+import markorv.backend._
 import markorv.cache.Cache
 import markorv.cache.CacheLine
 import markorv.cache.ReadOnlyCache

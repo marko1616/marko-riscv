@@ -1,7 +1,9 @@
-package markorv
+package markorv.frontend
 
 import chisel3._
 import chisel3.util._
+
+import markorv.frontend._
 
 class BranchPredUnit extends Module {
     val io = IO(new Bundle {

@@ -1,9 +1,9 @@
-package markorv
+package markorv.frontend
 
 import chisel3._
 import chisel3.util._
 
-import markorv.BranchPredUnit
+import markorv.frontend._
 import markorv.cache.CacheLine
 
 class FetchQueueEntities extends Bundle {

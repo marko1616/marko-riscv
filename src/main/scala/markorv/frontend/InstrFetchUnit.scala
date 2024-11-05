@@ -1,9 +1,9 @@
-package markorv
+package markorv.frontend
 
 import chisel3._
 import chisel3.util._
 
-import markorv.FetchQueueEntities
+import markorv.frontend._
 
 class InstrIPBundle extends Bundle {
     val instr = Output(UInt(32.W))

@@ -1,9 +1,10 @@
-package markorv
+package markorv.backend
 
 import chisel3._
 import chisel3.util._
 
-import markorv.DecoderOutParams
+import markorv.frontend.DecoderOutParams
+import markorv.backend._
 
 class ArithmeticLogicUnit extends Module {
     val io = IO(new Bundle {

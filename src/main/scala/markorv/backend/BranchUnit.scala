@@ -1,7 +1,10 @@
-package markorv
+package markorv.backend
 
 import chisel3._
 import chisel3.util._
+
+import markorv.frontend.DecoderOutParams
+import markorv.backend._
 
 class BranchUnit extends Module {
     val io = IO(new Bundle {

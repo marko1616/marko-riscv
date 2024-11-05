@@ -1,9 +1,9 @@
-package markorv
+package markorv.frontend
 
 import chisel3._
 import chisel3.util._
 
-import markorv.InstrIPBundle
+import markorv.frontend._
 
 class DecoderOutParams(data_width: Int = 64) extends Bundle {
     val immediate = UInt(data_width.W)

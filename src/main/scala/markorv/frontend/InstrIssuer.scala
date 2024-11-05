@@ -1,9 +1,9 @@
-package markorv
+package markorv.frontend
 
 import chisel3._
 import chisel3.util._
 
-import markorv.IssueTask
+import markorv.frontend._
 
 class InstrIssueUnit extends Module {
     val io = IO(new Bundle {

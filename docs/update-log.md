@@ -1,6 +1,7 @@
 🛠️ **Next version** 🛠️
 
 * 🛠️ Fix: outfire signal at instruction issuer.
+* ✅ Feat: Remove LSU state machine.
 * ✅ Feat: Better build and compile implementation.
 * ✅ Feat: Custom cpp & verilator based test workflow.
 
