@@ -175,11 +175,11 @@ class Cache(
                 }
                 temp_cache_line.data := Cat(next_cache_line.reverse)
 
-                read_ptr := read_ptr + (1 << log2Ceil(upstream_n_bytes)).U
                 when(read_ptr === max_ptr) {
                     // Make sure wont replace the same
                     state := State.stat_replace
                 }
+                read_ptr := read_ptr + (1 << log2Ceil(upstream_n_bytes)).U
             }
         }
         is(State.stat_write_upstream) {
@@ -192,10 +192,6 @@ class Cache(
                 }
             }
 
-            when(io.upstream_write_outfire) {
-                write_ptr := write_ptr + (1 << log2Ceil(upstream_n_bytes)).U
-            }
-
             when(write_ptr === max_ptr) {
                 temp_cache_line.data := 0.U
                 temp_cache_line.tag := 0.U
@@ -203,6 +199,10 @@ class Cache(
                 temp_cache_line.dirty := false.B
 
                 state := State.stat_idle
+            }
+
+            when(io.upstream_write_outfire) {
+                write_ptr := write_ptr + (1 << log2Ceil(upstream_n_bytes)).U
             }
         }
         is(State.stat_replace) {

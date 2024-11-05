@@ -125,7 +125,6 @@ class ReadOnlyCache(
                 }
                 temp_cache_line.data := Cat(next_cache_line.reverse)
 
-                read_ptr := read_ptr + (1 << log2Ceil(upstream_bandwidth / 8)).U
                 when(
                   read_ptr === (1 << (log2Ceil(
                     ((8 * n_byte / upstream_bandwidth) * upstream_bandwidth / 8) - upstream_bandwidth / 8
@@ -134,6 +133,7 @@ class ReadOnlyCache(
                     // Make sure wont replace the same
                     state := State.stat_replace
                 }
+                read_ptr := read_ptr + (1 << log2Ceil(upstream_bandwidth / 8)).U
             }
         }
         is(State.stat_replace) {

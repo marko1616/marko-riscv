@@ -157,6 +157,6 @@ object MarkoRvCore extends App {
     ChiselStage.emitSystemVerilogFile(
         new MarkoRvCore,
         Array("--target-dir", "generated"),
-        Array("--strip-debug-info")
+        Array("-disable-all-randomization", "--strip-debug-info")
     )
 }

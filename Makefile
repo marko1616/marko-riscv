@@ -1,28 +1,31 @@
-AS = riscv64-unknown-elf-as
-OBJCOPY = riscv64-unknown-elf-objcopy
-XXD = xxd
-FOLD = fold
-AWK = awk
-TR = tr
+# Tools
+AS        = riscv64-unknown-elf-as
+OBJCOPY   = riscv64-unknown-elf-objcopy
+XXD       = xxd
+FOLD      = fold
+AWK       = awk
+TR        = tr
 
-TEST_DIR = tests
-ASM_SRCS = $(shell find $(TEST_DIR) -name '*.S')
-OBJS = $(ASM_SRCS:.S=.o)
-BINS = $(OBJS:.o=.bin)
-HEXES = $(BINS:.bin=.hex)
+# Directories and Files
+ASM_TEST_DIR = tests/asmtst
+ASM_SRCS     = $(shell find $(ASM_TEST_DIR) -name '*.S')
+OBJS         = $(ASM_SRCS:.S=.o)
+BINS         = $(OBJS:.o=.bin)
+HEXES        = $(BINS:.bin=.hex)
 
-init:
-	wget https://github.com/com-lihaoyi/mill/releases/download/0.12.1/0.12.1 -O ./mill
-	chmod +x ./mill
+# Targets
+.PHONY: compile emu gen-tests clean
 
 compile:
-	./mill -i markorv.runMain markorv.MarkoRvCore
+	mill -i markorv.runMain markorv.MarkoRvCore
 
 emu:
-	./mill markorv.test
+	mill -i markorv.runMain markorv.MarkoRvCore
+	verilator --cc generated/MarkoRvCore.sv --exe tests/emulator/stimulus.cpp --build -CFLAGS "-g"
 
 gen-tests: $(HEXES)
 
+# Rules
 %.o: %.S
 	$(AS) -o $@ $<
 
