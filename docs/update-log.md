@@ -2,6 +2,7 @@
 
 * 🛠️ Fix: outfire signal at instruction issuer.
 * ✅ Feat: Better build and compile implementation.
+* ✅ Feat: Custom cpp & verilator based test workflow.
 
 🎉 **Version 0.1 Released!** 🎉
 

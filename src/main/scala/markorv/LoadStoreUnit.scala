@@ -53,18 +53,13 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
         val debug_peek = Output(UInt(64.W))
     })
 
-    // State def
-    object State extends ChiselEnum {
-        val stat_idle, stat_load, stat_store, stat_writeback = Value
-    }
-    val state = RegInit(State.stat_idle)
-
-    // Register def
-    val opcode = Reg(UInt(5.W))
-    val params = Reg(new DecoderOutParams(data_width))
-    val load_data = Reg(UInt(data_width.W))
-
+    // Alias
+    val opcode = io.lsu_instr.bits.lsu_opcode
+    val params = io.lsu_instr.bits.params
     val write_req = io.write_req.bits
+
+    val op_fired = Wire(Bool())
+    val load_data = Wire(UInt(data_width.W))
 
     io.debug_peek := io.lsu_instr.valid
 
@@ -85,43 +80,28 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     io.write_back.bits.reg := 0.U(5.W)
 
     io.outfire := false.B
+    op_fired := false.B
+    load_data := 0.U
 
-    switch(state) {
-        is(State.stat_idle) {
-            val next_state = WireInit(State.stat_idle)
-            next_state := Mux(io.lsu_instr.bits.lsu_opcode(4), State.stat_store, State.stat_load)
-            when(io.lsu_instr.valid) {
-                opcode := io.lsu_instr.bits.lsu_opcode
-                params := io.lsu_instr.bits.params
-                state := next_state
-            }.otherwise {
-                io.lsu_instr.ready := io.write_back.ready
-            }
-        }
+    when(!io.lsu_instr.valid) {
+        io.lsu_instr.ready := io.write_back.ready
+    }
 
-        is(State.stat_load) {
-            // TODO This func is replace by ALU. Replace in next commit.
-            val is_immediate = opcode(3)
+    when(io.lsu_instr.valid && io.write_back.ready) {
+        when(opcode(4) === 0.U) {
             val is_signed = !opcode(2)
             val size = opcode(1, 0)
 
-            when(is_immediate) {
-                load_data := params.immediate.asUInt
-                state := State.stat_writeback
-            }.otherwise {
-                io.read_req.bits.size := size
-                io.read_req.bits.addr := params.source1.asUInt + params.immediate.asUInt
-                io.read_req.bits.sign := is_signed
-                io.read_req.valid := true.B
-                io.read_data.ready := true.B
-                when(io.read_data.valid) {
-                    load_data := io.read_data.bits
-                    state := State.stat_writeback
-                }
+            io.read_req.bits.size := size
+            io.read_req.bits.addr := params.source1.asUInt + params.immediate.asUInt
+            io.read_req.bits.sign := is_signed
+            io.read_req.valid := true.B
+            io.read_data.ready := true.B
+            when(io.read_data.valid) {
+                op_fired := true.B
+                load_data := io.read_data.bits
             }
-        }
-
-        is(State.stat_store) {
+        }.otherwise {
             val size = opcode(1, 0)
             val store_data = params.source2.asUInt
 
@@ -137,21 +117,25 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 // size === 3.U is the default case (raw_data)
               )
             )
-
+            
             when(io.write_outfire) {
-                io.outfire := true.B
-                state := State.stat_idle
+                op_fired := true.B
             }
         }
+    }
 
-        is(State.stat_writeback) {
+    when(op_fired) {
+        when(opcode(4) === 0.U) {
             when(io.write_back.ready) {
                 io.outfire := true.B
+                io.lsu_instr.ready := true.B
                 io.write_back.valid := true.B
                 io.write_back.bits.data := load_data
                 io.write_back.bits.reg := params.rd
-                state := State.stat_idle
             }
+        }.otherwise {
+            io.outfire := true.B
+            io.lsu_instr.ready := true.B
         }
     }
 }
