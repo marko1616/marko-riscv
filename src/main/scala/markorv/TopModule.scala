@@ -61,8 +61,8 @@ class MarkoRvCore extends Module {
     instr_fetch_queue.io.read_req <> instr_cache_read_warpper.io.read_req
     instr_fetch_queue.io.read_data <> instr_cache_read_warpper.io.read_data
     instr_fetch_queue.io.pc <> instr_fetch_unit.io.peek_pc
-    instr_fetch_queue.io.reg_read <> register_file.io.read_addr3
-    instr_fetch_queue.io.reg_data <> register_file.io.read_data3
+    instr_fetch_queue.io.reg_read <> register_file.io.read_addrs(2)
+    instr_fetch_queue.io.reg_data <> register_file.io.read_datas(2)
 
     io.memio <> mem.io.outer
 
@@ -74,13 +74,13 @@ class MarkoRvCore extends Module {
     io.pc <> instr_fetch_unit.io.instr_bundle.bits.pc
     io.instr_now <> instr_fetch_unit.io.instr_bundle.bits.instr
 
-    register_file.io.read_addr4 := 10.U
-    io.peek <> register_file.io.read_data4
+    register_file.io.read_addrs(3) := 10.U
+    io.peek <> register_file.io.read_datas(3)
 
-    instr_issuer.io.reg_read1 <> register_file.io.read_addr1
-    instr_issuer.io.reg_read2 <> register_file.io.read_addr2
-    instr_issuer.io.reg_data1 <> register_file.io.read_data1
-    instr_issuer.io.reg_data2 <> register_file.io.read_data2
+    instr_issuer.io.reg_read1 <> register_file.io.read_addrs(0)
+    instr_issuer.io.reg_read2 <> register_file.io.read_addrs(1)
+    instr_issuer.io.reg_data1 <> register_file.io.read_datas(0)
+    instr_issuer.io.reg_data2 <> register_file.io.read_datas(1)
     instr_issuer.io.occupied_regs <> register_file.io.peek_occupied
     instr_issuer.io.acquire_reg <> register_file.io.acquire_reg
     instr_issuer.io.acquired <> register_file.io.acquired
@@ -137,20 +137,20 @@ class MarkoRvCore extends Module {
     // Write Back
     PipelineConnect(
         load_store_unit.io.write_back,
-        write_back.io.write_back1,
-        write_back.io.outfire1,
+        write_back.io.write_backs(0),
+        write_back.io.outfires(0),
         branch_unit.io.flush
     )
     PipelineConnect(
         arithmetic_logic_unit.io.write_back,
-        write_back.io.write_back2,
-        write_back.io.outfire2,
+        write_back.io.write_backs(1),
+        write_back.io.outfires(1),
         branch_unit.io.flush
     )
     PipelineConnect(
         branch_unit.io.write_back,
-        write_back.io.write_back3,
-        write_back.io.outfire3,
+        write_back.io.write_backs(2),
+        write_back.io.outfires(2),
         branch_unit.io.flush
     )
 }

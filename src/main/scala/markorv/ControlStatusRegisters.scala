@@ -10,6 +10,7 @@ class ControlStatusRegisters extends Module {
 
         val read_data = Output(UInt(64.W))
         val write_data = Input(UInt(64.W))
+        val write_mask = Input(UInt(64.W))
     })
     // While read write simultaneously shuould return old value.
 

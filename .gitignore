@@ -349,3 +349,6 @@ obj_dir/
 
 # Build tool
 mill
+
+# Submodules
+libs/*

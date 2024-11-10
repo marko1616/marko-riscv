@@ -8,6 +8,7 @@ TR        = tr
 
 # Directories and Files
 ASM_TEST_DIR = tests/asmtst
+CAPSTONE_DIR = $(shell realpath libs/capstone)
 ASM_SRCS     = $(shell find $(ASM_TEST_DIR) -name '*.S')
 OBJS         = $(ASM_SRCS:.S=.o)
 BINS         = $(OBJS:.o=.bin)
@@ -21,7 +22,9 @@ compile:
 
 emu:
 	mill -i markorv.runMain markorv.MarkoRvCore
-	verilator --cc generated/MarkoRvCore.sv --exe tests/emulator/stimulus.cpp --build -CFLAGS "-g"
+	verilator --cc generated/MarkoRvCore.sv --exe tests/emulator/stimulus.cpp --build \
+		-CFLAGS  "-g -I$(CAPSTONE_DIR)/include" \
+		-LDFLAGS "-L$(CAPSTONE_DIR) -lcapstone"
 
 gen-tests: $(HEXES)
 

@@ -5,14 +5,8 @@ import chisel3.util._
 
 class RegFile(data_width: Int = 64) extends Module {
     val io = IO(new Bundle {
-        val read_addr1 = Input(UInt(5.W))
-        val read_addr2 = Input(UInt(5.W))
-        val read_addr3 = Input(UInt(5.W))
-        val read_addr4 = Input(UInt(5.W))
-        val read_data1 = Output(UInt(data_width.W))
-        val read_data2 = Output(UInt(data_width.W))
-        val read_data3 = Output(UInt(data_width.W))
-        val read_data4 = Output(UInt(data_width.W))
+        val read_addrs = Vec(4, Input(UInt(5.W)))
+        val read_datas = Vec(4, Output(UInt(data_width.W)))
 
         val write_addr = Input(UInt(5.W))
         val write_data = Input(UInt(data_width.W))
@@ -38,27 +32,10 @@ class RegFile(data_width: Int = 64) extends Module {
         reg_acquire_flags_next := reg_acquire_flags
     }
 
-    // Read data
-    when(io.write_addr === io.read_addr1) {
-        io.read_data1 := io.write_data
-    }.otherwise {
-        io.read_data1 := Mux(io.read_addr1 === 0.U, 0.U, regs(io.read_addr1))
-    }
-    when(io.write_addr === io.read_addr2) {
-        io.read_data2 := io.write_data
-    }.otherwise {
-        io.read_data2 := Mux(io.read_addr2 === 0.U, 0.U, regs(io.read_addr2))
-    }
-    when(io.write_addr === io.read_addr3) {
-        io.read_data3 := io.write_data
-    }.otherwise {
-        io.read_data3 := Mux(io.read_addr3 === 0.U, 0.U, regs(io.read_addr3))
-    }
-    // Debug port
-    when(io.write_addr === io.read_addr4) {
-        io.read_data4 := io.write_data
-    }.otherwise {
-        io.read_data4 := Mux(io.read_addr4 === 0.U, 0.U, regs(io.read_addr4))
+    for (i <- 0 until 4) {
+        io.read_datas(i) := Mux(io.write_addr === io.read_addrs(i), 
+                               io.write_data, 
+                               Mux(io.read_addrs(i) === 0.U, 0.U, regs(io.read_addrs(i))))
     }
     io.peek_occupied := reg_acquire_flags_next
 

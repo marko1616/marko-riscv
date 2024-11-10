@@ -1,6 +1,9 @@
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <memory>
+
+#include <capstone/capstone.h>
 
 #include "markorv_core.h"
 
@@ -8,6 +11,8 @@
 #define RAM_SIZE 4096
 
 static uint8_t ram[RAM_SIZE] = {0};
+
+csh capstone_handle;
 
 int init_ram(std::string file_path) {
     std::ifstream file(file_path);
@@ -19,8 +24,8 @@ int init_ram(std::string file_path) {
 
     uint64_t addr = 0;
     uint64_t data = 0;
+    uint64_t length;
     std::string line;
-    std::size_t length;
     while (std::getline(file, line)) {
         length = line.length();
         try {
@@ -52,6 +57,31 @@ int init_ram(std::string file_path) {
     return 0;
 }
 
+void print_cycle(uint64_t cycle, uint64_t pc, uint64_t raw_instr, uint64_t peek) {
+    uint8_t raw_code[4] = {0};
+    std::cout << std::hex   << std::setfill('0')
+              << "Cycle: "  << std::setw(4) << cycle
+              << " PC: "    << std::setw(16) << pc
+              << " Instr: " << std::setw(8) << raw_instr
+              << " Peek: "  << std::setw(4) << peek
+              << " Asm: ";
+    for(int i=0;i<4;i++){
+        raw_code[i] = static_cast<uint8_t>(raw_instr >> 8*i);
+    }
+
+    cs_insn *instr;
+    uint64_t count;
+    count = cs_disasm(capstone_handle, raw_code, 4, pc, 0, &instr);
+	if (count > 0) {
+		for (int i = 0;i<count;i++) {
+			std::cout << instr[i].mnemonic << " " << instr[i].op_str << std::endl;
+		}
+		cs_free(instr, count);
+	} else {
+		std::cout << "invalid" << std::endl;
+    }
+}
+
 int main(int argc, char **argv, char **env)
 {
     Verilated::commandArgs(argc, argv);
@@ -68,10 +98,15 @@ int main(int argc, char **argv, char **env)
         return 1;
     }
 
-    // Init values.
-    std::cout << std::hex;
+    // Init.
+    std::cout << std::hex << std::setfill('0');
     top->clock = 0;
     top->reset = 0;
+
+    // RV64G only not for C extension.
+    if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64, &capstone_handle) != CS_ERR_OK) {
+        std::cout << "Capstone engine failed to init." << std::endl;
+    }
 
     // Main loop
     uint64_t clock_cnt = 0;
@@ -85,11 +120,7 @@ int main(int argc, char **argv, char **env)
         top->clock = 1;
         top->eval();
         // Debug out
-        std::cout << "Cycle: " << clock_cnt 
-                << " PC: " << top->io_pc 
-                << " Instr: " << top->io_instr_now 
-                << " Peek: " << top->io_peek 
-                << std::endl;
+        print_cycle(clock_cnt, top->io_pc, top->io_instr_now, top->io_peek);
 
         // Negedge clk
         context->timeInc(1);
