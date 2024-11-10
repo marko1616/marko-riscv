@@ -4,6 +4,7 @@
 * ✅ Feat: Remove LSU state machine.
 * ✅ Feat: Better build and compile implementation.
 * ✅ Feat: Custom cpp & verilator based test workflow.
+* 📚 Docs: Added readme.
 
 🎉 **Version 0.1 Released!** 🎉
 
