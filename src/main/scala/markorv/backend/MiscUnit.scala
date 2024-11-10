@@ -3,6 +3,8 @@ package markorv.backend
 import chisel3._
 import chisel3.util._
 
+import markorv.frontend.DecoderOutParams
+
 class MiscUnit extends Module {
     val io = IO(new Bundle {
         // misc_opcode encoding:
@@ -21,6 +23,4 @@ class MiscUnit extends Module {
             val data = Input(UInt(64.W))
         })
     })
-
-    
 }

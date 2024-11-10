@@ -14,7 +14,7 @@ import markorv.cache.ReadOnlyCache
 import markorv.cache.CacheReadWarpper
 import markorv.cache.CacheReadWriteWarpper
 
-class MarkoRvCore(init_mem: String = "/home/marko1616/marko-riscv/tests/function.hex") extends Module {
+class MarkoRvCore extends Module {
     val io = IO(new Bundle {
         val memio = Flipped(new MemoryIO(64, 64))
 

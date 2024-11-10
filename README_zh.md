@@ -33,11 +33,11 @@
     ```
 
 2. **安装构建工具**
-    - [安装 mill 0.12.1](https://mill-build.org/mill/0.12.1/index.html)
+    - *安装 mill 0.11.5*
     推荐执行下列命令
     ```bash
-    curl -L https://github.com/com-lihaoyi/mill/releases/download/0.12.1/0.12.1 > mill && chmod +x mill
-    export PATH="$(pwd):/$PATH" #每次执行都需要添加。或者你可以修改你的bashrc等。
+    curl -L https://github.com/com-lihaoyi/mill/releases/download/0.11.5/0.11.5 > mill && chmod +x mill
+    export PATH="$(pwd):/$PATH" # 每次执行都需要添加。或者你可以修改你的bashrc等。
     ```
 
 3. **执行 Makefile 选项**

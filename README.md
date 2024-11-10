@@ -33,10 +33,10 @@ Check the [docs](./docs) folder for detailed architecture information and update
     ```
 
 2. **Install build tools**
-    - [Install mill 0.12.1](https://mill-build.org/mill/0.12.1/index.html)
+    - *Install mill 0.11.5*
     It is recommended to run the following commands:
     ```bash
-    curl -L https://github.com/com-lihaoyi/mill/releases/download/0.12.1/0.12.1 > mill && chmod +x mill
+    curl -L https://github.com/com-lihaoyi/mill/releases/download/0.11.5/0.11.5 > mill && chmod +x mill
     export PATH="$(pwd):/$PATH" # Needs to be added each time you run. Alternatively, modify your bashrc.
     ```
 

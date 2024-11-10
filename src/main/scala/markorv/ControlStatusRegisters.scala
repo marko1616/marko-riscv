@@ -3,7 +3,7 @@ package markorv
 import chisel3._
 import chisel3.util._
 
-class RegFile(data_width: Int = 64) extends Module {
+class ControlStatusRegisters extends Module {
     val io = IO(new Bundle {
         val read_addr = Input(UInt(12.W))
         val write_addr = Input(UInt(12.W))
