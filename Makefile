@@ -15,7 +15,11 @@ BINS         = $(OBJS:.o=.bin)
 HEXES        = $(BINS:.bin=.hex)
 
 # Targets
-.PHONY: compile emu gen-tests clean
+.PHONY: init compile emu gen-tests clean
+
+init:
+	git submodule update --init --recursive
+	make -C $(CAPSTONE_DIR) -j $(nproc)
 
 compile:
 	mill -i markorv.runMain markorv.MarkoRvCore

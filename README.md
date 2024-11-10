@@ -27,9 +27,10 @@ Please refer to [TODO.md](./TODO.md) for future update plans.
 Check the [docs](./docs) folder for detailed architecture information and update logs.
 
 ### Usage Instructions
-1. **Clone the project**
+1. **Clone and init the project**
     ```bash
     git clone https://github.com/marko1616/marko-riscv.git
+    make init
     ```
 
 2. **Install build tools**

@@ -27,9 +27,10 @@
 在 [docs](./docs) 文件夹中了解详细的架构与更新日志。
 
 ### 使用说明
-1. **克隆项目**
+1. **克隆并初始化项目**
     ```bash
     git clone https://github.com/marko1616/marko-riscv.git
+    make init
     ```
 
 2. **安装构建工具**

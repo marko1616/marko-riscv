@@ -60,11 +60,11 @@ int init_ram(std::string file_path) {
 void print_cycle(uint64_t cycle, uint64_t pc, uint64_t raw_instr, uint64_t peek) {
     uint8_t raw_code[4] = {0};
     std::cout << std::hex   << std::setfill('0')
-              << "Cycle: "  << std::setw(4) << cycle
-              << " PC: "    << std::setw(16) << pc
-              << " Instr: " << std::setw(8) << raw_instr
-              << " Peek: "  << std::setw(4) << peek
-              << " Asm: ";
+              << "Cycle: 0x"  << std::setw(4) << cycle << " "
+              << "PC: 0x"    << std::setw(16) << pc << " "
+              << "Instr: 0x" << std::setw(8) << raw_instr << " "
+              << "Peek: 0x"  << std::setw(4) << peek << " "
+              << "Asm: ";
     for(int i=0;i<4;i++){
         raw_code[i] = static_cast<uint8_t>(raw_instr >> 8*i);
     }
