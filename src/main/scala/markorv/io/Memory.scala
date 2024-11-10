@@ -48,7 +48,6 @@ class MemoryCtrl(data_width: Int, addr_width: Int) extends Module {
     io.port2.write_req.ready := true.B
     io.port2.write_outfire := false.B
 
-
     when(port1_req && !port2_req) {
         io.outer.read_addr <> io.port1.read_addr
         io.outer.read_data <> io.port1.read_data

@@ -24,5 +24,4 @@ class MiscUnit extends Module {
         })
     })
 
-    
 }

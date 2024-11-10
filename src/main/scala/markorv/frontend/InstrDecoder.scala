@@ -41,7 +41,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     })
 
     val issue_task = Wire(new IssueTask)
-    
+
     val instr = Wire(UInt(32.W))
     val pc = Wire(UInt(64.W))
     val opcode = Wire(UInt(7.W))
@@ -50,7 +50,9 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val operate_unit = Wire(UInt(2.W))
     val params = Wire(new DecoderOutParams(data_width))
 
-    val reg_source_requests = WireDefault(0.U.asTypeOf(new RegisterSourceRequests(data_width)))
+    val reg_source_requests = WireDefault(
+      0.U.asTypeOf(new RegisterSourceRequests(data_width))
+    )
 
     instr := io.instr_bundle.bits.instr
     pc := io.instr_bundle.bits.pc
@@ -297,11 +299,11 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     }
 
     when(
-        valid_instr && io.instr_bundle.valid && io.issue_task.ready
+      valid_instr && io.instr_bundle.valid && io.issue_task.ready
     ) {
         issue_task.params := params
         issue_task.operate_unit := operate_unit
-        issue_task.reg_source_requests := reg_source_requests   
+        issue_task.reg_source_requests := reg_source_requests
         io.issue_task.valid := true.B
         io.issue_task.bits := issue_task
 

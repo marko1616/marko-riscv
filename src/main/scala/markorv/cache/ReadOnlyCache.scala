@@ -35,8 +35,7 @@ class ReadOnlyCache(
     val read_ptr = Reg(UInt(log2Ceil(n_byte).W))
 
     object State extends ChiselEnum {
-        val stat_idle, stat_look_up, stat_read_upstream,
-            stat_replace = Value
+        val stat_idle, stat_look_up, stat_read_upstream, stat_replace = Value
     }
     val state = RegInit(State.stat_idle)
 
@@ -103,7 +102,11 @@ class ReadOnlyCache(
         is(State.stat_read_upstream) {
             io.upstream_read_data.ready := true.B
             io.upstream_read_addr.valid := true.B
-            io.upstream_read_addr.bits := Cat(read_tag_reg, read_set_reg, read_ptr)
+            io.upstream_read_addr.bits := Cat(
+              read_tag_reg,
+              read_set_reg,
+              read_ptr
+            )
             when(io.upstream_read_data.valid) {
                 // Read upstream data
                 val next_cache_line = Wire(

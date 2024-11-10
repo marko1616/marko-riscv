@@ -3,7 +3,8 @@ package markorv.cache
 import chisel3._
 import chisel3.util._
 
-class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module {
+class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int)
+    extends Module {
     val io = IO(new Bundle {
         val read_req = Flipped(Decoupled(new Bundle {
             val size = UInt(2.W)
@@ -21,7 +22,8 @@ class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module 
         val write_outfire = Output(Bool())
 
         val read_cache_line_addr = Decoupled(UInt(64.W))
-        val read_cache_line = Flipped(Decoupled(new CacheLine(n_set, n_way, n_byte)))
+        val read_cache_line =
+            Flipped(Decoupled(new CacheLine(n_set, n_way, n_byte)))
 
         val cache_write_req = Decoupled(new Bundle {
             val addr = UInt(64.W)
@@ -47,7 +49,9 @@ class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module 
 
     io.cache_write_req.valid := false.B
     io.cache_write_req.bits.addr := 0.U
-    io.cache_write_req.bits.cache_line := 0.U.asTypeOf(new CacheLine(n_set, n_way, n_byte))
+    io.cache_write_req.bits.cache_line := 0.U.asTypeOf(
+      new CacheLine(n_set, n_way, n_byte)
+    )
 
     // Use 2 Cacheline buffer so that cant handle not well aligned address
     val cache_line_buff = Reg(Vec(2, new CacheLine(n_set, n_way, n_byte)))
@@ -73,9 +77,13 @@ class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module 
         cache_line_hit := false.B
 
         for (i <- 0 until 2) {
-            when(cache_line_addr(i) === (op_addr & cache_mask) && cache_line_buff(i).valid) {
+            when(
+              cache_line_addr(i) === (op_addr & cache_mask) && cache_line_buff(
+                i
+              ).valid
+            ) {
                 // Cacheline hit.
-                val data_offset = 8.U*op_addr(3,0)
+                val data_offset = 8.U * op_addr(3, 0)
                 cache_line_hit := true.B
                 when(io.read_req.valid) {
                     io.read_data.valid := true.B
@@ -85,13 +93,18 @@ class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module 
                 when(io.write_req.valid) {
                     val write_mask = Wire(UInt(128.W))
                     val write_n_bits = Wire(UInt(7.W))
-                    write_n_bits := 1.U(7.W) << (3.U(3.W) + io.write_req.bits.size)
+                    write_n_bits := 1
+                        .U(7.W) << (3.U(3.W) + io.write_req.bits.size)
                     write_mask := ~0.U(128.W) << write_n_bits
 
-                    val masked_cache_data = cache_line_buff(i).data & ~(~write_mask << data_offset)
-                    val masked_write_data = (io.write_req.bits.data.pad(128) & ~write_mask) << data_offset
+                    val masked_cache_data =
+                        cache_line_buff(i).data & ~(~write_mask << data_offset)
+                    val masked_write_data = (io.write_req.bits.data
+                        .pad(128) & ~write_mask) << data_offset
                     cache_line_buff(i).dirty := true.B
-                    cache_line_buff(i).data := masked_cache_data | masked_write_data
+                    cache_line_buff(
+                      i
+                    ).data := masked_cache_data | masked_write_data
                     io.write_outfire := true.B
                 }
             }
@@ -106,7 +119,9 @@ class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module 
             when(dirty) {
                 io.cache_write_req.valid := true.B
                 io.cache_write_req.bits.addr := cache_line_addr(cache_replace)
-                io.cache_write_req.bits.cache_line := cache_line_buff(cache_replace)
+                io.cache_write_req.bits.cache_line := cache_line_buff(
+                  cache_replace
+                )
             }
 
             when(io.cache_write_outfire) {
@@ -129,30 +144,30 @@ class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int) extends Module 
     }
 
     io.read_data.bits := MuxCase(
-        raw_data,
-        Seq(
-            (io.read_req.bits.size === 0.U) -> Mux(
-                io.read_req.bits.sign,
-                (raw_data(7, 0).asSInt
-                    .pad(64))
-                    .asUInt, // Sign extend byte
-                raw_data(7, 0).pad(64) // Zero extend byte
-            ),
-            (io.read_req.bits.size === 1.U) -> Mux(
-                io.read_req.bits.sign,
-                (raw_data(15, 0).asSInt
-                    .pad(64))
-                    .asUInt, // Sign extend halfword
-                raw_data(15, 0).pad(64) // Zero extend halfword
-            ),
-            (io.read_req.bits.size === 2.U) -> Mux(
-                io.read_req.bits.sign,
-                (raw_data(31, 0).asSInt
-                    .pad(64))
-                    .asUInt, // Sign extend word
-                raw_data(31, 0).pad(64) // Zero extend word
-            )
+      raw_data,
+      Seq(
+        (io.read_req.bits.size === 0.U) -> Mux(
+          io.read_req.bits.sign,
+          (raw_data(7, 0).asSInt
+              .pad(64))
+              .asUInt, // Sign extend byte
+          raw_data(7, 0).pad(64) // Zero extend byte
+        ),
+        (io.read_req.bits.size === 1.U) -> Mux(
+          io.read_req.bits.sign,
+          (raw_data(15, 0).asSInt
+              .pad(64))
+              .asUInt, // Sign extend halfword
+          raw_data(15, 0).pad(64) // Zero extend halfword
+        ),
+        (io.read_req.bits.size === 2.U) -> Mux(
+          io.read_req.bits.sign,
+          (raw_data(31, 0).asSInt
+              .pad(64))
+              .asUInt, // Sign extend word
+          raw_data(31, 0).pad(64) // Zero extend word
         )
+      )
     )
     // TODO: unaligned
 }

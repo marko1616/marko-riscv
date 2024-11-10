@@ -5,10 +5,13 @@ import chisel3.util._
 
 class WriteBack extends Module {
     val io = IO(new Bundle {
-        val write_backs = Vec(3, Flipped(Decoupled(new Bundle {
-            val reg = UInt(5.W)
-            val data = UInt(64.W)
-        })))
+        val write_backs = Vec(
+          3,
+          Flipped(Decoupled(new Bundle {
+              val reg = UInt(5.W)
+              val data = UInt(64.W)
+          }))
+        )
 
         val reg_write = Output(UInt(5.W))
         val write_data = Output(UInt(64.W))

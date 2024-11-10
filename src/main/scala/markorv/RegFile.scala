@@ -33,9 +33,11 @@ class RegFile(data_width: Int = 64) extends Module {
     }
 
     for (i <- 0 until 4) {
-        io.read_datas(i) := Mux(io.write_addr === io.read_addrs(i), 
-                               io.write_data, 
-                               Mux(io.read_addrs(i) === 0.U, 0.U, regs(io.read_addrs(i))))
+        io.read_datas(i) := Mux(
+          io.write_addr === io.read_addrs(i),
+          io.write_data,
+          Mux(io.read_addrs(i) === 0.U, 0.U, regs(io.read_addrs(i)))
+        )
     }
     io.peek_occupied := reg_acquire_flags_next
 

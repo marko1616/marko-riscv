@@ -85,8 +85,8 @@ class InstrFetchQueue(
 
         when(io.read_data.valid) {
             bpu.io.bpu_instr.pc := end_pc
-            bpu.io.bpu_instr.instr := io.read_data.bits(31,0)
-            instr_queue.io.enq.bits.instr := io.read_data.bits(31,0)
+            bpu.io.bpu_instr.instr := io.read_data.bits(31, 0)
+            instr_queue.io.enq.bits.instr := io.read_data.bits(31, 0)
             instr_queue.io.enq.bits.is_branch := bpu.io.bpu_result.is_branch
             instr_queue.io.enq.bits.pred_taken := bpu.io.bpu_result.pred_taken
             instr_queue.io.enq.bits.pred_pc := bpu.io.bpu_result.pred_pc

@@ -47,10 +47,14 @@ class BranchPredUnit extends Module {
         is("b1100111".U) {
             // jalr
             io.reg_read := io.bpu_instr.instr(19, 15)
-            
+
             io.bpu_result.is_branch := true.B
             io.bpu_result.pred_taken := true.B
-            io.bpu_result.pred_pc := (io.reg_data + io.bpu_instr.instr(19, 15).asSInt.pad(64).asUInt) & ~(1.U(64.W))
+            io.bpu_result.pred_pc := (io.reg_data + io.bpu_instr
+                .instr(19, 15)
+                .asSInt
+                .pad(64)
+                .asUInt) & ~(1.U(64.W))
             io.bpu_result.recovery_pc := io.bpu_instr.pc + 4.U
         }
         is("b1100011".U) {

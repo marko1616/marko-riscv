@@ -118,7 +118,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 // size === 3.U is the default case (raw_data)
               )
             )
-            
+
             when(io.write_outfire) {
                 op_fired := true.B
             }

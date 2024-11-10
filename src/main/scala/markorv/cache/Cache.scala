@@ -46,12 +46,15 @@ class Cache(
     val op_set_reg = Reg(UInt(set_width.W))
     val hit_index = Reg(UInt(log2Ceil(n_way).W))
 
-    val max_ptr = (1 << (log2Ceil(((8 * n_byte / upstream_bandwidth) * upstream_n_bytes) - upstream_n_bytes))).U
+    val max_ptr = (1 << (log2Ceil(
+      ((8 * n_byte / upstream_bandwidth) * upstream_n_bytes) - upstream_n_bytes
+    ))).U
     val read_ptr = Reg(UInt(log2Ceil(n_byte).W))
     val write_ptr = Reg(UInt(log2Ceil(n_byte).W))
 
     object State extends ChiselEnum {
-        val stat_idle, stat_look_up, stat_read_upstream, stat_write_upstream, stat_replace = Value
+        val stat_idle, stat_look_up, stat_read_upstream, stat_write_upstream,
+            stat_replace = Value
     }
     val state = RegInit(State.stat_idle)
     // 0 for read 1 for write
@@ -78,7 +81,8 @@ class Cache(
     when(io.read_addr.valid) {
         op_set := io.read_addr.bits(set_width + offset_width - 1, offset_width)
     }.otherwise {
-        op_set := io.write_req.bits.addr(set_width + offset_width - 1, offset_width)
+        op_set := io.write_req.bits
+            .addr(set_width + offset_width - 1, offset_width)
     }
     when(state =/= State.stat_replace) {
         op_cache_way := cache_mems.read(op_set)
@@ -105,7 +109,11 @@ class Cache(
             hit := false.B
 
             for (i <- 0 until n_way) {
-                when(op_cache_way.data(i).valid && op_cache_way.data(i).tag === op_tag_reg) {
+                when(
+                  op_cache_way
+                      .data(i)
+                      .valid && op_cache_way.data(i).tag === op_tag_reg
+                ) {
                     // Hit
                     next_cache_way.data(i) := op_cache_way.data(i)
                     hit_index := i.U
@@ -160,7 +168,10 @@ class Cache(
             when(io.upstream_read_data.valid) {
                 // Read upstream data
                 val next_cache_line = Wire(
-                  Vec((8 * n_byte) / upstream_bandwidth,UInt(upstream_bandwidth.W))
+                  Vec(
+                    (8 * n_byte) / upstream_bandwidth,
+                    UInt(upstream_bandwidth.W)
+                  )
                 )
 
                 for (i <- 0 until (8 * n_byte) / upstream_bandwidth) {
@@ -184,11 +195,18 @@ class Cache(
         }
         is(State.stat_write_upstream) {
             io.upstream_write_req.valid := true.B
-            io.upstream_write_req.bits.addr := Cat(temp_cache_line.tag, op_set_reg, write_ptr)
+            io.upstream_write_req.bits.addr := Cat(
+              temp_cache_line.tag,
+              op_set_reg,
+              write_ptr
+            )
             io.upstream_write_req.bits.data := temp_cache_line.data
             for (i <- 0 until (8 * n_byte) / upstream_bandwidth) {
                 when((i * upstream_n_bytes).U === write_ptr) {
-                    io.upstream_write_req.bits.data := temp_cache_line.data((i + 1) * upstream_bandwidth - 1,i * upstream_bandwidth)
+                    io.upstream_write_req.bits.data := temp_cache_line.data(
+                      (i + 1) * upstream_bandwidth - 1,
+                      i * upstream_bandwidth
+                    )
                 }
             }
 
@@ -213,7 +231,9 @@ class Cache(
                 when(i.U === replace_way) {
                     next_cache_way.data(i) := temp_cache_line
                     // reserved for write back
-                    when(op_cache_way.data(i).valid && op_cache_way.data(i).dirty) {
+                    when(
+                      op_cache_way.data(i).valid && op_cache_way.data(i).dirty
+                    ) {
                         write_ptr := 0.U
                         temp_cache_line := op_cache_way.data(i)
                         state := State.stat_write_upstream
