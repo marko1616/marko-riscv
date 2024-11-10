@@ -54,6 +54,7 @@ class RegFile(data_width: Int = 64) extends Module {
     }.otherwise {
         io.read_data3 := Mux(io.read_addr3 === 0.U, 0.U, regs(io.read_addr3))
     }
+    // Debug port
     when(io.write_addr === io.read_addr4) {
         io.read_data4 := io.write_data
     }.otherwise {
