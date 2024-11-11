@@ -24,6 +24,7 @@ class IssueTask extends Bundle {
     val operate_unit = UInt(2.W)
     val alu_opcode = UInt(5.W)
     val lsu_opcode = UInt(5.W)
+    val misc_opcode = UInt(5.W)
     val branch_opcode = UInt(5.W)
     val pred_taken = Bool()
     val pred_pc = UInt(64.W)
@@ -44,7 +45,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     val instr = Wire(UInt(32.W))
     val pc = Wire(UInt(64.W))
-    val opcode = Wire(UInt(7.W))
     val valid_instr = Wire(Bool())
     // 0 for alu 1 for lsu 2 for branch
     val operate_unit = Wire(UInt(2.W))
@@ -54,9 +54,28 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
       0.U.asTypeOf(new RegisterSourceRequests(data_width))
     )
 
+    val OP_LUI    = "b0110111".U
+    val OP_AUIPC  = "b0010111".U
+    val OP_IMM    = "b0010011".U
+    val OP_IMM32  = "b0011011".U
+    val OP        = "b0110011".U
+    val OP_32     = "b0111011".U
+    val OP_LOAD   = "b0000011".U
+    val OP_STOR   = "b0100011".U
+    val OP_JAL    = "b1101111".U
+    val OP_JALR   = "b1100111".U
+    val OP_BRANCH = "b1100011".U
+    val OP_SYSTEM = "b1110011".U
+
+    val opcode  = instr(6, 0)
+    val rd      = instr(11, 7)
+    val rs1     = instr(19, 15)
+    val rs2     = instr(24, 20)
+    val funct3  = instr(14, 12)
+    val funct7  = instr(31, 25)
+
     instr := io.instr_bundle.bits.instr
     pc := io.instr_bundle.bits.pc
-    opcode := instr(6, 0)
     valid_instr := false.B
     operate_unit := 0.U
 
@@ -75,45 +94,45 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     when(io.instr_bundle.valid) {
         switch(opcode) {
-            is("b0110111".U) {
+            is(OP_LUI) {
                 // lui
                 issue_task.alu_opcode := 1.U
                 params.source1 := (instr(31, 12) << 12).asSInt
                     .pad(64)
                     .asUInt
                 params.source2 := 0.U
-                params.rd := instr(11, 7)
+                params.rd := rd
 
                 valid_instr := true.B
                 operate_unit := 0.U
             }
-            is("b0010111".U) {
+            is(OP_AUIPC) {
                 // auipc
                 issue_task.alu_opcode := 1.U
                 params.source1 := (instr(31, 12) << 12).asSInt
                     .pad(64)
                     .asUInt
                 params.source2 := pc
-                params.rd := instr(11, 7)
+                params.rd := rd
 
                 valid_instr := true.B
                 operate_unit := 0.U
             }
-            is("b0010011".U) {
+            is(OP_IMM) {
                 // addi slti sltiu xori ori andi slli srli srai
-                when(instr(14, 12) === "b001".U) {
+                when(funct3 === "b001".U) {
                     // slli
                     issue_task.alu_opcode := "b00011".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
-                }.elsewhen(instr(14, 12) === "b101".U && instr(30)) {
+                }.elsewhen(funct3 === "b101".U && instr(30)) {
                     // srai
                     issue_task.alu_opcode := "b01011".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
-                }.elsewhen(instr(14, 12) === "b101".U) {
+                }.elsewhen(funct3 === "b101".U) {
                     // srli
                     issue_task.alu_opcode := "b01010".U
                     params.source2 := (instr(25, 20).asSInt
@@ -122,34 +141,34 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 }.otherwise {
                     issue_task.alu_opcode := Cat(
                       0.U(1.W),
-                      instr(14, 12),
+                      funct3,
                       1.U(1.W)
                     )
                     params.source2 := (instr(31, 20).asSInt
                         .pad(64))
                         .asUInt
                 }
-                reg_source_requests.source1 := instr(19, 15)
-                params.rd := instr(11, 7)
+                reg_source_requests.source1 := rs1
+                params.rd := rd
 
                 valid_instr := true.B
                 operate_unit := 0.U
             }
-            is("b0011011".U) {
+            is(OP_IMM32) {
                 // addiw slliw srliw sraiw
-                when(instr(14, 12) === "b001".U) {
+                when(funct3 === "b001".U) {
                     // slliw
                     issue_task.alu_opcode := "b10011".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
-                }.elsewhen(instr(14, 12) === "b101".U && instr(30)) {
+                }.elsewhen(funct3 === "b101".U && instr(30)) {
                     // sraiw
                     issue_task.alu_opcode := "b11011".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
-                }.elsewhen(instr(14, 12) === "b101".U) {
+                }.elsewhen(funct3 === "b101".U) {
                     // srliw
                     issue_task.alu_opcode := "b11010".U
                     params.source2 := (instr(25, 20).asSInt
@@ -158,142 +177,169 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 }.otherwise {
                     issue_task.alu_opcode := Cat(
                       1.U(1.W),
-                      instr(14, 12),
+                      funct3,
                       1.U(1.W)
                     )
                     params.source2 := (instr(31, 20).asSInt
                         .pad(64))
                         .asUInt
                 }
-                reg_source_requests.source1 := instr(19, 15)
-                params.rd := instr(11, 7)
+                reg_source_requests.source1 := rs1
+                params.rd := rd
 
                 valid_instr := true.B
                 operate_unit := 0.U
             }
-            is("b0110011".U) {
+            is(OP) {
                 // add sub slt sltu xor or and sll srl sra
-                when(instr(14, 12) === "b001".U) {
+                when(funct3 === "b001".U) {
                     // sll
                     issue_task.alu_opcode := "b00011".U
-                }.elsewhen(instr(14, 12) === "b101".U && instr(30)) {
+                }.elsewhen(funct3 === "b101".U && instr(30)) {
                     // sra
                     issue_task.alu_opcode := "b01011".U
-                }.elsewhen(instr(14, 12) === "b101".U) {
+                }.elsewhen(funct3 === "b101".U) {
                     // srl
                     issue_task.alu_opcode := "b01010".U
-                }.elsewhen(instr(14, 12) === "b000".U && instr(30)) {
+                }.elsewhen(funct3 === "b000".U && instr(30)) {
                     // sub
                     issue_task.alu_opcode := "b00000".U
                 }.otherwise {
                     issue_task.alu_opcode := Cat(
                       1.U(1.W),
-                      instr(14, 12),
+                      funct3,
                       1.U(1.W)
                     )
                 }
-                reg_source_requests.source1 := instr(19, 15)
-                reg_source_requests.source2 := instr(24, 20)
-                params.rd := instr(11, 7)
+                reg_source_requests.source1 := rs1
+                reg_source_requests.source2 := rs2
+                params.rd := rd
 
                 valid_instr := true.B
                 operate_unit := 0.U
             }
-            is("b0111011".U) {
+            is(OP_32) {
                 // addw subw sllw srlw sraw
-                when(instr(14, 12) === "b001".U) {
+                when(funct3 === "b001".U) {
                     // sllw
                     issue_task.alu_opcode := "b10011".U
-                }.elsewhen(instr(14, 12) === "b101".U && instr(30)) {
+                }.elsewhen(funct3 === "b101".U && instr(30)) {
                     // sraw
                     issue_task.alu_opcode := "b11011".U
-                }.elsewhen(instr(14, 12) === "b101".U) {
+                }.elsewhen(funct3 === "b101".U) {
                     // srlw
                     issue_task.alu_opcode := "b11010".U
-                }.elsewhen(instr(14, 12) === "b000".U && instr(30)) {
+                }.elsewhen(funct3 === "b000".U && instr(30)) {
                     // subw
                     issue_task.alu_opcode := "b10000".U
                 }.otherwise {
                     issue_task.alu_opcode := Cat(
                       1.U(1.W),
-                      instr(14, 12),
+                      funct3,
                       1.U(1.W)
                     )
                 }
-                reg_source_requests.source1 := instr(19, 15)
+                reg_source_requests.source1 := rs1
                 reg_source_requests.source1_read_word := true.B
-                reg_source_requests.source2 := instr(24, 20)
-                params.rd := instr(11, 7)
+                reg_source_requests.source2 := rs2
+                params.rd := rd
 
                 valid_instr := true.B
                 operate_unit := 0.U
             }
-            is("b0000011".U) {
+            is(OP_LOAD) {
                 // Load Memory
-                issue_task.lsu_opcode := Cat("b00".U, instr(14, 12))
+                issue_task.lsu_opcode := Cat("b00".U, funct3)
                 params.immediate := instr(31, 20).asSInt
                     .pad(64)
                     .asUInt
-                reg_source_requests.source1 := instr(19, 15)
+                reg_source_requests.source1 := rs1
                 params.source2 := 0.U(data_width.W)
-                params.rd := instr(11, 7)
+                params.rd := rd
 
                 valid_instr := true.B
                 operate_unit := 1.U
             }
-            is("b0100011".U) {
+            is(OP_STOR) {
                 // Store Memory
-                issue_task.lsu_opcode := Cat("b10".U, instr(14, 12))
+                issue_task.lsu_opcode := Cat("b10".U, funct3)
                 params.immediate := Cat(
                   instr(31, 25),
                   instr(11, 7)
                 ).asSInt.pad(64).asUInt
-                reg_source_requests.source1 := instr(19, 15)
-                reg_source_requests.source2 := instr(24, 20)
+                reg_source_requests.source1 := rs1
+                reg_source_requests.source2 := rs2
 
                 valid_instr := true.B
                 operate_unit := 1.U
             }
-            is("b1101111".U) {
+            is(OP_JAL) {
                 // jal
                 issue_task.branch_opcode := "b00001".U
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
                 issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
                 params.pc := pc
-                params.rd := instr(11, 7)
+                params.rd := rd
 
                 valid_instr := true.B
-                operate_unit := 2.U
+                operate_unit := 3.U
             }
-            is("b1100111".U) {
+            is(OP_JALR) {
                 // jalr
                 issue_task.branch_opcode := "b00011".U
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
                 issue_task.pred_pc := io.instr_bundle.bits.pred_pc
                 issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
                 params.pc := pc
-                params.rd := instr(11, 7)
+                params.rd := rd
 
-                reg_source_requests.source1 := instr(19, 15)
+                reg_source_requests.source1 := rs1
                 params.immediate := instr(31, 20).asSInt
                     .pad(64)
                     .asUInt
 
                 valid_instr := true.B
-                operate_unit := 2.U
+                operate_unit := 3.U
             }
-            is("b1100011".U) {
+            is(OP_BRANCH) {
                 // branch
-                issue_task.branch_opcode := Cat(0.U, instr(14, 12), 0.U)
+                issue_task.branch_opcode := Cat(0.U, funct3, 0.U)
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
                 issue_task.pred_pc := io.instr_bundle.bits.pred_pc
                 issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
 
-                reg_source_requests.source1 := instr(19, 15)
-                reg_source_requests.source2 := instr(24, 20)
+                reg_source_requests.source1 := rs1
+                reg_source_requests.source2 := rs2
 
                 valid_instr := true.B
-                operate_unit := 2.U
+                operate_unit := 3.U
+            }
+            is(OP_SYSTEM) {
+                // TODO ecall ebreak xret wfi sfence.vma
+                val func = funct3
+
+                when(func =/= 0.U) {
+                    val is_imm = func(2)
+
+                    // CSR addr.
+                    params.source2 := instr(31, 20)
+                    when(rs1 === 0.U && ~is_imm) {
+                        // Allow having write side effect.
+                        issue_task.misc_opcode := "b01000".U
+                    }.otherwise {
+                        issue_task.misc_opcode := "b00000".U
+                    }
+                    when(is_imm) {
+                        params.source1 := rs1.pad(64)
+                    }.otherwise {
+                        reg_source_requests.source1 := rs1
+                    }
+                    params.immediate := func & "b011".U
+                    params.rd := rd
+
+                    valid_instr := true.B
+                    operate_unit := 2.U
+                }
             }
         }
     }

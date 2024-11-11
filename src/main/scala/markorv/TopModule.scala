@@ -38,8 +38,11 @@ class MarkoRvCore extends Module {
     val load_store_unit = Module(new LoadStoreUnit)
     val arithmetic_logic_unit = Module(new ArithmeticLogicUnit)
     val branch_unit = Module(new BranchUnit)
+    val misc_unit = Module(new MiscUnit)
 
     val register_file = Module(new RegFile)
+    val csr_file = Module(new ControlStatusRegisters)
+
     val write_back = Module(new WriteBack)
 
     data_cache_warpper.io.cache_write_req <> data_cache.io.write_req
@@ -98,6 +101,7 @@ class MarkoRvCore extends Module {
     write_back.io.reg_write <> register_file.io.write_addr
     write_back.io.write_data <> register_file.io.write_data
 
+    csr_file.io.csrio <> misc_unit.io.csrio
     register_file.io.flush := branch_unit.io.flush
 
     // Main pipeline.
@@ -128,6 +132,12 @@ class MarkoRvCore extends Module {
       branch_unit.io.flush
     )
     PipelineConnect(
+      instr_issuer.io.misc_out,
+      misc_unit.io.misc_instr,
+      misc_unit.io.outfire,
+      branch_unit.io.flush
+    )
+    PipelineConnect(
       instr_issuer.io.branch_out,
       branch_unit.io.branch_instr,
       instr_issuer.io.outfire,
@@ -151,6 +161,12 @@ class MarkoRvCore extends Module {
       branch_unit.io.write_back,
       write_back.io.write_backs(2),
       write_back.io.outfires(2),
+      branch_unit.io.flush
+    )
+    PipelineConnect(
+      misc_unit.io.write_back,
+      write_back.io.write_backs(3),
+      write_back.io.outfires(3),
       branch_unit.io.flush
     )
 }

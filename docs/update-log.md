@@ -4,6 +4,7 @@
 * ✅ Feat: Remove LSU state machine.
 * ✅ Feat: Better build and compile implementation.
 * ✅ Feat: Custom cpp & verilator based test workflow.
+* ✅ Feat: Support for basic Zicsr.
 * 📚 Docs: Added readme.
 
 🎉 **Version 0.1 Released!** 🎉
@@ -17,8 +18,8 @@
 
 📝 **Previously Unlogged Updates** 📝
 
-* ✅ Feat: support for Immediate Instructions
-* ✅ Feat: support for Register-Register Instructions
-* ✅ Feat: support for Memory Instructions
-* ✅ Feat: support for Flow Control Instructions
+* ✅ Feat: Support for Immediate Instructions
+* ✅ Feat: Support for Register-Register Instructions
+* ✅ Feat: Support for Memory Instructions
+* ✅ Feat: Support for Flow Control Instructions
 * ✅ Feat: Implemented L1 Instruction Cache support

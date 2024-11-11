@@ -19,6 +19,11 @@ class InstrIssueUnit extends Module {
             val params = new DecoderOutParams(64)
         })
 
+        val misc_out = Decoupled(new Bundle {
+            val misc_opcode = UInt(5.W)
+            val params = new DecoderOutParams(64)
+        })
+
         val branch_out = Decoupled(new Bundle {
             val branch_opcode = UInt(5.W)
             val pred_taken = Bool()
@@ -45,16 +50,20 @@ class InstrIssueUnit extends Module {
     val occupied_reg = Wire(Bool())
     val exec_unit_ready = Wire(Bool())
     occupied_reg := false.B
-    exec_unit_ready := io.lsu_out.ready && io.alu_out.ready && io.branch_out.ready
+    // Force exec order.
+    exec_unit_ready := io.lsu_out.ready && io.alu_out.ready && io.branch_out.ready && io.misc_out.ready
 
     io.lsu_out.valid := false.B
     io.alu_out.valid := false.B
+    io.misc_out.valid := false.B
     io.branch_out.valid := false.B
 
     io.lsu_out.bits.lsu_opcode := 0.U
     io.lsu_out.bits.params := 0.U.asTypeOf(new DecoderOutParams(64))
     io.alu_out.bits.alu_opcode := 0.U
     io.alu_out.bits.params := 0.U.asTypeOf(new DecoderOutParams(64))
+    io.misc_out.bits.misc_opcode := 0.U
+    io.misc_out.bits.params := 0.U.asTypeOf(new DecoderOutParams(64)) 
     io.branch_out.bits.branch_opcode := 0.U
     io.branch_out.bits.pred_taken := false.B
     io.branch_out.bits.pred_pc := 0.U
@@ -101,6 +110,11 @@ class InstrIssueUnit extends Module {
             io.lsu_out.bits.lsu_opcode := io.issue_task.bits.lsu_opcode
             io.lsu_out.bits.params := params
         }.elsewhen(io.issue_task.bits.operate_unit === 2.U && io.acquired) {
+            io.outfire := true.B
+            io.misc_out.valid := true.B
+            io.misc_out.bits.misc_opcode := io.issue_task.bits.misc_opcode
+            io.misc_out.bits.params := params
+        }.elsewhen(io.issue_task.bits.operate_unit === 3.U && io.acquired) {
             io.outfire := true.B
             io.branch_out.valid := true.B
             io.branch_out.bits.branch_opcode := io.issue_task.bits.branch_opcode

@@ -5,9 +5,7 @@ import chisel3.util._
 
 class WriteBack extends Module {
     val io = IO(new Bundle {
-        val write_backs = Vec(
-          3,
-          Flipped(Decoupled(new Bundle {
+        val write_backs = Vec(4, Flipped(Decoupled(new Bundle {
               val reg = UInt(5.W)
               val data = UInt(64.W)
           }))
@@ -16,10 +14,10 @@ class WriteBack extends Module {
         val reg_write = Output(UInt(5.W))
         val write_data = Output(UInt(64.W))
 
-        val outfires = Vec(3, Output(Bool()))
+        val outfires = Vec(4, Output(Bool()))
     })
 
-    for (i <- 0 until 3) {
+    for (i <- 0 until 4) {
         io.write_backs(i).ready := true.B
         io.outfires(i) := true.B
     }
@@ -28,7 +26,7 @@ class WriteBack extends Module {
     io.write_data := 0.U
 
     // Impossible to write back multiple times in one cycle.
-    for (i <- 0 until 3) {
+    for (i <- 0 until 4) {
         when(io.write_backs(i).valid) {
             io.reg_write := io.write_backs(i).bits.reg
             io.write_data := io.write_backs(i).bits.data

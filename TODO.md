@@ -103,14 +103,14 @@
 </details>
 
 <details>
-<summary><strong> Zicsr Extension Instructions</strong></summary>
+<summary><strong> Zicsr Extension Instructions</strong>✅</summary>
 
-- [ ] csrrw
-- [ ] csrrs
-- [ ] csrrc
-- [ ] csrrwi
-- [ ] csrrsi
-- [ ] csrrci
+- [x] csrrw
+- [x] csrrs
+- [x] csrrc
+- [x] csrrwi
+- [x] csrrsi
+- [x] csrrci
 </details>
 
 <details>
