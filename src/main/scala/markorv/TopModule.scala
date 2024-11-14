@@ -21,6 +21,8 @@ class MarkoRvCore extends Module {
         val pc = Output(UInt(64.W))
         val instr_now = Output(UInt(64.W))
         val peek = Output(UInt(64.W))
+        val debug_async_flush = Input(Bool())
+        val debug_async_outfired = Output(Bool())
     })
 
     val mem = Module(new MemoryCtrl(64, 64))
@@ -53,10 +55,6 @@ class MarkoRvCore extends Module {
     instr_cache_read_warpper.io.read_cache_line_addr <> instr_cache.io.read_addr
     instr_cache_read_warpper.io.read_cache_line <> instr_cache.io.read_cache_line
 
-    instr_fetch_unit.io.pc_in <> branch_unit.io.rev_pc
-    instr_fetch_unit.io.set_pc <> branch_unit.io.flush
-    instr_fetch_unit.io.fetch_bundle <> instr_fetch_queue.io.fetch_bundle
-
     instr_cache.io.upstream_read_addr <> mem.io.port2.read_addr
     instr_cache.io.upstream_read_data <> mem.io.port2.read_data
 
@@ -67,18 +65,18 @@ class MarkoRvCore extends Module {
     instr_fetch_queue.io.reg_read <> register_file.io.read_addrs(2)
     instr_fetch_queue.io.reg_data <> register_file.io.read_datas(2)
 
+    instr_fetch_unit.io.invalid_drop <> instr_decoder.io.invalid_drop
+    instr_fetch_unit.io.pc_in <> branch_unit.io.rev_pc
+    instr_fetch_unit.io.flush <> branch_unit.io.flush
+    instr_fetch_unit.io.fetch_bundle <> instr_fetch_queue.io.fetch_bundle
+    instr_fetch_unit.io.hold_fire <> io.debug_async_flush
+
     io.memio <> mem.io.outer
 
     mem.io.port2.write_req.valid := false.B
     mem.io.port2.write_req.bits.size := 0.U
     mem.io.port2.write_req.bits.addr := 0.U
     mem.io.port2.write_req.bits.data := 0.U
-
-    io.pc <> instr_fetch_unit.io.instr_bundle.bits.pc
-    io.instr_now <> instr_fetch_unit.io.instr_bundle.bits.instr
-
-    register_file.io.read_addrs(3) := 10.U
-    io.peek <> register_file.io.read_datas(3)
 
     instr_issuer.io.reg_read1 <> register_file.io.read_addrs(0)
     instr_issuer.io.reg_read2 <> register_file.io.read_addrs(1)
@@ -103,6 +101,13 @@ class MarkoRvCore extends Module {
 
     csr_file.io.csrio <> misc_unit.io.csrio
     register_file.io.flush := branch_unit.io.flush
+  
+    io.pc <> instr_fetch_unit.io.instr_bundle.bits.pc
+    io.instr_now <> instr_fetch_unit.io.instr_bundle.bits.instr
+
+    register_file.io.read_addrs(3) := 10.U
+    io.peek <> instr_fetch_unit.io.peek_fetched
+    io.debug_async_outfired := instr_fetch_unit.io.peek_fetched === 0.U
 
     // Main pipeline.
     PipelineConnect(
@@ -119,10 +124,14 @@ class MarkoRvCore extends Module {
     )
 
     // Execute Units
+    instr_fetch_unit.io.exu_outfires(0) := arithmetic_logic_unit.io.outfire
+    instr_fetch_unit.io.exu_outfires(1) := load_store_unit.io.outfire
+    instr_fetch_unit.io.exu_outfires(2) := misc_unit.io.outfire
+    instr_fetch_unit.io.exu_outfires(3) := branch_unit.io.outfire
     PipelineConnect(
       instr_issuer.io.alu_out,
       arithmetic_logic_unit.io.alu_instr,
-      true.B,
+      arithmetic_logic_unit.io.outfire,
       branch_unit.io.flush
     )
     PipelineConnect(
@@ -140,7 +149,7 @@ class MarkoRvCore extends Module {
     PipelineConnect(
       instr_issuer.io.branch_out,
       branch_unit.io.branch_instr,
-      instr_issuer.io.outfire,
+      branch_unit.io.outfire,
       branch_unit.io.flush
     )
 

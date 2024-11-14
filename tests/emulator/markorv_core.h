@@ -38,6 +38,8 @@ class alignas(VL_CACHE_LINE_BYTES) VMarkoRvCore VL_NOT_FINAL : public VerilatedM
     VL_OUT8(&io_memio_write_req_valid,0,0);
     VL_OUT8(&io_memio_write_req_bits_size,1,0);
     VL_IN8(&io_memio_write_outfire,0,0);
+    VL_IN8(&io_debug_async_flush,0,0);
+    VL_OUT8(&io_debug_async_outfired,0,0);
     VL_OUT64(&io_memio_read_addr_bits,63,0);
     VL_IN64(&io_memio_read_data_bits,63,0);
     VL_OUT64(&io_memio_write_req_bits_addr,63,0);

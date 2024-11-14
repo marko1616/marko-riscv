@@ -41,7 +41,7 @@ class MiscUnit extends Module {
     io.csrio.write_addr := 0.U
     io.csrio.write_data := 0.U
 
-    io.outfire := true.B
+    io.outfire := false.B
     io.misc_instr.ready := true.B
     io.write_back.valid := false.B
     io.write_back.bits.reg := 0.U
@@ -79,6 +79,7 @@ class MiscUnit extends Module {
             io.write_back.valid := true.B
             io.write_back.bits.reg := params.rd
             io.write_back.bits.data := csr_data
+            io.outfire := true.B
         }
     }
 }

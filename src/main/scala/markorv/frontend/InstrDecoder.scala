@@ -38,6 +38,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
         val instr_bundle = Flipped(Decoupled(new InstrIPBundle))
         val issue_task = Decoupled(new IssueTask)
 
+        val invalid_drop = Output(Bool())
         val outfire = Output(Bool())
     })
 
@@ -81,6 +82,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     io.instr_bundle.ready := false.B
     io.outfire := false.B
+    io.invalid_drop := false.B
 
     io.issue_task.valid := false.B
     io.issue_task.bits := 0.U.asTypeOf(new IssueTask)
@@ -359,5 +361,9 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     when(!valid_instr) {
         io.instr_bundle.ready := io.issue_task.ready
+        when(io.instr_bundle.valid) {
+           io.invalid_drop := true.B
+           io.outfire := true.B
+        }
     }
 }

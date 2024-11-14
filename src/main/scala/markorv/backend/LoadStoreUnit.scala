@@ -127,13 +127,11 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     when(op_fired) {
         when(opcode(4) === 0.U) {
-            when(io.write_back.ready) {
-                io.outfire := true.B
-                io.lsu_instr.ready := true.B
-                io.write_back.valid := true.B
-                io.write_back.bits.data := load_data
-                io.write_back.bits.reg := params.rd
-            }
+            io.outfire := true.B
+            io.lsu_instr.ready := true.B
+            io.write_back.valid := true.B
+            io.write_back.bits.data := load_data
+            io.write_back.bits.reg := params.rd
         }.otherwise {
             io.outfire := true.B
             io.lsu_instr.ready := true.B

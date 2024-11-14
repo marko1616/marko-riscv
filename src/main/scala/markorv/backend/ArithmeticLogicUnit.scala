@@ -17,10 +17,13 @@ class ArithmeticLogicUnit extends Module {
             val reg = Input(UInt(5.W))
             val data = Input(UInt(64.W))
         })
+
+        val outfire = Output(Bool())
     })
 
     val write_back_orig = Wire(UInt(64.W))
 
+    io.outfire := false.B
     io.alu_instr.ready := io.write_back.ready
     io.write_back.valid := false.B
     io.write_back.bits.reg := 0.U
@@ -125,6 +128,7 @@ class ArithmeticLogicUnit extends Module {
                 }
             }
         }
+        io.outfire := true.B
     }
 
     // Cut and padding to 64Bit for `word` wide command.

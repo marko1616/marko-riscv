@@ -21,9 +21,13 @@ class BranchUnit extends Module {
             val data = Input(UInt(64.W))
         })
 
+        val outfire = Output(Bool())
+
         val flush = Output(Bool())
         val rev_pc = Output(UInt(64.W))
     })
+
+    io.outfire := false.B
 
     io.branch_instr.ready := true.B
     io.flush := false.B
@@ -128,5 +132,6 @@ class BranchUnit extends Module {
                 }
             }
         }
+        io.outfire := true.B
     }
 }
