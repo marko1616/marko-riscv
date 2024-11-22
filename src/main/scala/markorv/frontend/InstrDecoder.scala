@@ -317,11 +317,9 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 operate_unit := 3.U
             }
             is(OP_SYSTEM) {
-                // TODO ecall ebreak xret wfi sfence.vma
-                val func = funct3
-
-                when(func =/= 0.U) {
-                    val is_imm = func(2)
+                // TODO ecall ebreak wfi sfence.vma
+                when(funct3 =/= 0.U) {
+                    val is_imm = funct3(2)
 
                     // CSR addr.
                     params.source2 := instr(31, 20)
@@ -336,9 +334,14 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                     }.otherwise {
                         reg_source_requests.source1 := rs1
                     }
-                    params.immediate := func & "b011".U
+                    params.immediate := funct3 & "b011".U
                     params.rd := rd
 
+                    valid_instr := true.B
+                    operate_unit := 2.U
+                }.elsewhen(instr(31, 7) === "h604000".U) {
+                    // mret
+                    issue_task.misc_opcode := "b00011".U
                     valid_instr := true.B
                     operate_unit := 2.U
                 }

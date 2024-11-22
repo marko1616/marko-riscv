@@ -24,14 +24,14 @@ class BranchUnit extends Module {
         val outfire = Output(Bool())
 
         val flush = Output(Bool())
-        val rev_pc = Output(UInt(64.W))
+        val set_pc = Output(UInt(64.W))
     })
 
     io.outfire := false.B
 
     io.branch_instr.ready := true.B
     io.flush := false.B
-    io.rev_pc := 0.U
+    io.set_pc := 0.U
 
     io.write_back.valid := false.B
     io.write_back.bits.reg := 0.U
@@ -56,7 +56,7 @@ class BranchUnit extends Module {
 
                 when(io.branch_instr.bits.pred_pc =/= jump_addr) {
                     io.flush := true.B
-                    io.rev_pc := jump_addr
+                    io.set_pc := jump_addr
                 }
             }
             is("b00000".U) {
@@ -65,10 +65,10 @@ class BranchUnit extends Module {
                   io.branch_instr.bits.params.source1 === io.branch_instr.bits.params.source2
                 ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
                     io.flush := io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }
             }
             is("b00010".U) {
@@ -77,10 +77,10 @@ class BranchUnit extends Module {
                   io.branch_instr.bits.params.source1 =/= io.branch_instr.bits.params.source2
                 ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
                     io.flush := io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }
             }
             is("b01000".U) {
@@ -89,10 +89,10 @@ class BranchUnit extends Module {
                   io.branch_instr.bits.params.source1.asSInt < io.branch_instr.bits.params.source2.asSInt
                 ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
                     io.flush := io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }
             }
             is("b01010".U) {
@@ -101,10 +101,10 @@ class BranchUnit extends Module {
                   io.branch_instr.bits.params.source1.asSInt >= io.branch_instr.bits.params.source2.asSInt
                 ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
                     io.flush := io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }
             }
             is("b01100".U) {
@@ -113,10 +113,10 @@ class BranchUnit extends Module {
                   io.branch_instr.bits.params.source1 < io.branch_instr.bits.params.source2
                 ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
                     io.flush := io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }
             }
             is("b01110".U) {
@@ -125,10 +125,10 @@ class BranchUnit extends Module {
                   io.branch_instr.bits.params.source1 >= io.branch_instr.bits.params.source2
                 ) {
                     io.flush := ~io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }.otherwise {
                     io.flush := io.branch_instr.bits.pred_taken
-                    io.rev_pc := io.branch_instr.bits.recovery_pc
+                    io.set_pc := io.branch_instr.bits.recovery_pc
                 }
             }
         }

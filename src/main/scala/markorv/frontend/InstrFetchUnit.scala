@@ -22,9 +22,9 @@ class InstrFetchUnit extends Module {
         val invalid_drop = Input(Bool())
 
         val peek_pc = Output(UInt(64.W))
-        val pc_in = Input(UInt(64.W))
+        val set_pc = Input(UInt(64.W))
         val flush = Input(Bool())
-        val hold_fire = Input(Bool())
+        val fetch_hlt = Input(Bool())
 
         val peek_fetched = Output(UInt(4.W))
     })
@@ -42,11 +42,12 @@ class InstrFetchUnit extends Module {
     io.instr_bundle.bits.pred_pc := pc
     io.instr_bundle.bits.pc := pc
 
-    io.fetch_bundle.ready := io.instr_bundle.ready && !io.hold_fire
+    io.fetch_bundle.ready := io.instr_bundle.ready && !io.fetch_hlt
     io.peek_pc := pc
+    io.peek_fetched := fetched_count
 
-    val outfired_instr = io.exu_outfires.reduce(_ | _) + io.invalid_drop
-    when(io.fetch_bundle.valid && io.instr_bundle.ready && !io.hold_fire) {
+    val outfired_instr = io.exu_outfires.reduce(_ | _).asTypeOf(UInt(2.W)) + io.invalid_drop.asTypeOf(UInt(2.W))
+    when(io.fetch_bundle.valid && io.instr_bundle.ready && !io.fetch_hlt) {
         io.instr_bundle.valid := true.B
         io.instr_bundle.bits.instr := io.fetch_bundle.bits.instr
         io.instr_bundle.bits.pred_taken := io.fetch_bundle.bits.pred_taken
@@ -62,12 +63,10 @@ class InstrFetchUnit extends Module {
     }
 
     when(io.flush) {
-        pc := io.pc_in
+        pc := io.set_pc
         fetched_count := 0.U
-        io.peek_fetched := 0.U
     }.otherwise {
         pc := next_pc
         fetched_count := next_fetched_count
-        io.peek_fetched := next_fetched_count
     }
 }

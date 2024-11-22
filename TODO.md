@@ -80,6 +80,8 @@
 
 - [ ] ecall
 - [ ] ebreak
+- [x] mret
+- [ ] wfi
 </details>
 
 <details>
@@ -114,14 +116,7 @@
 </details>
 
 <details>
-<summary><strong> Machine mode </strong></summary>
-
-- [ ] wfi
-- [ ] mret
-</details>
-
-<details>
-<summary><strong> Supervisor mode </strong></summary>
+<summary><strong> S Extension Instructions </strong></summary>
 
 - [ ] sret
 - [ ] sfence.vma
@@ -178,7 +173,7 @@
 - [x] L1 Instruction cache
 - [x] L1 Data cache
 - [ ] L2 Cache
-- [ ] Exception & Interruption
+- [x] Exception & Interruption
 - [ ] TLB
 - [ ] MMU(SV-48)
 - [ ] AXI Bus
@@ -191,9 +186,9 @@
 - [ ] 0x01, fetch access
 - [ ] 0x02, illegal instruction
 - [ ] 0x03, breakpoint
-- [ ] 0x04, misaligned load
+- [N/A] 0x04, misaligned load
 - [ ] 0x05, load access
-- [ ] 0x06, misaligned store
+- [N/A] 0x06, misaligned store
 - [ ] 0x07, store access
 - [ ] 0x08, user ecall
 - [ ] 0x09, supervisor ecall

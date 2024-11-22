@@ -44,8 +44,25 @@ class MarkoRvCore extends Module {
 
     val register_file = Module(new RegFile)
     val csr_file = Module(new ControlStatusRegisters)
+    val int_ctrl = Module(new InterruptionControler)
 
     val write_back = Module(new WriteBack)
+
+    // Exception & flush control.
+    // Impossible flush at same cycle.
+    val flush = int_ctrl.io.flush | branch_unit.io.flush
+    int_ctrl.io.outer_int <> io.debug_async_flush
+    int_ctrl.io.outer_int_outfire <> io.debug_async_outfired
+
+    int_ctrl.io.pc <> instr_fetch_unit.io.peek_pc
+    int_ctrl.io.privilege <> misc_unit.io.peek_privilege
+    int_ctrl.io.fetched <> instr_fetch_unit.io.peek_fetched
+    int_ctrl.io.set_exception <> csr_file.io.set_exception
+    int_ctrl.io.ret_exception <> csr_file.io.ret_exception
+    misc_unit.io.set_privilege <> int_ctrl.io.set_privilege
+    misc_unit.io.ret <> int_ctrl.io.ret
+    misc_unit.io.ret <> csr_file.io.ret
+
 
     data_cache_warpper.io.cache_write_req <> data_cache.io.write_req
     data_cache_warpper.io.cache_write_outfire <> data_cache.io.write_outfire
@@ -58,7 +75,7 @@ class MarkoRvCore extends Module {
     instr_cache.io.upstream_read_addr <> mem.io.port2.read_addr
     instr_cache.io.upstream_read_data <> mem.io.port2.read_data
 
-    instr_fetch_queue.io.flush <> branch_unit.io.flush
+    instr_fetch_queue.io.flush <> flush
     instr_fetch_queue.io.read_req <> instr_cache_read_warpper.io.read_req
     instr_fetch_queue.io.read_data <> instr_cache_read_warpper.io.read_data
     instr_fetch_queue.io.pc <> instr_fetch_unit.io.peek_pc
@@ -66,10 +83,16 @@ class MarkoRvCore extends Module {
     instr_fetch_queue.io.reg_data <> register_file.io.read_datas(2)
 
     instr_fetch_unit.io.invalid_drop <> instr_decoder.io.invalid_drop
-    instr_fetch_unit.io.pc_in <> branch_unit.io.rev_pc
-    instr_fetch_unit.io.flush <> branch_unit.io.flush
     instr_fetch_unit.io.fetch_bundle <> instr_fetch_queue.io.fetch_bundle
-    instr_fetch_unit.io.hold_fire <> io.debug_async_flush
+    instr_fetch_unit.io.fetch_hlt <> int_ctrl.io.fetch_hlt
+    instr_fetch_unit.io.flush <> flush
+    instr_fetch_unit.io.set_pc := 0.U
+    when(int_ctrl.io.flush) {
+        instr_fetch_unit.io.set_pc := int_ctrl.io.set_pc
+    }
+    when(branch_unit.io.flush) {
+        instr_fetch_unit.io.set_pc := branch_unit.io.set_pc
+    }
 
     io.memio <> mem.io.outer
 
@@ -100,27 +123,30 @@ class MarkoRvCore extends Module {
     write_back.io.write_data <> register_file.io.write_data
 
     csr_file.io.csrio <> misc_unit.io.csrio
-    register_file.io.flush := branch_unit.io.flush
+    register_file.io.flush := flush
   
     io.pc <> instr_fetch_unit.io.instr_bundle.bits.pc
-    io.instr_now <> instr_fetch_unit.io.instr_bundle.bits.instr
+    when(instr_fetch_unit.io.instr_bundle.valid) {
+        io.instr_now := instr_fetch_unit.io.instr_bundle.bits.instr
+    }.otherwise{
+        io.instr_now := 0.U
+    }
 
     register_file.io.read_addrs(3) := 10.U
-    io.peek <> instr_fetch_unit.io.peek_fetched
-    io.debug_async_outfired := instr_fetch_unit.io.peek_fetched === 0.U
+    io.peek := register_file.io.read_datas(3)
 
     // Main pipeline.
     PipelineConnect(
-      instr_fetch_unit.io.instr_bundle,
-      instr_decoder.io.instr_bundle,
-      instr_decoder.io.outfire,
-      branch_unit.io.flush
+        instr_fetch_unit.io.instr_bundle,
+        instr_decoder.io.instr_bundle,
+        instr_decoder.io.outfire,
+        flush
     )
     PipelineConnect(
-      instr_decoder.io.issue_task,
-      instr_issuer.io.issue_task,
-      instr_issuer.io.outfire,
-      branch_unit.io.flush
+        instr_decoder.io.issue_task,
+        instr_issuer.io.issue_task,
+        instr_issuer.io.outfire,
+        flush
     )
 
     // Execute Units
@@ -129,61 +155,61 @@ class MarkoRvCore extends Module {
     instr_fetch_unit.io.exu_outfires(2) := misc_unit.io.outfire
     instr_fetch_unit.io.exu_outfires(3) := branch_unit.io.outfire
     PipelineConnect(
-      instr_issuer.io.alu_out,
-      arithmetic_logic_unit.io.alu_instr,
-      arithmetic_logic_unit.io.outfire,
-      branch_unit.io.flush
+        instr_issuer.io.alu_out,
+        arithmetic_logic_unit.io.alu_instr,
+        arithmetic_logic_unit.io.outfire,
+        flush
     )
     PipelineConnect(
-      instr_issuer.io.lsu_out,
-      load_store_unit.io.lsu_instr,
-      load_store_unit.io.outfire,
-      branch_unit.io.flush
+        instr_issuer.io.lsu_out,
+        load_store_unit.io.lsu_instr,
+        load_store_unit.io.outfire,
+        flush
     )
     PipelineConnect(
-      instr_issuer.io.misc_out,
-      misc_unit.io.misc_instr,
-      misc_unit.io.outfire,
-      branch_unit.io.flush
+        instr_issuer.io.misc_out,
+        misc_unit.io.misc_instr,
+        misc_unit.io.outfire,
+        flush
     )
     PipelineConnect(
-      instr_issuer.io.branch_out,
-      branch_unit.io.branch_instr,
-      branch_unit.io.outfire,
-      branch_unit.io.flush
+        instr_issuer.io.branch_out,
+        branch_unit.io.branch_instr,
+        branch_unit.io.outfire,
+        flush
     )
 
     // Write Back
     PipelineConnect(
-      load_store_unit.io.write_back,
-      write_back.io.write_backs(0),
-      write_back.io.outfires(0),
-      branch_unit.io.flush
+        load_store_unit.io.write_back,
+        write_back.io.write_backs(0),
+        write_back.io.outfires(0),
+        flush
     )
     PipelineConnect(
-      arithmetic_logic_unit.io.write_back,
-      write_back.io.write_backs(1),
-      write_back.io.outfires(1),
-      branch_unit.io.flush
+        arithmetic_logic_unit.io.write_back,
+        write_back.io.write_backs(1),
+        write_back.io.outfires(1),
+        flush
     )
     PipelineConnect(
-      branch_unit.io.write_back,
-      write_back.io.write_backs(2),
-      write_back.io.outfires(2),
-      branch_unit.io.flush
+        branch_unit.io.write_back,
+        write_back.io.write_backs(2),
+        write_back.io.outfires(2),
+        flush
     )
     PipelineConnect(
-      misc_unit.io.write_back,
-      write_back.io.write_backs(3),
-      write_back.io.outfires(3),
-      branch_unit.io.flush
+        misc_unit.io.write_back,
+        write_back.io.write_backs(3),
+        write_back.io.outfires(3),
+        flush
     )
 }
 
 object MarkoRvCore extends App {
     ChiselStage.emitSystemVerilogFile(
-      new MarkoRvCore,
-      Array("--target-dir", "generated"),
-      Array("-disable-all-randomization", "--strip-debug-info")
+        new MarkoRvCore,
+        Array("--target-dir", "generated"),
+        Array("-disable-all-randomization", "--strip-debug-info")
     )
 }

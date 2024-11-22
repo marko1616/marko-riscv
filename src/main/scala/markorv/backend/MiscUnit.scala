@@ -10,7 +10,7 @@ class MiscUnit extends Module {
     val io = IO(new Bundle {
         // misc_opcode encoding:
         // Bit [2,0] == 4 AMO operate reserved.
-        // Bit [2,0] == 3 System operate(ecall ebrack etc) reserved.
+        // Bit [2,0] == 3 System operate(mret ecall ebrack).
         // Bit [2,0] == 2 Fence operate(fence fence.i) reserved.
         // Bit [2,0] == 1 Cache line operate(zicbox) reserved.
         // Bit [2,0] == 0 CSR(zicsr) operate. Bit[3] = rs1 == x0 ? 1 : 0.
@@ -26,6 +26,11 @@ class MiscUnit extends Module {
 
         val csrio = Flipped(new ControlStatusRegistersIO)
         val outfire = Output(Bool())
+
+        val peek_privilege = Output(UInt(2.W))
+        val set_privilege = Input(UInt(2.W))
+
+        val ret = Output(Bool()) 
     })
     // M mode when reset.
     val privilege_reg = RegInit(3.U(2.W))
@@ -46,6 +51,9 @@ class MiscUnit extends Module {
     io.write_back.valid := false.B
     io.write_back.bits.reg := 0.U
     io.write_back.bits.data := 0.U
+
+    io.peek_privilege := privilege_reg
+    io.ret := false.B
 
     when(io.misc_instr.valid) {
         when(opcode(2,0) === 0.U) {
@@ -79,6 +87,12 @@ class MiscUnit extends Module {
             io.write_back.valid := true.B
             io.write_back.bits.reg := params.rd
             io.write_back.bits.data := csr_data
+            io.outfire := true.B
+        }
+        when(opcode(2,0) === 3.U) {
+            // mret
+            io.ret := true.B
+            privilege_reg := io.set_privilege
             io.outfire := true.B
         }
     }

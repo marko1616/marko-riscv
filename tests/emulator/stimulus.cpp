@@ -1,6 +1,6 @@
 #include <random>
 #include <iostream>
-#include <iomanip>
+#include <format>
 #include <fstream>
 #include <memory>
 
@@ -17,6 +17,9 @@ struct ParsedArgs {
     bool random_async_interruption = false;
     uint64_t assert_last_peek = 0;
     bool assert_last_peek_valid = false;
+    int random_range_min = 0;
+    int random_range_max = 0;
+    bool random_range_valid = false;
 };
 
 static uint8_t ram[RAM_SIZE] = {0};
@@ -59,12 +62,7 @@ int init_ram(std::string file_path) {
 
 void print_cycle(uint64_t cycle, uint64_t pc, uint64_t raw_instr, uint64_t peek) {
     uint8_t raw_code[4] = {0};
-    std::cout << std::hex    << std::setfill('0')
-              << "Cycle: 0x" << std::setw(4)  << cycle     << " "
-              << "PC: 0x"    << std::setw(16) << pc        << " "
-              << "Instr: 0x" << std::setw(8)  << raw_instr << " "
-              << "Peek: 0x"  << std::setw(4)  << peek      << " "
-              << "Asm: ";
+    std::cout << std::format("Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Peek: 0x{:04x} Asm: ",cycle, pc, raw_instr, peek);
     for(int i=0;i<4;i++){
         raw_code[i] = static_cast<uint8_t>(raw_instr >> 8*i);
     }
@@ -83,14 +81,16 @@ void print_cycle(uint64_t cycle, uint64_t pc, uint64_t raw_instr, uint64_t peek)
 }
 
 int parse_args(int argc, char **argv, ParsedArgs &args) {
+    // Define long options
     struct option long_options[] = {
-        {"random-async-interruption", no_argument, 0, 'r'},
-        {"assert-last-peek", required_argument, 0, 'a'},
-        {0, 0, 0, 0}
+        {"random-async-interruption", no_argument, nullptr, 'r'},
+        {"assert-last-peek", required_argument, nullptr, 'a'},
+        {"random-range", required_argument, nullptr, 'R'},
+        {nullptr, 0, nullptr, 0}
     };
 
     int option;
-    while ((option = getopt_long(argc, argv, "f:a:", long_options, nullptr)) != -1) {
+    while ((option = getopt_long(argc, argv, "f:a:R:", long_options, nullptr)) != -1) {
         switch (option) {
             case 'f':
                 args.hex_payload_path = optarg;
@@ -103,36 +103,60 @@ int parse_args(int argc, char **argv, ParsedArgs &args) {
                     args.assert_last_peek = std::stoull(optarg, nullptr, 16);
                     args.assert_last_peek_valid = true;
                 } catch (const std::invalid_argument &) {
-                    std::cerr << "Invalid hex value for --assert-last-peek: " << optarg << std::endl;
+                    std::cerr << std::format("Invalid hex value for --assert-last-peek: {}\n", optarg);
                     return 1;
                 } catch (const std::out_of_range &) {
-                    std::cerr << "Hex value out of range for --assert-last-peek: " << optarg << std::endl;
+                    std::cerr << std::format("Hex value out of range for --assert-last-peek: {}\n", optarg);
+                    return 1;
+                }
+                break;
+            case 'R':
+                try {
+                    std::string range(optarg);
+                    size_t colon_pos = range.find(':');
+                    if (colon_pos == std::string::npos) {
+                        throw std::invalid_argument("Range format must be min:max");
+                    }
+
+                    args.random_range_min = std::stoi(range.substr(0, colon_pos));
+                    args.random_range_max = std::stoi(range.substr(colon_pos + 1));
+
+                    if (args.random_range_min > args.random_range_max) {
+                        throw std::invalid_argument("Min value must be <= max value");
+                    }
+
+                    args.random_range_valid = true;
+                } catch (const std::invalid_argument &e) {
+                    std::cerr << std::format("Invalid range format for --random-range: {} ({})\n", optarg, e.what());
+                    return 1;
+                } catch (const std::out_of_range &) {
+                    std::cerr << std::format("Range values out of range for --random-range: {}\n", optarg);
                     return 1;
                 }
                 break;
             case '?':
-                std::cerr << "Usage: " << argv[0] << " -f <Hex-payload-path> [--random-async-interruption] [--assert-last-peek <hex>]" << std::endl;
+                std::cerr << std::format("Usage: {} -f <Hex-payload-path> [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>]\n", argv[0]);
                 return 1;
         }
     }
 
     // Check if required -f parameter is provided
     if (args.hex_payload_path.empty()) {
-        std::cerr << "Error: -f <Hex-payload-path> is required." << std::endl;
-        std::cerr << "Usage: " << argv[0] << " -f <Hex-payload-path> [--random-async-interruption] [--assert-last-peek <hex>]" << std::endl;
+        std::cerr << "Error: -f <Hex-payload-path> is required.\n";
+        std::cerr << std::format("Usage: {} -f <Hex-payload-path> [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>]\n", argv[0]);
         return 1;
     }
 
     // Output parsed results
-    std::cout << "Hex Payload Path: " << args.hex_payload_path << std::endl;
-    if (args.random_async_interruption) {
-        std::cout << "Random async interruption enabled." << std::endl;
-    } else {
-        std::cout << "Random async interruption disabled." << std::endl;
-    }
+    std::cout << std::format("Hex Payload Path: {}\n", args.hex_payload_path);
+    std::cout << std::format("Random async interruption {}\n", args.random_async_interruption ? "enabled" : "disabled");
 
     if (args.assert_last_peek_valid) {
-        std::cout << "Assert last peek hex: 0x" << std::hex << args.assert_last_peek << std::dec << std::endl;
+        std::cout << std::format("Assert last peek hex: 0x{:x}\n", args.assert_last_peek);
+    }
+
+    if (args.random_range_valid) {
+        std::cout << std::format("Random range: {} to {}\n", args.random_range_min, args.random_range_max);
     }
 
     return 0;
@@ -157,26 +181,31 @@ int main(int argc, char **argv, char **env)
     ParsedArgs args;
     if(parse_args(argc, argv, args) != 0)
         return 1;
-    std::cout << "Hex Payload Path: " << args.hex_payload_path << std::endl;
+    std::cout << std::format("Hex Payload Path: {}\n", args.hex_payload_path);
 
     if(init_ram(args.hex_payload_path)) {
-        std::cout << "Can't load hex payload." << std::endl;
+        std::cerr << "Can't load hex payload.\n";
         return 1;
     }
 
-    // Init.
-    std::cout << std::hex << std::setfill('0');
+    // Init
     top->clock = 0;
     top->reset = 0;
 
     // RV64G only not for C extension.
     if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64, &capstone_handle) != CS_ERR_OK) {
-        std::cout << "Capstone engine failed to init." << std::endl;
+        std::cerr << "Capstone engine failed to init.\n";
+        return 1;
     }
 
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<uint64_t> dist(1, MAX_CLOCK / 2 - 1);
+    std::uniform_int_distribution<uint64_t> dist;
+    if(args.random_range_valid) {
+        dist = std::uniform_int_distribution<uint64_t>(args.random_range_min, args.random_range_max);
+    } else {
+        dist = std::uniform_int_distribution<uint64_t>(1, MAX_CLOCK-1);
+    }
     uint64_t trigger_time = dist(gen);
     bool triggered = false;
 
@@ -224,7 +253,7 @@ int main(int argc, char **argv, char **env)
         
         top->io_debug_async_flush = triggered;
 
-        if (clock_cnt == trigger_time)
+        if (clock_cnt == trigger_time && args.random_async_interruption)
             triggered = true;
         
         if (top->io_debug_async_outfired)
