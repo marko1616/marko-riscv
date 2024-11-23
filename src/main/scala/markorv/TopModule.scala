@@ -13,10 +13,11 @@ import markorv.cache.CacheLine
 import markorv.cache.ReadOnlyCache
 import markorv.cache.CacheReadWarpper
 import markorv.cache.CacheReadWriteWarpper
+import markorv.bus.AxiLiteMasterIO
 
 class MarkoRvCore extends Module {
     val io = IO(new Bundle {
-        val memio = Flipped(new MemoryIO(64, 64))
+        val axi = new AxiLiteMasterIO(64, 64)
 
         val pc = Output(UInt(64.W))
         val instr_now = Output(UInt(64.W))
@@ -25,7 +26,7 @@ class MarkoRvCore extends Module {
         val debug_async_outfired = Output(Bool())
     })
 
-    val mem = Module(new MemoryCtrl(64, 64))
+    val axi_ctrl = Module(new AXICtrl(64, 64))
     val instr_cache = Module(new ReadOnlyCache(32, 4, 16, 64))
     val instr_cache_read_warpper = Module(new CacheReadWarpper(32, 4, 16))
 
@@ -59,6 +60,8 @@ class MarkoRvCore extends Module {
     int_ctrl.io.fetched <> instr_fetch_unit.io.peek_fetched
     int_ctrl.io.set_exception <> csr_file.io.set_exception
     int_ctrl.io.ret_exception <> csr_file.io.ret_exception
+    int_ctrl.io.mstatus <> csr_file.io.mstatus
+    int_ctrl.io.mie <> csr_file.io.mie
     misc_unit.io.set_privilege <> int_ctrl.io.set_privilege
     misc_unit.io.ret <> int_ctrl.io.ret
     misc_unit.io.ret <> csr_file.io.ret
@@ -72,8 +75,8 @@ class MarkoRvCore extends Module {
     instr_cache_read_warpper.io.read_cache_line_addr <> instr_cache.io.read_addr
     instr_cache_read_warpper.io.read_cache_line <> instr_cache.io.read_cache_line
 
-    instr_cache.io.upstream_read_addr <> mem.io.port2.read_addr
-    instr_cache.io.upstream_read_data <> mem.io.port2.read_data
+    instr_cache.io.upstream_read_addr <> axi_ctrl.io.port2.read_addr
+    instr_cache.io.upstream_read_data <> axi_ctrl.io.port2.read_data
 
     instr_fetch_queue.io.flush <> flush
     instr_fetch_queue.io.read_req <> instr_cache_read_warpper.io.read_req
@@ -94,12 +97,12 @@ class MarkoRvCore extends Module {
         instr_fetch_unit.io.set_pc := branch_unit.io.set_pc
     }
 
-    io.memio <> mem.io.outer
+    io.axi <> axi_ctrl.io.outer
 
-    mem.io.port2.write_req.valid := false.B
-    mem.io.port2.write_req.bits.size := 0.U
-    mem.io.port2.write_req.bits.addr := 0.U
-    mem.io.port2.write_req.bits.data := 0.U
+    axi_ctrl.io.port2.write_req.valid := false.B
+    axi_ctrl.io.port2.write_req.bits.size := 0.U
+    axi_ctrl.io.port2.write_req.bits.addr := 0.U
+    axi_ctrl.io.port2.write_req.bits.data := 0.U
 
     instr_issuer.io.reg_read1 <> register_file.io.read_addrs(0)
     instr_issuer.io.reg_read2 <> register_file.io.read_addrs(1)
@@ -114,10 +117,10 @@ class MarkoRvCore extends Module {
     data_cache_warpper.io.read_data <> load_store_unit.io.read_data
     data_cache_warpper.io.read_req <> load_store_unit.io.read_req
 
-    mem.io.port1.write_req <> data_cache.io.upstream_write_req
-    mem.io.port1.write_outfire <> data_cache.io.upstream_write_outfire
-    mem.io.port1.read_data <> data_cache.io.upstream_read_data
-    mem.io.port1.read_addr <> data_cache.io.upstream_read_addr
+    axi_ctrl.io.port1.write_req <> data_cache.io.upstream_write_req
+    axi_ctrl.io.port1.write_outfire <> data_cache.io.upstream_write_outfire
+    axi_ctrl.io.port1.read_data <> data_cache.io.upstream_read_data
+    axi_ctrl.io.port1.read_addr <> data_cache.io.upstream_read_addr
 
     write_back.io.reg_write <> register_file.io.write_addr
     write_back.io.write_data <> register_file.io.write_data

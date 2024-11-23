@@ -5,7 +5,7 @@ if __name__ == "__main__":
     emulator_path = pathlib.Path(__file__).parent / ".." / ".." / "obj_dir" / "VMarkoRvCore"
     hex_path = pathlib.Path(__file__).parent / ".." / "asmtst" / "int.hex"
     assertion = "1"
-    command = [str(emulator_path), "-f", str(hex_path), "--assert-last-peek", assertion, "--random-async-interruption", "--random-range", "25:512"]
+    command = [str(emulator_path), "--hex-payload-path", str(hex_path), "--assert-last-peek", assertion, "--random-async-interruption", "--random-range", "25:512"]
 
     # Initialize counters for pass/fail statistics
     pass_count = 0

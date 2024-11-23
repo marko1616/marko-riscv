@@ -7,7 +7,7 @@ main:
 auipc t0, 0
 addi t0, t0, -0x8
 csrw mtvec, t0
-li t0, 0x3
+li t0, 0x8
 csrs mstatus, t0
 
 addi a2, x0, 16

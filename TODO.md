@@ -176,7 +176,7 @@
 - [x] Exception & Interruption
 - [ ] TLB
 - [ ] MMU(SV-48)
-- [ ] AXI Bus
+- [x] AXI Bus
 </details>
 
 <details>

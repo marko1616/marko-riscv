@@ -53,8 +53,7 @@ class Cache(
     val write_ptr = Reg(UInt(log2Ceil(n_byte).W))
 
     object State extends ChiselEnum {
-        val stat_idle, stat_look_up, stat_read_upstream, stat_write_upstream,
-            stat_replace = Value
+        val stat_idle, stat_look_up, stat_read_upstream, stat_write_upstream, stat_replace = Value
     }
     val state = RegInit(State.stat_idle)
     // 0 for read 1 for write

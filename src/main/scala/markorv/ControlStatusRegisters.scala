@@ -36,6 +36,9 @@ class ControlStatusRegisters extends Module {
 
         val ret = Input(Bool())
         val ret_exception = Output(new ExceptionState)
+
+        val mstatus = Output(UInt(64.W))
+        val mie = Output(UInt(64.W))
     })
     // While read write simultaneously shuould return old value.
 
@@ -72,7 +75,7 @@ class ControlStatusRegisters extends Module {
     val misa = RegInit("h8000000000000100".U(64.W))
     val medeleg = RegInit(0.U(64.W))
     val mideleg = RegInit(0.U(64.W))
-    val mie = RegInit(0.U(15.W))
+    val mie = RegInit(0.U(64.W))
     val mtvec = RegInit(0.U(64.W))
 
     val mscratch = RegInit(0.U(64.W))
@@ -82,6 +85,9 @@ class ControlStatusRegisters extends Module {
     val mtval = RegInit(0.U(64.W))
 
     val mcounteren = RegInit(0.U(32.W))
+
+    io.mstatus := mstatus
+    io.mie := mie
 
     io.csrio.read_data := 0.U
     switch(io.csrio.read_addr) {
@@ -123,6 +129,12 @@ class ControlStatusRegisters extends Module {
         is(MIDELEG_ADDR) {
             io.csrio.read_data := mideleg
         }
+        is(MIE_ADDR) {
+            io.csrio.read_data := mie
+        }
+        is(MTVEC_ADDR) {
+            io.csrio.read_data := mtvec
+        }
         is(MCOUNTEREN_ADDR) {
             io.csrio.read_data := mcounteren
         }
@@ -152,7 +164,7 @@ class ControlStatusRegisters extends Module {
 
             is(MSTATUS_ADDR) {
                 // write mask shown that which fields is implemented.
-                val write_mask = "h0000000000000000".U
+                val write_mask = "h00000000000000aa".U
                 mstatus := write_mask & io.csrio.write_data
             }
             is(MISA_ADDR) {
@@ -165,6 +177,9 @@ class ControlStatusRegisters extends Module {
             is(MIDELEG_ADDR) {
                 // TODO S mode
                 mideleg := io.csrio.write_data
+            }
+            is(MIE_ADDR) {
+                mie := io.csrio.write_data
             }
             is(MTVEC_ADDR) {
                 // mtvec mode >= 2 is Reserved

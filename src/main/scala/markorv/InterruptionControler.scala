@@ -21,9 +21,15 @@ class InterruptionControler extends Module {
 
         val ret = Input(Bool())
         val ret_exception = Input(new ExceptionState)
+
+        val mstatus = Input(UInt(64.W))
+        val mie = Input(UInt(64.W))
     })
     val exception_info = io.set_exception.exception_info
     val int_pending = RegInit(false.B)
+
+    val mie = io.mstatus(3)
+    val sie = io.mstatus(1)
 
     io.outer_int_outfire := false.B   
     io.fetch_hlt := false.B
@@ -37,7 +43,11 @@ class InterruptionControler extends Module {
     exception_info.state.privilege := 0.U
     exception_info.state.exception_pc := 0.U
 
-    int_pending := io.outer_int
+    when(mie) {
+        int_pending := io.outer_int
+    }.otherwise {
+        int_pending := false.B
+    }
     when(int_pending) {
         io.fetch_hlt := true.B
         when(io.fetched === 0.U) {

@@ -5,6 +5,8 @@
 * ✅ Feat: Better build and compile implementation.
 * ✅ Feat: Custom cpp & verilator based test workflow.
 * ✅ Feat: Support for basic Zicsr.
+* ✅ Feat: Support for basic interruption.
+* ✅ Feat: Support for basic AXI4-Lite.
 * 📚 Docs: Added readme.
 
 🎉 **Version 0.1 Released!** 🎉
