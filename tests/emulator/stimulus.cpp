@@ -66,7 +66,7 @@ public:
         stat_accept_req,
         stat_outfire,
     };
-    virtual_axi_slaves(std::string file_path) {
+    explicit virtual_axi_slaves(const std::string& file_path) {
         if (init_ram(file_path)) {
             throw std::runtime_error("Failed to initialize RAM");
         }
@@ -92,7 +92,7 @@ private:
     uint64_t write_data;
     uint8_t write_mask;
 
-    int init_ram(std::string file_path) {
+    int init_ram(const std::string& file_path) {
         std::memset(ram, 0, sizeof(ram));
 
         std::ifstream file(file_path);
