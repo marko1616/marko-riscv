@@ -32,7 +32,7 @@ class RegFile(data_width: Int = 64) extends Module {
         reg_acquire_flags_next := reg_acquire_flags
     }
 
-    for (i <- 0 until 4) {
+    for (i <- 0 until io.read_addrs.length) {
         io.read_datas(i) := Mux(
           io.write_addr === io.read_addrs(i),
           io.write_data,

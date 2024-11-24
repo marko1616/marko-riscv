@@ -1,6 +1,8 @@
 🛠️ **Next version** 🛠️
 
+* 🛠️ Chore: RAM init change hex to binary.
 * 🛠️ Fix: outfire signal at instruction issuer.
+* ✅ Feat: Basic boot sequence.
 * ✅ Feat: Remove LSU state machine.
 * ✅ Feat: Better build and compile implementation.
 * ✅ Feat: Custom cpp & verilator based test workflow.

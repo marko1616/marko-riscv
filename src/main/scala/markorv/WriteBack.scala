@@ -17,7 +17,7 @@ class WriteBack extends Module {
         val outfires = Vec(4, Output(Bool()))
     })
 
-    for (i <- 0 until 4) {
+    for (i <- 0 until io.write_backs.length) {
         io.write_backs(i).ready := true.B
         io.outfires(i) := true.B
     }
@@ -26,7 +26,7 @@ class WriteBack extends Module {
     io.write_data := 0.U
 
     // Impossible to write back multiple times in one cycle.
-    for (i <- 0 until 4) {
+    for (i <- 0 until io.write_backs.length) {
         when(io.write_backs(i).valid) {
             io.reg_write := io.write_backs(i).bits.reg
             io.write_data := io.write_backs(i).bits.data

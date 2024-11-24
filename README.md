@@ -43,16 +43,17 @@ Check the [docs](./docs) folder for detailed architecture information and update
 
 3. **Run Makefile options**
     ```bash
-    make compile       # ⚙️ Compile SystemVerilog
-    make emu           # ⚙️ Compile C++ emulator
-    make gen-tests     # ⚙️ Generate hex test assembly programs
+    make gen-rom           # ⚙️ Generate hex ROM image
+    make gen-tests         # ⚙️ Generate hex test assembly programs
+    make compile           # ⚙️ Compile C++ emulator
     ```
 
 ### How to Run Simulation
 1. Modify the parameters in `tests/emulator/stimulus.cpp`
 2. Generate and run the simulation:
     ```bash
+    make gen-rom
     make gen-tests
     make emu
-    obj_dir/VMarkoRvCore xxx.hex
+    obj_dir/VMarkoRvCore --rom-path tests/emulator/assets/boot.bin --ram-path tests/asmtst/xxx.bin
     ```

@@ -5,8 +5,6 @@ import chisel3.util._
 
 import markorv.bus.AxiLiteMasterIO
 
-
-
 class MemoryIO(data_width: Int, addr_width: Int) extends Bundle {
     val read_addr = Flipped(Decoupled(UInt(addr_width.W)))
     val read_data = Decoupled(UInt(data_width.W))
@@ -97,69 +95,60 @@ class AXIPort(data_width: Int, addr_width: Int) extends Module {
         when(io.outer.rresp === OKAY | io.outer.rresp === EXOKAY) {
             io.req.read_data.valid := true.B
             io.req.read_data.bits := io.outer.rdata
+        }.otherwise {
+            // TODO access error.
+            // If don't do this a out range branch prediction will dead lock hold CPU.
+            io.req.read_data.valid := true.B
+            io.req.read_data.bits := 0.U
         }
         when(io.req.read_data.ready) {
             state := State.stat_idle
         }
-        // TODO xxxx access error.
     }
 
     io.outer.bready := wait_wresp
     when(wait_read && io.outer.bvalid) {
         when(io.outer.bresp === OKAY | io.outer.bresp === EXOKAY) {
             io.req.write_outfire := true.B
+        }.otherwise {
+            // TODO access error.
+            // If don't do this a out range branch prediction will dead lock hold CPU.
+            io.req.read_data.valid := true.B
+            io.req.read_data.bits := 0.U
         }
         state := State.stat_idle
-        // TODO xxxx access error.
     }
 }
 
 class AXICtrl(data_width: Int, addr_width: Int) extends Module {
     val io = IO(new Bundle {
-        val port1 = new MemoryIO(data_width, addr_width)
-        val port2 = new MemoryIO(data_width, addr_width)
-
+        val ports = Vec(2, new MemoryIO(data_width, addr_width))
         val outer = new AxiLiteMasterIO(data_width, addr_width)
     })
 
-    val port1_req = io.port1.write_req.valid || io.port1.read_addr.valid
-    val port2_req = io.port2.write_req.valid || io.port2.read_addr.valid
     val axi_port = Module(new AXIPort(data_width, addr_width))
     val ready = axi_port.io.idle
 
     io.outer <> axi_port.io.outer
 
-    io.port1.read_addr.ready := ready
-    io.port1.read_data.valid := false.B
-    io.port1.read_data.bits := 0.U
+    for (i <- 0 until io.ports.length) {
+        io.ports(i).read_addr.ready := ready
+        io.ports(i).read_data.valid := false.B
+        io.ports(i).read_data.bits := 0.U
+        io.ports(i).write_req.ready := ready
+        io.ports(i).write_outfire := false.B
+    }
 
-    io.port1.write_req.ready := ready
-    io.port1.write_outfire := false.B
+    val port_reqs = VecInit(io.ports.map(p => p.write_req.valid || p.read_addr.valid))
+    val req_port = RegInit(0.U(log2Ceil(io.ports.length).W))
 
-    io.port2.read_addr.ready := ready
-    io.port2.read_data.valid := false.B
-    io.port2.read_data.bits := 0.U
-
-    io.port2.write_req.ready := ready
-    io.port2.write_outfire := false.B
-
-    val req_port = RegInit(0.U(1.W))
     when(ready) {
-        when(port1_req && !port2_req) {
-            req_port := 0.U
-            axi_port.io.req <> io.port1
-        }.elsewhen(!port1_req && port2_req) {
-            req_port := 1.U
-            axi_port.io.req <> io.port2
-        }.otherwise {
-            req_port := 0.U
-            axi_port.io.req <> io.port1
-        }
-    }.otherwise {
-        when(req_port === 0.U) {
-            axi_port.io.req <> io.port1
-        }.otherwise {
-            axi_port.io.req <> io.port2
+        for (i <- 0 until io.ports.length) {
+            when(port_reqs(i)) {
+                req_port := i.U
+            }
         }
     }
+
+    axi_port.io.req <> io.ports(req_port)
 }

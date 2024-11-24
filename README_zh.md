@@ -43,16 +43,17 @@
 
 3. **执行 Makefile 选项**
     ```bash
-    make compile       # ⚙️ 编译 SystemVerilog
-    make emu           # ⚙️ 编译 C++ 模拟程序
+    make gen-rom       # ⚙️ 生成十六进制 ROM
     make gen-tests     # ⚙️ 生成十六进制测试汇编程序
+    make compile       # ⚙️ 编译 C++ 模拟程序
     ```
 
 ### 如何进行模拟
 1. 修改 `tests/emulator/stimulus.cpp` 中的参数
 2. 生成并运行模拟程序：
     ```bash
+    make gen-rom
     make gen-tests
     make emu
-    obj_dir/VMarkoRvCore xxx.hex
+    obj_dir/VMarkoRvCore --rom-path tests/emulator/assets/boot.bin --ram-path tests/asmtst/xxx.bin
     ```

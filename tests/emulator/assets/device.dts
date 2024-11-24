@@ -54,7 +54,7 @@
 
         uart0@10000000 {
 			clock-frequency = "\08@";           
-			reg = <0x00 0x10000000 0x00 0x100>;
+			reg = <0x00 0x1000_0000 0x00 0x100>;
 			compatible = "ns16550a";
         };
     };

@@ -75,8 +75,8 @@ class MarkoRvCore extends Module {
     instr_cache_read_warpper.io.read_cache_line_addr <> instr_cache.io.read_addr
     instr_cache_read_warpper.io.read_cache_line <> instr_cache.io.read_cache_line
 
-    instr_cache.io.upstream_read_addr <> axi_ctrl.io.port2.read_addr
-    instr_cache.io.upstream_read_data <> axi_ctrl.io.port2.read_data
+    instr_cache.io.upstream_read_addr <> axi_ctrl.io.ports(1).read_addr
+    instr_cache.io.upstream_read_data <> axi_ctrl.io.ports(1).read_data
 
     instr_fetch_queue.io.flush <> flush
     instr_fetch_queue.io.read_req <> instr_cache_read_warpper.io.read_req
@@ -99,10 +99,10 @@ class MarkoRvCore extends Module {
 
     io.axi <> axi_ctrl.io.outer
 
-    axi_ctrl.io.port2.write_req.valid := false.B
-    axi_ctrl.io.port2.write_req.bits.size := 0.U
-    axi_ctrl.io.port2.write_req.bits.addr := 0.U
-    axi_ctrl.io.port2.write_req.bits.data := 0.U
+    axi_ctrl.io.ports(1).write_req.valid := false.B
+    axi_ctrl.io.ports(1).write_req.bits.size := 0.U
+    axi_ctrl.io.ports(1).write_req.bits.addr := 0.U
+    axi_ctrl.io.ports(1).write_req.bits.data := 0.U
 
     instr_issuer.io.reg_read1 <> register_file.io.read_addrs(0)
     instr_issuer.io.reg_read2 <> register_file.io.read_addrs(1)
@@ -117,10 +117,10 @@ class MarkoRvCore extends Module {
     data_cache_warpper.io.read_data <> load_store_unit.io.read_data
     data_cache_warpper.io.read_req <> load_store_unit.io.read_req
 
-    axi_ctrl.io.port1.write_req <> data_cache.io.upstream_write_req
-    axi_ctrl.io.port1.write_outfire <> data_cache.io.upstream_write_outfire
-    axi_ctrl.io.port1.read_data <> data_cache.io.upstream_read_data
-    axi_ctrl.io.port1.read_addr <> data_cache.io.upstream_read_addr
+    axi_ctrl.io.ports(0).write_req <> data_cache.io.upstream_write_req
+    axi_ctrl.io.ports(0).write_outfire <> data_cache.io.upstream_write_outfire
+    axi_ctrl.io.ports(0).read_data <> data_cache.io.upstream_read_data
+    axi_ctrl.io.ports(0).read_addr <> data_cache.io.upstream_read_addr
 
     write_back.io.reg_write <> register_file.io.write_addr
     write_back.io.write_data <> register_file.io.write_data

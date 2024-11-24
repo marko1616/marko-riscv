@@ -1,4 +1,5 @@
 #include <random>
+#include <ranges>
 #include <iostream>
 #include <format>
 #include <fstream>
@@ -11,20 +12,23 @@
 
 #define BUS_WIDTH 8
 #define MAX_CLOCK 1024
-#define RAM_SIZE (1024LL * 1024 * 1)
+#define ROM_SIZE (1024LL * 2)
+#define RAM_SIZE (1024LL * 1024 * 8)
 
-struct parsed_args {
-    std::string hex_payload_path;
+struct parsedArgs {
+    std::string ram_path;
+    std::string rom_path;
     bool random_async_interruption = false;
     bool assert_last_peek_valid = false;
     uint64_t assert_last_peek = 0;
     bool random_range_valid = false;
     int random_range_min = 0;
     int random_range_max = 0;
+    bool verbose = false;
     bool axi_debug = false;
 };
 
-struct axi_signal {
+struct axiSignal {
     // Write request signals
     bool awvalid;                  // Master
     bool awready;                  // Slave
@@ -55,8 +59,160 @@ struct axi_signal {
     uint8_t rresp;                 // Slave (2 bits)
 };
 
-class virtual_axi_slaves {
+class Slave {
 public:
+    std::ranges::iota_view<uint64_t, uint64_t> range;
+    virtual ~Slave() = default;
+
+    virtual uint64_t read(uint64_t addr) = 0;
+    virtual void write(uint64_t addr, uint64_t data, uint8_t strb) = 0;
+};
+
+class VirtualUart : public Slave {
+public:
+    explicit VirtualUart() {
+        range = std::ranges::iota_view<uint64_t, uint64_t>(0x0, 0x8);
+
+        ier = 0x00;
+        // Interrupt pending when isr[0] == 0
+        isr = 0x01;
+        fcr = 0x00;
+        // Word lengths from 5(lcr[1,0]==0) to 8(lcr[1,0]==3) bits
+        lcr = 0x03;
+        mcr = 0x00;
+        // Clear to send when lsr[5]==1 and lsr[6]==1
+        lsr = 0x60;
+        msr = 0x00;
+        spr = 0x00;
+    }
+
+    uint64_t read(uint64_t addr) override {
+        switch (addr) {
+            case 0x0:
+                // TODO
+                return 0x00;
+            case 0x1:
+                return ier;
+            case 0x2:
+                return isr;
+            case 0x3:
+                return lcr;
+            case 0x4:
+                return mcr;
+            case 0x5:
+                return lsr;
+            case 0x6:
+                return msr;
+            case 0x7:
+                return spr;
+            default:
+                return 0;
+        }
+    }
+
+    void write(uint64_t addr, uint64_t data, uint8_t strb) override {
+        uint8_t value = static_cast<uint8_t>(data);
+        switch (addr) {
+            case 0x0:
+                std::cout << static_cast<char>(value);
+                break;
+            case 0x1:
+                ier = value & 0xcf;
+                break;
+            case 0x2:
+                fcr = value & 0xdf;
+                break;
+            case 0x3:
+                lcr = value;
+                break;
+            case 0x4:
+                mcr = value & 0x1f;
+                break;
+            case 0x7:  // Scratch Pad Register
+                spr = value;
+                break;
+        }
+    }
+private:
+    // 0x0(r)   Receiver Holding Register 
+    // 0x0(w)   Transmitter Holding Register(WIP)
+    uint8_t ier; // 0x1(r/w) Interrupt Enable Register(WIP)
+    uint8_t isr; // 0x2(r)   Interrupt Status Register(WIP)
+    uint8_t fcr; // 0x2(w)   FIFO Control Register(WIP)
+    uint8_t lcr; // 0x3(r/w) Line Control Register(WIP)
+    uint8_t mcr; // 0x4(r/w) Modem Control Register(WIP)
+    uint8_t lsr; // 0x5(r)   Line Status Register(WIP)
+    uint8_t msr; // 0x6(r)   Modem Status Register(WIP)
+    uint8_t spr; // 0x7(r/w) Scratch Pad Register(WIP)
+};
+
+class VirtualRAM : public Slave {
+public:
+    explicit VirtualRAM(const std::string& file_path, uint64_t size) {
+        range = std::ranges::iota_view<uint64_t, uint64_t>(0x0, size);
+
+        ram = static_cast<uint8_t*>(std::malloc(size));
+        if (ram == nullptr) {
+            throw std::runtime_error("Failed to allocate RAM");
+        }
+        std::memset(ram, 0, size);
+
+        if (init_ram(file_path, size)) {
+            throw std::runtime_error("Failed to initialize RAM");
+        }
+    }
+
+    ~VirtualRAM() {
+        if(ram != nullptr)
+            std::free(ram);
+    }
+
+    uint64_t read(uint64_t addr) override {
+        uint64_t data = 0;
+        for (int i = 0; i < 8; i++) {
+            data |= static_cast<uint64_t>(ram[addr + i]) << (8 * i);
+        }
+        return data;
+    }
+
+    void write(uint64_t addr, uint64_t data, uint8_t strb) override {
+        for (int i = 0; i < 8; i++) {
+            if (strb & (1 << i)) {
+                ram[addr + i] = static_cast<uint8_t>(data >> (8 * i));
+            }
+        }
+    }
+private:
+    uint8_t* ram;
+
+    int init_ram(const std::string& file_path, uint64_t size) {
+        std::ifstream file(file_path, std::ios::binary);
+        if (!file) {
+            std::cerr << "Can't open file:" << file_path << std::endl;
+            return 1;
+        }
+
+        file.seekg(0, std::ios::end);
+        std::streamsize file_size = file.tellg();
+        file.seekg(0, std::ios::beg);
+
+        if (file_size > size) {
+            std::cerr << "File size is too big:" << file_size << std::endl;
+            return 1;
+        }
+        file.read(reinterpret_cast<char*>(ram), file_size);
+
+        return 0;
+    }
+};
+
+class VirtualAxiSlaves {
+public:
+    struct slaveWithAddr {
+        std::unique_ptr<Slave> slave;
+        uint64_t base_addr;
+    };
+
     enum axi_read_state {
         stat_ridle,
         stat_send
@@ -66,16 +222,7 @@ public:
         stat_accept_req,
         stat_outfire,
     };
-    explicit virtual_axi_slaves(const std::string& file_path) {
-        ram = static_cast<uint8_t*>(std::malloc(RAM_SIZE));
-        if (ram == nullptr) {
-            throw std::runtime_error("Failed to allocate RAM");
-        }
-        std::memset(ram, 0, RAM_SIZE);
-
-        if (init_ram(file_path)) {
-            throw std::runtime_error("Failed to initialize RAM");
-        }
+    explicit VirtualAxiSlaves() {
         read_state = stat_ridle;
         write_state = stat_widle;
         read_addr = 0;
@@ -84,20 +231,19 @@ public:
         write_mask = 0;
     }
 
-    ~virtual_axi_slaves() {
-        if (ram != nullptr) {
-            std::free(ram);
-            ram = nullptr;
-        }
+    ~VirtualAxiSlaves() = default;
+
+    void register_slave(std::unique_ptr<Slave> slave, uint64_t base_addr) {
+        slaves.emplace_back(std::move(slave), base_addr);
     }
 
-    void sim_step(axi_signal &axi) {
+    void sim_step(axiSignal &axi) {
         handle_read(axi);
         handle_write(axi);
     }
 
 private:
-    uint8_t* ram;
+    std::vector<slaveWithAddr> slaves;
     axi_read_state read_state;
     axi_write_state write_state;
     uint64_t read_addr;
@@ -105,42 +251,7 @@ private:
     uint64_t write_data;
     uint8_t write_mask;
 
-    int init_ram(const std::string& file_path) {
-        std::ifstream file(file_path);
-        if (!file) {
-            std::cerr << "Can't open file:" << file_path << std::endl;
-            return 1;
-        }
-
-        uint64_t addr = 0;
-        uint64_t data = 0;
-        std::string line;
-        while (std::getline(file, line)) {
-            try {
-                data = std::stoull(line, nullptr, 16);
-            } catch (const std::invalid_argument& e) {
-                std::cerr << "Invalid hex string." << line << std::endl;
-                return 1;
-            } catch (const std::out_of_range& e) {
-                std::cerr << "Hex payload out of qword range." << std::endl;
-                return 1;
-            }
-
-            // Read line as little endian data.
-            for(int i=0;i<4;i++) {
-                if(addr >= RAM_SIZE) {
-                    std::cerr << "Hex payload is bigger than *RAM_SIZE*." << std::endl;
-                    return 1;
-                }
-                ram[addr] = static_cast<uint8_t>(data >> 8*i);
-                addr++;
-            }
-        }
-
-        return 0;
-    }
-
-    void handle_read(axi_signal &axi) {
+    void handle_read(axiSignal &axi) {
         switch (read_state) {
             case stat_ridle:
                 axi.arready = true;
@@ -152,10 +263,15 @@ private:
 
             case stat_send:
                 axi.rvalid = true;
-                if (read_addr < RAM_SIZE-BUS_WIDTH) {
-                    axi.rdata = read_ram(read_addr);
+                auto slave = std::ranges::find_if(slaves,
+                                    [this](const slaveWithAddr &slave) -> bool {
+                                        return std::ranges::contains(slave.slave->range, this->read_addr-slave.base_addr);
+                                    });
+                if (slave != slaves.end()) {
+                    axi.rdata = (*slave).slave->read(read_addr-(*slave).base_addr);
                     axi.rresp = 0b00; // OKAY
                 } else {
+                    std::cout << "AXI read decode error\n";
                     axi.rdata = 0;
                     axi.rresp = 0b11; // DECERR
                 }
@@ -167,7 +283,7 @@ private:
         }
     }
 
-    void handle_write(axi_signal &axi) {
+    void handle_write(axiSignal &axi) {
         switch (write_state) {
             case stat_widle:
                 axi.awready = true;
@@ -188,10 +304,15 @@ private:
 
             case stat_outfire:
                 axi.bvalid = true;
-                if (write_addr < RAM_SIZE-BUS_WIDTH) {
-                    write_ram(write_addr, write_data, write_mask);
+                auto slave = std::ranges::find_if(slaves,
+                                    [this](const slaveWithAddr &slave) -> bool {
+                                        return std::ranges::contains(slave.slave->range, this->write_addr-slave.base_addr);
+                                    });
+                if (slave != slaves.end()) {
+                    (*slave).slave->write(write_addr-(*slave).base_addr, write_data, write_mask);
                     axi.bresp = 0b00; // OKAY
                 } else {
+                    std::cout << "AXI write decode error\n";
                     axi.bresp = 0b11; // DECERR
                 }
 
@@ -201,27 +322,11 @@ private:
                 break;
         }
     }
-
-    uint64_t read_ram(uint64_t addr) {
-        uint64_t data = 0;
-        for (int i = 0; i < 8; i++) {
-            data |= static_cast<uint64_t>(ram[addr + i]) << (8 * i);
-        }
-        return data;
-    }
-
-    void write_ram(uint64_t addr, uint64_t data, uint8_t strb) {
-        for (int i = 0; i < 8; i++) {
-            if (strb & (1 << i)) {
-                ram[addr + i] = static_cast<uint8_t>(data >> (8 * i));
-            }
-        }
-    }
 };
 
 csh capstone_handle;
 
-void read_axi(const std::unique_ptr<VMarkoRvCore> &top, axi_signal &axi) {
+void read_axi(const std::unique_ptr<VMarkoRvCore> &top, axiSignal &axi) {
     // Write request signals
     axi.awvalid = top->io_axi_awvalid;
     axi.awaddr = top->io_axi_awaddr;
@@ -244,7 +349,7 @@ void read_axi(const std::unique_ptr<VMarkoRvCore> &top, axi_signal &axi) {
     axi.rready = top->io_axi_rready;
 }
 
-void set_axi(const std::unique_ptr<VMarkoRvCore> &top, const axi_signal &axi) {
+void set_axi(const std::unique_ptr<VMarkoRvCore> &top, const axiSignal &axi) {
     // Write response signals
     top->io_axi_bvalid = axi.bvalid;
     top->io_axi_bresp = axi.bresp;
@@ -284,7 +389,7 @@ void clear_axi(const std::unique_ptr<VMarkoRvCore> &top) {
     top->io_axi_wready = false;
 }
 
-void axi_debug(const axi_signal& axi) {
+void axi_debug(const axiSignal& axi) {
     std::cout << std::format("AXI Signal State:\n"
                              "Write Request:\n"
                              "  awvalid: {}\n"
@@ -321,7 +426,7 @@ void axi_debug(const axi_signal& axi) {
                              axi.rvalid, axi.rready, axi.rdata, axi.rresp);
 }
 
-void print_cycle(uint64_t cycle, uint64_t pc, uint64_t raw_instr, uint64_t peek, bool interrupted) {
+void cycle_verbose(uint64_t cycle, uint64_t pc, uint64_t raw_instr, uint64_t peek, bool interrupted) {
     uint8_t raw_code[4] = {0};
     std::cout << std::format("Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Peek: 0x{:04x} Interrupted: {} Asm: ",cycle, pc, raw_instr, peek, interrupted);
     for(int i=0;i<4;i++) {
@@ -341,13 +446,15 @@ void print_cycle(uint64_t cycle, uint64_t pc, uint64_t raw_instr, uint64_t peek,
     }
 }
 
-int parse_args(int argc, char **argv, parsed_args &args) {
+int parse_args(int argc, char **argv, parsedArgs &args) {
     // Define long options
     struct option long_options[] = {
-        {"hex-payload-path", required_argument, nullptr, 0},
+        {"rom-path", required_argument, nullptr, 0},
+        {"ram-path", required_argument, nullptr, 0},
         {"random-async-interruption", no_argument, nullptr, 0},
         {"assert-last-peek", required_argument, nullptr, 0},
         {"random-range", required_argument, nullptr, 0},
+        {"verbose", no_argument, nullptr, 0},
         {"axi-debug", no_argument, nullptr, 0},
         {"help", no_argument, nullptr, 0},
         {nullptr, 0, nullptr, 0}
@@ -361,12 +468,18 @@ int parse_args(int argc, char **argv, parsed_args &args) {
                 if (optarg == nullptr) {
                     break;
                 }
-                args.hex_payload_path = optarg;
+                args.rom_path = optarg;
                 break;
             case 1:
-                args.random_async_interruption = true;
+                if (optarg == nullptr) {
+                    break;
+                }
+                args.ram_path = optarg;
                 break;
             case 2:
+                args.random_async_interruption = true;
+                break;
+            case 3:
                 if (optarg == nullptr) {
                     std::cerr << "Error: --assert-last-peek requires a value.\n";
                     return 1;
@@ -382,7 +495,7 @@ int parse_args(int argc, char **argv, parsed_args &args) {
                     return 1;
                 }
                 break;
-            case 3:
+            case 4:
                 if (optarg == nullptr) {
                     std::cerr << "Error: --random-range requires a value.\n";
                     return 1;
@@ -410,11 +523,14 @@ int parse_args(int argc, char **argv, parsed_args &args) {
                     return 1;
                 }
                 break;
-            case 4:
+            case 5:
+                args.verbose = true;
+                break;
+            case 6:
                 args.axi_debug = true;
                 break;
-            case 5: // --help
-                std::cout << std::format("Usage: {} --hex-payload-path <Hex-payload-path> [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
+            case 7: // --help
+                std::cout << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
                 return 0;
             default:
                 std::cerr << std::format("Unknown option or missing argument. Use --help for usage information.\n");
@@ -422,15 +538,21 @@ int parse_args(int argc, char **argv, parsed_args &args) {
         }
     }
 
-    // Check if required -f parameter is provided
-    if (args.hex_payload_path.empty()) {
-        std::cerr << "Error: Hex-payload-path is required.\n";
-        std::cerr << std::format("Usage: {} --hex-payload-path <Hex-payload-path> [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
+    // Check if required parameter is provided
+    if (args.ram_path.empty()) {
+        std::cerr << "Error: --ram-path is required.\n";
+        std::cerr << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
+        return 1;
+    }
+    if (args.rom_path.empty()) {
+        std::cerr << "Error: --rom-path is required.\n";
+        std::cerr << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
         return 1;
     }
 
     // Output parsed results
-    std::cout << std::format("Hex Payload Path: {}\n", args.hex_payload_path);
+    std::cout << std::format("ROM payload path: {}\n", args.rom_path);
+    std::cout << std::format("RAM payload path: {}\n", args.ram_path);
     std::cout << std::format("Random async interruption {}\n", args.random_async_interruption ? "enabled" : "disabled");
 
     if (args.assert_last_peek_valid) {
@@ -455,16 +577,17 @@ int main(int argc, char **argv, char **env)
     auto top = std::make_unique<VMarkoRvCore>();
     auto context = std::make_unique<VerilatedContext>();
 
-    parsed_args args;
+    parsedArgs args;
     if(parse_args(argc, argv, args) != 0)
         return 1;
-    std::cout << std::format("Hex Payload Path: {}\n", args.hex_payload_path);
-
-    virtual_axi_slaves slaves(args.hex_payload_path);
 
     // Init
     top->clock = 0;
     top->reset = 0;
+    VirtualAxiSlaves slaves;
+    slaves.register_slave(std::make_unique<VirtualRAM>(args.rom_path, ROM_SIZE), 0x10000000);
+    slaves.register_slave(std::make_unique<VirtualRAM>(args.ram_path, RAM_SIZE), 0x80000000);
+    slaves.register_slave(std::make_unique<VirtualUart>(), 0x20000000);
 
     // RV64G only not for C extension.
     if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64, &capstone_handle) != CS_ERR_OK) {
@@ -485,7 +608,7 @@ int main(int argc, char **argv, char **env)
 
     // Main loop
     uint64_t clock_cnt = 0;
-    axi_signal axi;    
+    axiSignal axi;    
     while (!Verilated::gotFinish() && clock_cnt < MAX_CLOCK) {
         if (clock_cnt < 4)
             top->reset = 1;
@@ -497,10 +620,11 @@ int main(int argc, char **argv, char **env)
         top->clock = 1;
         top->eval();
         // Debug out
-        print_cycle(clock_cnt, top->io_pc, top->io_instr_now, top->io_peek, triggered);
+        if(args.verbose)
+            cycle_verbose(clock_cnt, top->io_pc, top->io_instr_now, top->io_peek, triggered);
         init_stimulus(top);
         // Handle axi
-        std::memset(&axi, 0, sizeof(axi_signal));
+        std::memset(&axi, 0, sizeof(axiSignal));
         read_axi(top, axi);
         slaves.sim_step(axi);
         if (args.axi_debug)

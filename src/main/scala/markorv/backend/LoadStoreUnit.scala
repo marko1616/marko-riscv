@@ -3,6 +3,7 @@ package markorv.backend
 import chisel3._
 import chisel3.util._
 
+import markorv.io.MemoryIO
 import markorv.frontend.DecoderOutParams
 import markorv.backend._
 
@@ -51,7 +52,6 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
         })
 
         val outfire = Output(Bool())
-        val debug_peek = Output(UInt(64.W))
     })
 
     // Alias
@@ -61,8 +61,6 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     val op_fired = Wire(Bool())
     val load_data = Wire(UInt(data_width.W))
-
-    io.debug_peek := io.lsu_instr.valid
 
     // default
     io.lsu_instr.ready := false.B
