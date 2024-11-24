@@ -175,8 +175,10 @@
 - [ ] L2 Cache
 - [x] Exception & Interruption
 - [ ] TLB
-- [ ] MMU(SV-48)
+- [ ] SV-48 MMU
 - [x] AXI Bus
+- [ ] Device tree
+- [ ] Boot loader
 </details>
 
 <details>

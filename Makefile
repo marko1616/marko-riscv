@@ -26,7 +26,7 @@ compile:
 
 emu:
 	mill -i markorv.runMain markorv.MarkoRvCore
-	verilator --cc generated/MarkoRvCore.sv --exe tests/emulator/stimulus.cpp --build \
+	verilator --cc generated/MarkoRvCore.sv --exe tests/emulator/src/stimulus.cpp --build \
 		-CFLAGS  "-g -I$(CAPSTONE_DIR)/include -std=c++23" \
 		-LDFLAGS "-L$(CAPSTONE_DIR) -lcapstone"
 
@@ -44,3 +44,5 @@ gen-tests: $(HEXES)
 
 clean:
 	rm -f $(OBJS) $(BINS) $(HEXES)
+	rm -rf obj_dir
+	rm -rf generated

@@ -11,7 +11,7 @@
 
 #define BUS_WIDTH 8
 #define MAX_CLOCK 1024
-#define RAM_SIZE 4096
+#define RAM_SIZE (1024LL * 1024 * 1)
 
 struct parsed_args {
     std::string hex_payload_path;
@@ -67,6 +67,12 @@ public:
         stat_outfire,
     };
     explicit virtual_axi_slaves(const std::string& file_path) {
+        ram = static_cast<uint8_t*>(std::malloc(RAM_SIZE));
+        if (ram == nullptr) {
+            throw std::runtime_error("Failed to allocate RAM");
+        }
+        std::memset(ram, 0, RAM_SIZE);
+
         if (init_ram(file_path)) {
             throw std::runtime_error("Failed to initialize RAM");
         }
@@ -78,13 +84,20 @@ public:
         write_mask = 0;
     }
 
+    ~virtual_axi_slaves() {
+        if (ram != nullptr) {
+            std::free(ram);
+            ram = nullptr;
+        }
+    }
+
     void sim_step(axi_signal &axi) {
         handle_read(axi);
         handle_write(axi);
     }
 
 private:
-    uint8_t ram[RAM_SIZE];
+    uint8_t* ram;
     axi_read_state read_state;
     axi_write_state write_state;
     uint64_t read_addr;
@@ -93,8 +106,6 @@ private:
     uint8_t write_mask;
 
     int init_ram(const std::string& file_path) {
-        std::memset(ram, 0, sizeof(ram));
-
         std::ifstream file(file_path);
         if (!file) {
             std::cerr << "Can't open file:" << file_path << std::endl;
