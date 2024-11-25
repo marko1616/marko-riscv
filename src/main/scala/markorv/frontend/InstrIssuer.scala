@@ -10,7 +10,7 @@ class InstrIssueUnit extends Module {
         val issue_task = Flipped(Decoupled(new IssueTask))
 
         val lsu_out = Decoupled(new Bundle {
-            val lsu_opcode = UInt(5.W)
+            val lsu_opcode = UInt(6.W)
             val params = new DecoderOutParams(64)
         })
 

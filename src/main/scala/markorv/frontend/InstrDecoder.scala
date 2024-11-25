@@ -23,7 +23,7 @@ class RegisterSourceRequests(data_width: Int = 64) extends Bundle {
 class IssueTask extends Bundle {
     val operate_unit = UInt(2.W)
     val alu_opcode = UInt(5.W)
-    val lsu_opcode = UInt(5.W)
+    val lsu_opcode = UInt(6.W)
     val misc_opcode = UInt(5.W)
     val branch_opcode = UInt(5.W)
     val pred_taken = Bool()
@@ -55,18 +55,19 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
       0.U.asTypeOf(new RegisterSourceRequests(data_width))
     )
 
-    val OP_LUI    = "b0110111".U
-    val OP_AUIPC  = "b0010111".U
-    val OP_IMM    = "b0010011".U
-    val OP_IMM32  = "b0011011".U
-    val OP        = "b0110011".U
-    val OP_32     = "b0111011".U
-    val OP_LOAD   = "b0000011".U
-    val OP_STOR   = "b0100011".U
-    val OP_JAL    = "b1101111".U
-    val OP_JALR   = "b1100111".U
-    val OP_BRANCH = "b1100011".U
-    val OP_SYSTEM = "b1110011".U
+    val OP_LUI      = "b0110111".U
+    val OP_AUIPC    = "b0010111".U
+    val OP_IMM      = "b0010011".U
+    val OP_IMM32    = "b0011011".U
+    val OP          = "b0110011".U
+    val OP_32       = "b0111011".U
+    val OP_LOAD     = "b0000011".U
+    val OP_STOR     = "b0100011".U
+    val OP_JAL      = "b1101111".U
+    val OP_JALR     = "b1100111".U
+    val OP_BRANCH   = "b1100011".U
+    val OP_SYSTEM   = "b1110011".U
+    val OP_MISC_MEM = "b0001111".U
 
     val opcode  = instr(6, 0)
     val rd      = instr(11, 7)
@@ -251,7 +252,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is(OP_LOAD) {
                 // Load Memory
-                issue_task.lsu_opcode := Cat("b00".U, funct3)
+                issue_task.lsu_opcode := Cat("b000".U, funct3)
                 params.immediate := instr(31, 20).asSInt
                     .pad(64)
                     .asUInt
@@ -264,7 +265,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is(OP_STOR) {
                 // Store Memory
-                issue_task.lsu_opcode := Cat("b10".U, funct3)
+                issue_task.lsu_opcode := Cat("b010".U, funct3)
                 params.immediate := Cat(
                   instr(31, 25),
                   instr(11, 7)
@@ -339,9 +340,17 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
                     valid_instr := true.B
                     operate_unit := 2.U
-                }.elsewhen(instr(31, 7) === "h604000".U) {
+                }.elsewhen(instr === "h30200073".U) {
                     // mret
                     issue_task.misc_opcode := "b00011".U
+                    valid_instr := true.B
+                    operate_unit := 2.U
+                }
+            }
+            is(OP_MISC_MEM) {
+                when((instr & "hf00fffff".U) === "h0000000f".U) {
+                    // fence intenionally ignored due to strict TSO model.
+                    issue_task.misc_opcode := "b0100".U
                     valid_instr := true.B
                     operate_unit := 2.U
                 }

@@ -11,13 +11,14 @@
 #include "markorv_core.h"
 
 #define BUS_WIDTH 8
-#define MAX_CLOCK 1024
-#define ROM_SIZE (1024LL * 2)
+#define DEFAULT_MAX_CLOCK 0x400
+#define ROM_SIZE (1024LL * 16)
 #define RAM_SIZE (1024LL * 1024 * 8)
 
 struct parsedArgs {
     std::string ram_path;
     std::string rom_path;
+    uint64_t max_clock = DEFAULT_MAX_CLOCK;
     bool random_async_interruption = false;
     bool assert_last_peek_valid = false;
     uint64_t assert_last_peek = 0;
@@ -114,7 +115,7 @@ public:
         uint8_t value = static_cast<uint8_t>(data);
         switch (addr) {
             case 0x0:
-                std::cout << static_cast<char>(value);
+                std::cout << value;
                 break;
             case 0x1:
                 ier = value & 0xcf;
@@ -271,7 +272,6 @@ private:
                     axi.rdata = (*slave).slave->read(read_addr-(*slave).base_addr);
                     axi.rresp = 0b00; // OKAY
                 } else {
-                    std::cout << "AXI read decode error\n";
                     axi.rdata = 0;
                     axi.rresp = 0b11; // DECERR
                 }
@@ -312,7 +312,6 @@ private:
                     (*slave).slave->write(write_addr-(*slave).base_addr, write_data, write_mask);
                     axi.bresp = 0b00; // OKAY
                 } else {
-                    std::cout << "AXI write decode error\n";
                     axi.bresp = 0b11; // DECERR
                 }
 
@@ -451,6 +450,7 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
     struct option long_options[] = {
         {"rom-path", required_argument, nullptr, 0},
         {"ram-path", required_argument, nullptr, 0},
+        {"max-clock", required_argument, nullptr, 0},
         {"random-async-interruption", no_argument, nullptr, 0},
         {"assert-last-peek", required_argument, nullptr, 0},
         {"random-range", required_argument, nullptr, 0},
@@ -477,9 +477,15 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
                 args.ram_path = optarg;
                 break;
             case 2:
-                args.random_async_interruption = true;
+                if (optarg == nullptr) {
+                    break;
+                }
+                args.max_clock = std::stoull(optarg, nullptr, 16);
                 break;
             case 3:
+                args.random_async_interruption = true;
+                break;
+            case 4:
                 if (optarg == nullptr) {
                     std::cerr << "Error: --assert-last-peek requires a value.\n";
                     return 1;
@@ -495,7 +501,7 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
                     return 1;
                 }
                 break;
-            case 4:
+            case 5:
                 if (optarg == nullptr) {
                     std::cerr << "Error: --random-range requires a value.\n";
                     return 1;
@@ -523,14 +529,14 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
                     return 1;
                 }
                 break;
-            case 5:
+            case 6:
                 args.verbose = true;
                 break;
-            case 6:
+            case 7:
                 args.axi_debug = true;
                 break;
-            case 7: // --help
-                std::cout << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
+            case 8: // --help
+                std::cout << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--max-clock <max clock>] [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
                 return 0;
             default:
                 std::cerr << std::format("Unknown option or missing argument. Use --help for usage information.\n");
@@ -541,12 +547,12 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
     // Check if required parameter is provided
     if (args.ram_path.empty()) {
         std::cerr << "Error: --ram-path is required.\n";
-        std::cerr << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
+        std::cerr << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--max-clock <max clock>] [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
         return 1;
     }
     if (args.rom_path.empty()) {
         std::cerr << "Error: --rom-path is required.\n";
-        std::cerr << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
+        std::cerr << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--max-clock <max clock>] [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
         return 1;
     }
 
@@ -601,7 +607,7 @@ int main(int argc, char **argv, char **env)
     if(args.random_range_valid) {
         dist = std::uniform_int_distribution<uint64_t>(args.random_range_min, args.random_range_max);
     } else {
-        dist = std::uniform_int_distribution<uint64_t>(1, MAX_CLOCK-1);
+        dist = std::uniform_int_distribution<uint64_t>(1, args.max_clock-1);
     }
     uint64_t trigger_time = dist(gen);
     bool triggered = false;
@@ -609,7 +615,7 @@ int main(int argc, char **argv, char **env)
     // Main loop
     uint64_t clock_cnt = 0;
     axiSignal axi;    
-    while (!Verilated::gotFinish() && clock_cnt < MAX_CLOCK) {
+    while (!Verilated::gotFinish() && clock_cnt < args.max_clock) {
         if (clock_cnt < 4)
             top->reset = 1;
         else

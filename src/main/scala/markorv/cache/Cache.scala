@@ -10,21 +10,24 @@ class Cache(
     upstream_bandwidth: Int = 64
 ) extends Module {
     val io = IO(new Bundle {
-        val upstream_read_addr = Decoupled(UInt(upstream_bandwidth.W))
+        val upstream_read_addr = Decoupled(UInt(64.W))
         val upstream_read_data = Flipped(Decoupled(UInt(upstream_bandwidth.W)))
 
-        val read_addr = Flipped(Decoupled(UInt(upstream_bandwidth.W)))
+        val read_addr = Flipped(Decoupled(UInt(64.W)))
         val read_cache_line = Decoupled(new CacheLine(n_set, n_way, n_byte))
 
         val write_req = Flipped(Decoupled(new Bundle {
-            val addr = UInt(upstream_bandwidth.W)
+            val addr = UInt(64.W)
             val cache_line = new CacheLine(n_set, n_way, n_byte)
         }))
         val write_outfire = Output(Bool())
 
+        val invalid_addr = Flipped(Decoupled(UInt(64.W)))
+        val invalid_outfire = Output(Bool())
+
         val upstream_write_req = Decoupled(new Bundle {
             val size = UInt(2.W)
-            val addr = UInt(upstream_bandwidth.W)
+            val addr = UInt(64.W)
             val data = UInt(upstream_bandwidth.W)
         })
         val upstream_write_outfire = Input(Bool())
@@ -42,8 +45,9 @@ class Cache(
     val replace_way = Reg(UInt(log2Ceil(n_way).W))
 
     val op_set = Wire(UInt(set_width.W))
-    val op_tag_reg = Reg(UInt((64 - set_width + offset_width).W))
+    val op_tag = Wire(UInt(tag_width.W))
     val op_set_reg = Reg(UInt(set_width.W))
+    val op_tag_reg = Reg(UInt((64 - set_width + offset_width).W))
     val hit_index = Reg(UInt(log2Ceil(n_way).W))
 
     val max_ptr = (1 << (log2Ceil(
@@ -56,16 +60,22 @@ class Cache(
         val stat_idle, stat_look_up, stat_read_upstream, stat_write_upstream, stat_replace = Value
     }
     val state = RegInit(State.stat_idle)
-    // 0 for read 1 for write
-    val state_op_type = RegInit(0.U(1.W))
+    // state_op_type[1]
+    // 0: Normal, 1: invalidate cacheline
+    // state_op_type[0]
+    // 0: Read,   1: Write
+    val state_op_type = RegInit(0.U(2.W))
 
+    // Should NOT operate simultaneously.
     io.read_cache_line.valid := false.B
     io.read_cache_line.bits := 0.U.asTypeOf(new CacheLine(n_set, n_way, n_byte))
     io.read_addr.ready := state === State.stat_idle
 
-    // Should NOT write and read simultaneously.
-    io.write_outfire := false.B
     io.write_req.ready := (state === State.stat_idle && !io.read_addr.valid)
+    io.write_outfire := false.B
+
+    io.invalid_addr.ready := state === State.stat_idle
+    io.invalid_outfire := false.B
 
     io.upstream_read_addr.valid := false.B
     io.upstream_read_addr.bits := 0.U(64.W)
@@ -79,10 +89,15 @@ class Cache(
 
     when(io.read_addr.valid) {
         op_set := io.read_addr.bits(set_width + offset_width - 1, offset_width)
+        op_tag := io.read_addr.bits(63, set_width + offset_width)
+    }.elsewhen(io.write_req.valid) {
+        op_set := io.write_req.bits.addr(set_width + offset_width - 1, offset_width)
+        op_tag := io.write_req.bits.addr(63, set_width + offset_width)
     }.otherwise {
-        op_set := io.write_req.bits
-            .addr(set_width + offset_width - 1, offset_width)
+        op_set := io.invalid_addr.bits(set_width + offset_width - 1, offset_width)
+        op_tag := io.invalid_addr.bits(63, set_width + offset_width)
     }
+
     when(state =/= State.stat_replace) {
         op_cache_way := cache_mems.read(op_set)
     }.otherwise {
@@ -91,8 +106,12 @@ class Cache(
 
     switch(state) {
         is(State.stat_idle) {
-            op_tag_reg := io.read_addr.bits(63, set_width + offset_width)
+            op_tag_reg := op_tag
             op_set_reg := op_set
+            when(io.invalid_addr.valid) {
+                state_op_type := 2.U
+                state := State.stat_look_up
+            }
             when(io.write_req.valid) {
                 state_op_type := 1.U
                 state := State.stat_look_up
@@ -108,13 +127,13 @@ class Cache(
             hit := false.B
 
             for (i <- 0 until n_way) {
+                next_cache_way.data(i) := op_cache_way.data(i)
                 when(
                   op_cache_way
                       .data(i)
                       .valid && op_cache_way.data(i).tag === op_tag_reg
                 ) {
                     // Hit
-                    next_cache_way.data(i) := op_cache_way.data(i)
                     hit_index := i.U
                     when(state_op_type === 1.U) {
                         // Write
@@ -125,39 +144,51 @@ class Cache(
                         state := State.stat_idle
 
                         io.write_outfire := true.B
-                    }.otherwise {
+                    }.elsewhen(state_op_type === 0.U) {
                         // Read
                         io.read_cache_line.valid := true.B
                         io.read_cache_line.bits := op_cache_way.data(i)
 
                         hit := true.B
                         state := State.stat_idle
+                    }.otherwise {
+                        // Invalidate
+                        next_cache_way.data(i).valid := false.B
+                        next_cache_way.data(i).dirty := false.B
+                        temp_cache_line := op_cache_way.data(i)
+
+                        hit := true.B
+                        state := State.stat_write_upstream
                     }
-                }.otherwise {
-                    next_cache_way.data(i) := op_cache_way.data(i)
                 }
             }
 
-            when(hit && state_op_type === 1.U) {
+            when(hit && state_op_type =/= 0.U) {
+                // Write or Invalidate
                 cache_mems.write(op_set_reg, next_cache_way)
             }
 
             when(!hit) {
-                // Miss
-                temp_cache_way := op_cache_way
-                io.upstream_read_data.ready := true.B
-                io.upstream_read_addr.valid := true.B
-                io.upstream_read_addr.bits := Cat(
-                  op_tag_reg,
-                  op_set_reg,
-                  0.U(log2Ceil(n_byte).W)
-                )
+                when(state_op_type(1) === 0.U) {
+                    // Miss
+                    temp_cache_way := op_cache_way
+                    io.upstream_read_data.ready := true.B
+                    io.upstream_read_addr.valid := true.B
+                    io.upstream_read_addr.bits := Cat(
+                    op_tag_reg,
+                    op_set_reg,
+                    0.U(log2Ceil(n_byte).W)
+                    )
 
-                read_ptr := 0.U
-                temp_cache_line.valid := true.B
-                temp_cache_line.dirty := false.B
-                temp_cache_line.tag := op_tag_reg
-                state := State.stat_read_upstream
+                    read_ptr := 0.U
+                    temp_cache_line.valid := true.B
+                    temp_cache_line.dirty := false.B
+                    temp_cache_line.tag := op_tag_reg
+                    state := State.stat_read_upstream
+                }.otherwise {
+                    // it is already invalid no need to invalidate.
+                    state := State.stat_idle
+                }
             }
         }
         is(State.stat_read_upstream) {

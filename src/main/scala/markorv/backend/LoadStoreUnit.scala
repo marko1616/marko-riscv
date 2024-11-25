@@ -10,25 +10,47 @@ import markorv.backend._
 class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val io = IO(new Bundle {
         // lsu_opcode encoding:
-        // Bit [4]
+        // Bit [5]
+        //             0 = Normal
+        //             1 = AMO
+        //
+        // Normal Bit [4]
         //             0 = Load
         //             1 = Store
         //
-        // Bit [3]   - Flag: Load from memory or Immediate
+        // Normal Bit [3]   - Flag: Load from memory or Immediate
         //             0 = Memory(base address is params.source1 offset is immediate)
         //             1 = Immediate
         //
-        // Bit [2]   - Sign: Indicates if the data is signed or unsigned.
+        // Normal Bit [2]   - Sign: Indicates if the data is signed or unsigned.
         //             0 = Signed integer (SInt)
         //             1 = Unsigned integer (UInt)
         //
-        // Bits [1:0] - Size: Specifies the size of the data being loaded or stored.
+        // Normal Bits [1:0] - Size: Specifies the size of the data being loaded or stored.
         //             00 = Byte (8 bits)
         //             01 = Halfword (16 bits)
         //             10 = Word (32 bits)
         //             11 = Doubleword (64 bits)
+        //
+        // AMO Bit [4]
+        //             0 = AMO Comparison and calculation
+        //             1 = AMO Swap, load reserved, store conditional
+        //
+        // AMO Bit [3]
+        //             0 = AMO Comparison / AMO Swap
+        //             1 = AMO calculation / load reserved and store conditional
+        //
+        // AMO Bit [2:1]
+        //             00 = add/min/load reserved
+        //             01 = xor/max/load reserved
+        //             10 = or/minu/store conditional
+        //             11 = and/maxu/store conditional
+        //
+        // AMO Bit [0]
+        //             0 = Word (32 bits)
+        //             1 = Doubleword (64 bits)
         val lsu_instr = Flipped(Decoupled(new Bundle {
-            val lsu_opcode = UInt(5.W)
+            val lsu_opcode = UInt(6.W)
             val params = new DecoderOutParams(data_width)
         }))
 
@@ -51,8 +73,16 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             val data = Input(UInt(data_width.W))
         })
 
+        val invalid_addr = Decoupled(UInt(64.W))
+        val invalid_outfire = Input(Bool())
+
+        val direct_out = Flipped(new MemoryIO(data_width, addr_width))
         val outfire = Output(Bool())
     })
+    object State extends ChiselEnum {
+        val stat_normal, stat_amo_cache, stat_amo_read, stat_amo_write = Value
+    }
+    val state = RegInit(State.stat_normal)
 
     // Alias
     val opcode = io.lsu_instr.bits.lsu_opcode
@@ -78,61 +108,132 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     io.write_back.bits.data := 0.U(data_width.W)
     io.write_back.bits.reg := 0.U(5.W)
 
+    io.invalid_addr.valid := false.B
+    io.invalid_addr.bits := 0.U
+
+    io.direct_out.read_addr.valid := false.B
+    io.direct_out.read_addr.bits := 0.U
+    io.direct_out.read_data.ready := false.B
+    io.direct_out.write_req.valid := false.B
+    io.direct_out.write_req.bits.size := 0.U
+    io.direct_out.write_req.bits.addr := 0.U
+    io.direct_out.write_req.bits.data := 0.U
+
     io.outfire := false.B
     op_fired := false.B
     load_data := 0.U
 
     when(!io.lsu_instr.valid) {
-        io.lsu_instr.ready := io.write_back.ready
+        io.lsu_instr.ready := io.write_back.ready && state === State.stat_normal
     }
 
-    when(io.lsu_instr.valid && io.write_back.ready) {
-        when(opcode(4) === 0.U) {
-            val is_signed = !opcode(2)
-            val size = opcode(1, 0)
-
-            io.read_req.bits.size := size
-            io.read_req.bits.addr := params.source1.asUInt + params.immediate.asUInt
-            io.read_req.bits.sign := is_signed
-            io.read_req.valid := true.B
-            io.read_data.ready := true.B
-            when(io.read_data.valid) {
-                op_fired := true.B
-                load_data := io.read_data.bits
-            }
+    when(io.lsu_instr.valid && io.write_back.ready && state === State.stat_normal) {
+        when(io.lsu_instr.bits.lsu_opcode(5)) {
+            // AMO
+            state := State.stat_amo_cache
         }.otherwise {
-            val size = opcode(1, 0)
-            val store_data = params.source2.asUInt
+            // Normal
+            when(opcode(4) === 0.U) {
+                val is_signed = !opcode(2)
+                val size = opcode(1, 0)
+                val addr = params.source1.asUInt + params.immediate.asUInt
 
-            io.write_req.valid := true.B
-            write_req.size := size
-            write_req.addr := params.source1.asUInt + params.immediate.asUInt
-            write_req.data := MuxCase(
-              store_data,
-              Seq(
-                (size === 0.U) -> store_data(7, 0).pad(64),
-                (size === 1.U) -> store_data(15, 0).pad(64),
-                (size === 2.U) -> store_data(31, 0).pad(64)
-                // size === 3.U is the default case (raw_data)
-              )
-            )
+                when(addr < "h80000000".U) {
+                    // Skip cache.
+                    io.direct_out.read_addr.valid := true.B
+                    io.direct_out.read_data.ready := true.B
+                    io.direct_out.read_addr.bits := addr
 
-            when(io.write_outfire) {
-                op_fired := true.B
+                    when(io.direct_out.read_data.valid) {
+                        val raw_data = io.direct_out.read_data.bits
+                        op_fired := true.B
+                        load_data := MuxCase(
+                        raw_data,
+                        Seq(
+                            (size === 0.U) -> Mux(
+                            is_signed,
+                            (raw_data(7, 0).asSInt
+                                .pad(64))
+                                .asUInt, // Sign extend byte
+                            raw_data(7, 0).pad(64) // Zero extend byte
+                            ),
+                            (size === 1.U) -> Mux(
+                            is_signed,
+                            (raw_data(15, 0).asSInt
+                                .pad(64))
+                                .asUInt, // Sign extend halfword
+                            raw_data(15, 0).pad(64) // Zero extend halfword
+                            ),
+                            (size === 2.U) -> Mux(
+                            is_signed,
+                            (raw_data(31, 0).asSInt
+                                .pad(64))
+                                .asUInt, // Sign extend word
+                            raw_data(31, 0).pad(64) // Zero extend word
+                            )
+                            // size === 3.U is the default case (raw_data)
+                        )
+                        )
+                    }
+                }.otherwise {
+                    io.read_req.bits.size := size
+                    io.read_req.bits.addr := addr
+                    io.read_req.bits.sign := is_signed
+                    io.read_req.valid := true.B
+                    io.read_data.ready := true.B
+                    when(io.read_data.valid) {
+                        op_fired := true.B
+                        load_data := io.read_data.bits
+                    }
+                }
+            }.otherwise {
+                val size = opcode(1, 0)
+                val store_data = params.source2.asUInt
+                val addr = params.source1.asUInt + params.immediate.asUInt
+
+                when(addr < "h80000000".U) {
+                    // Skip cache.
+                    io.direct_out.write_req.valid := true.B
+                    io.direct_out.write_req.bits.size := size
+                    io.direct_out.write_req.bits.addr := addr
+                    io.direct_out.write_req.bits.data := store_data
+
+                    when(io.direct_out.write_outfire) {
+                        op_fired := true.B
+                    }
+                }.otherwise {
+                    io.write_req.valid := true.B
+                    write_req.size := size
+                    write_req.addr := addr
+                    write_req.data := MuxCase(
+                        store_data,
+                        Seq(
+                            (size === 0.U) -> store_data(7, 0).pad(64),
+                            (size === 1.U) -> store_data(15, 0).pad(64),
+                            (size === 2.U) -> store_data(31, 0).pad(64)
+                            // size === 3.U is the default case (raw_data)
+                        )
+                    )
+
+                    when(io.write_outfire) {
+                        op_fired := true.B
+                    }
+                }
             }
         }
     }
 
     when(op_fired) {
-        when(opcode(4) === 0.U) {
-            io.outfire := true.B
-            io.lsu_instr.ready := true.B
-            io.write_back.valid := true.B
-            io.write_back.bits.data := load_data
-            io.write_back.bits.reg := params.rd
-        }.otherwise {
-            io.outfire := true.B
-            io.lsu_instr.ready := true.B
+        io.outfire := true.B
+        when(state === State.stat_normal) {
+            when(opcode(4) === 0.U) {
+                io.lsu_instr.ready := true.B
+                io.write_back.valid := true.B
+                io.write_back.bits.data := load_data
+                io.write_back.bits.reg := params.rd
+            }.otherwise {
+                io.lsu_instr.ready := true.B
+            }
         }
     }
 }

@@ -9,7 +9,7 @@ import markorv.frontend.DecoderOutParams
 class MiscUnit extends Module {
     val io = IO(new Bundle {
         // misc_opcode encoding:
-        // Bit [2,0] == 4 AMO operate reserved.
+        // Bit [2,0] == 4 MISC-MEM operate.
         // Bit [2,0] == 3 System operate(mret ecall ebrack).
         // Bit [2,0] == 2 Fence operate(fence fence.i) reserved.
         // Bit [2,0] == 1 Cache line operate(zicbox) reserved.

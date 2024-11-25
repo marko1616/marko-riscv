@@ -3,27 +3,26 @@
 / {
     #address-cells = <0x02>;
     #size-cells = <0x02>;
-	compatible = "riscv-virtio";
-	model = "marko-riscv-virt";
+    compatible = "riscv-virtio";
+    model = "marko-riscv";
 
-	memory@80000000 {
-		device_type = "memory";
-		reg = <0x00 0x80000000 0x00 0x10000000>;
-	};
+    memory@80000000 {
+        device_type = "memory";
+        reg = <0x00 0x80000000 0x00 0x10000000>;
+    };
 
     cpus {
-		#address-cells = <0x02>;
-		#size-cells = <0x00>;
-        // 100MHZ
-		timebase-frequency = <0x5F5E100>;
+        #address-cells = <0x02>;
+        #size-cells = <0x00>;
+        timebase-frequency = <0x5F5E100>;
 
         cpu0: cpu@0 {
             device_type = "cpu";
-            reg = <0x00>;
+            reg = <0x00 0x00>;
             status = "okay";
             compatible = "riscv";
             riscv,isa = "rv64ia_zicsr";
-			mmu-type = "riscv,sv48";
+            mmu-type = "riscv,sv48";
 
             interrupt-controller {
                 #interrupt-cells = <0x01>;
@@ -33,29 +32,28 @@
         };
 
         cpu-map {
-			cluster0 {
-				core0 {
-					cpu = <&cpu0>;
-				};
-			};
-		};
+            cluster0 {
+                core0 {
+                    cpu = <&cpu0>;
+                };
+            };
+        };
     };
 
     chosen {
-		bootargs = "console=ttyS0 earlycon=sbi";
-		stdout-path = "/soc/uart0@10000000";
-	};
+        bootargs = "console=ttyS0 earlycon=sbi";
+        stdout-path = "/soc/uart0@10000000";
+    };
 
     soc {
         #address-cells = <0x02>;
         #size-cells = <0x02>;
-    	compatible = "simple-bus";
-		ranges;
+        compatible = "simple-bus";
 
         uart0@10000000 {
-			clock-frequency = "\08@";           
-			reg = <0x00 0x1000_0000 0x00 0x100>;
-			compatible = "ns16550a";
+            clock-frequency = <0x08>;
+            reg = <0x00 0x10000000 0x00 0x100>;
+            compatible = "ns16550a";
         };
     };
 };

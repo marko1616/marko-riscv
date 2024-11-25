@@ -70,8 +70,8 @@ class AXIPort(data_width: Int, addr_width: Int) extends Module {
         }.elsewhen(io.req.write_req.valid) {
             val size = io.req.write_req.bits.size
             io.outer.awvalid := true.B
-            io.outer.araddr := io.req.write_req.bits.addr
-            io.outer.arprot := 0.U
+            io.outer.awaddr := io.req.write_req.bits.addr
+            io.outer.awprot := 0.U
 
             io.outer.wvalid := true.B
             io.outer.wdata := io.req.write_req.bits.data
@@ -107,14 +107,13 @@ class AXIPort(data_width: Int, addr_width: Int) extends Module {
     }
 
     io.outer.bready := wait_wresp
-    when(wait_read && io.outer.bvalid) {
+    when(wait_wresp && io.outer.bvalid) {
         when(io.outer.bresp === OKAY | io.outer.bresp === EXOKAY) {
             io.req.write_outfire := true.B
         }.otherwise {
             // TODO access error.
             // If don't do this a out range branch prediction will dead lock hold CPU.
-            io.req.read_data.valid := true.B
-            io.req.read_data.bits := 0.U
+            io.req.write_outfire := true.B
         }
         state := State.stat_idle
     }
@@ -122,7 +121,7 @@ class AXIPort(data_width: Int, addr_width: Int) extends Module {
 
 class AXICtrl(data_width: Int, addr_width: Int) extends Module {
     val io = IO(new Bundle {
-        val ports = Vec(2, new MemoryIO(data_width, addr_width))
+        val ports = Vec(3, new MemoryIO(data_width, addr_width))
         val outer = new AxiLiteMasterIO(data_width, addr_width)
     })
 
@@ -140,7 +139,8 @@ class AXICtrl(data_width: Int, addr_width: Int) extends Module {
     }
 
     val port_reqs = VecInit(io.ports.map(p => p.write_req.valid || p.read_addr.valid))
-    val req_port = RegInit(0.U(log2Ceil(io.ports.length).W))
+    val req_port_reg = RegInit(0.U(log2Ceil(io.ports.length).W))
+    val req_port = WireInit(0.U(log2Ceil(io.ports.length).W))
 
     when(ready) {
         for (i <- 0 until io.ports.length) {
@@ -150,5 +150,10 @@ class AXICtrl(data_width: Int, addr_width: Int) extends Module {
         }
     }
 
-    axi_port.io.req <> io.ports(req_port)
+    when(ready) {
+        req_port_reg := req_port
+        axi_port.io.req <> io.ports(req_port)
+    }.otherwise {
+        axi_port.io.req <> io.ports(req_port_reg)
+    }
 }

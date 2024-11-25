@@ -116,11 +116,15 @@ class MarkoRvCore extends Module {
     data_cache_warpper.io.write_outfire <> load_store_unit.io.write_outfire
     data_cache_warpper.io.read_data <> load_store_unit.io.read_data
     data_cache_warpper.io.read_req <> load_store_unit.io.read_req
+    data_cache.io.invalid_addr <> load_store_unit.io.invalid_addr
+    data_cache.io.invalid_outfire <> load_store_unit.io.invalid_outfire
 
     axi_ctrl.io.ports(0).write_req <> data_cache.io.upstream_write_req
     axi_ctrl.io.ports(0).write_outfire <> data_cache.io.upstream_write_outfire
     axi_ctrl.io.ports(0).read_data <> data_cache.io.upstream_read_data
     axi_ctrl.io.ports(0).read_addr <> data_cache.io.upstream_read_addr
+
+    axi_ctrl.io.ports(2) <> load_store_unit.io.direct_out
 
     write_back.io.reg_write <> register_file.io.write_addr
     write_back.io.write_data <> register_file.io.write_data

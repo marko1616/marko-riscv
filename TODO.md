@@ -70,9 +70,9 @@
 </details>
 
 <details>
-<summary><strong> Fence </strong></summary>
+<summary><strong> Fence </strong>✅</summary>
 
-- [ ] fence
+- [x] fence
 </details>
 
 <details>
