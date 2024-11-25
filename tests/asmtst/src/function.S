@@ -31,11 +31,12 @@ fibonacci:
     jr      ra
 
 main:
-    la      sp,stack
+    la      sp, stack
     addi    sp, sp, 1024
     li      a0,4
     call    fibonacci
-    sd      a0,1016(x0)
+end:
+    j end
 
     .section .data
 stack:

@@ -9,7 +9,6 @@ output_loop:
     sb a1, 0(a2)
     addi a0, a0, 1
     j output_loop
-
 end:
     j end
 

@@ -38,7 +38,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
         //
         // AMO Bit [3]
         //             0 = AMO Comparison / AMO Swap
-        //             1 = AMO calculation / load reserved and store conditional
+        //             1 = AMO Calculation / load reserved and store conditional
         //
         // AMO Bit [2:1]
         //             00 = add/min/load reserved
@@ -78,11 +78,13 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
         val direct_out = Flipped(new MemoryIO(data_width, addr_width))
         val outfire = Output(Bool())
+        val peek = Output(UInt(64.W))
     })
     object State extends ChiselEnum {
         val stat_normal, stat_amo_cache, stat_amo_read, stat_amo_write = Value
     }
     val state = RegInit(State.stat_normal)
+    io.peek := state.asTypeOf(UInt(4.W))
 
     // Alias
     val opcode = io.lsu_instr.bits.lsu_opcode
@@ -91,6 +93,22 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     val op_fired = Wire(Bool())
     val load_data = Wire(UInt(data_width.W))
+    val amo_data_reg = Reg(UInt(data_width.W))
+
+    val AMO_SWAP = "b1000".U
+
+    val AMO_ADD  = "b0100".U
+    val AMO_XOR  = "b0101".U
+    val AMO_OR   = "b0110".U
+    val AMO_AND  = "b0111".U
+
+    val AMO_MIN  = "b0000".U
+    val AMO_MAX  = "b0001".U
+    val AMO_MINU = "b0010".U
+    val AMO_MAXU = "b0011".U
+
+    val AMO_LR   = "b1110".U
+    val AMO_SC   = "b1111".U
 
     // default
     io.lsu_instr.ready := false.B
@@ -123,6 +141,109 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     op_fired := false.B
     load_data := 0.U
 
+    when(state === State.stat_amo_cache) {
+        // Clear cache
+        val addr = params.source1.asUInt & "hfffffffffffffff0".U
+        io.invalid_addr.valid := true.B
+        io.invalid_addr.bits := addr
+        when(io.invalid_outfire) {
+            state := State.stat_amo_read
+        }
+    }
+
+    when(state === State.stat_amo_read) {
+        // Read data from memory
+        val addr = params.source1.asUInt
+        io.direct_out.read_addr.valid := true.B
+        io.direct_out.read_data.ready := true.B
+        io.direct_out.read_addr.bits := addr
+
+        when(io.direct_out.read_data.valid) {
+            val raw_data = io.direct_out.read_data.bits
+            when(opcode(0)) {
+                amo_data_reg := raw_data
+            }.otherwise {
+                amo_data_reg := raw_data(31,0).asSInt.pad(64).asUInt
+            }
+            state := State.stat_amo_write
+        }
+    }
+
+    when(state === State.stat_amo_write) {
+        val addr = params.source1.asUInt
+        val data = Wire(UInt(64.W))
+        val source2 = Wire(UInt(64.W))
+        data := 0.U
+        source2 := 0.U
+
+        when(opcode(0)) {
+            source2 := params.source2
+        }.otherwise {
+            source2 := params.source2(31,0).asSInt.pad(64).asUInt
+        }
+
+        switch(io.lsu_instr.bits.lsu_opcode(4, 1)) {
+            is(AMO_SWAP) {
+                data := source2
+            }
+
+            is(AMO_ADD) {
+                data := amo_data_reg + source2
+            }
+            is(AMO_XOR) {
+                data := amo_data_reg ^ source2
+            }
+            is(AMO_OR) {
+                data := amo_data_reg | source2
+            }
+            is(AMO_AND) {
+                data := amo_data_reg & source2
+            }
+
+            is(AMO_MIN) {
+                when(amo_data_reg.asSInt < source2.asSInt) {
+                    data := amo_data_reg
+                }.otherwise {
+                    data := source2
+                }
+            }
+            is(AMO_MAX) {
+                when(amo_data_reg.asSInt > source2.asSInt) {
+                    data := amo_data_reg
+                }.otherwise {
+                    data := source2
+                }
+            }
+            is(AMO_MINU) {
+                when(amo_data_reg < source2) {
+                    data := amo_data_reg
+                }.otherwise {
+                    data := source2
+                }
+            }
+            is(AMO_MAXU) {
+                when(amo_data_reg > source2) {
+                    data := amo_data_reg
+                }.otherwise {
+                    data := source2
+                }
+            }
+        }
+
+        io.direct_out.write_req.valid := true.B
+        io.direct_out.write_req.bits.size := "b10".U + opcode(0)
+        io.direct_out.write_req.bits.addr := addr
+        io.direct_out.write_req.bits.data := data
+
+        when(io.direct_out.write_outfire) {
+            op_fired := true.B
+            io.write_back.valid := true.B
+            io.write_back.bits.data := amo_data_reg
+            io.write_back.bits.reg := params.rd
+            state := State.stat_normal
+        }
+    }
+
     when(!io.lsu_instr.valid) {
         io.lsu_instr.ready := io.write_back.ready && state === State.stat_normal
     }
@@ -148,31 +269,31 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
                         val raw_data = io.direct_out.read_data.bits
                         op_fired := true.B
                         load_data := MuxCase(
-                        raw_data,
-                        Seq(
-                            (size === 0.U) -> Mux(
-                            is_signed,
-                            (raw_data(7, 0).asSInt
-                                .pad(64))
-                                .asUInt, // Sign extend byte
-                            raw_data(7, 0).pad(64) // Zero extend byte
-                            ),
-                            (size === 1.U) -> Mux(
-                            is_signed,
-                            (raw_data(15, 0).asSInt
-                                .pad(64))
-                                .asUInt, // Sign extend halfword
-                            raw_data(15, 0).pad(64) // Zero extend halfword
-                            ),
-                            (size === 2.U) -> Mux(
-                            is_signed,
-                            (raw_data(31, 0).asSInt
-                                .pad(64))
-                                .asUInt, // Sign extend word
-                            raw_data(31, 0).pad(64) // Zero extend word
+                            raw_data,
+                            Seq(
+                                (size === 0.U) -> Mux(
+                                is_signed,
+                                (raw_data(7, 0).asSInt
+                                    .pad(64))
+                                    .asUInt, // Sign extend byte
+                                raw_data(7, 0).pad(64) // Zero extend byte
+                                ),
+                                (size === 1.U) -> Mux(
+                                is_signed,
+                                (raw_data(15, 0).asSInt
+                                    .pad(64))
+                                    .asUInt, // Sign extend halfword
+                                raw_data(15, 0).pad(64) // Zero extend halfword
+                                ),
+                                (size === 2.U) -> Mux(
+                                is_signed,
+                                (raw_data(31, 0).asSInt
+                                    .pad(64))
+                                    .asUInt, // Sign extend word
+                                raw_data(31, 0).pad(64) // Zero extend word
+                                )
+                                // size === 3.U is the default case (raw_data)
                             )
-                            // size === 3.U is the default case (raw_data)
-                        )
                         )
                     }
                 }.otherwise {
@@ -225,15 +346,11 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     when(op_fired) {
         io.outfire := true.B
-        when(state === State.stat_normal) {
-            when(opcode(4) === 0.U) {
-                io.lsu_instr.ready := true.B
-                io.write_back.valid := true.B
-                io.write_back.bits.data := load_data
-                io.write_back.bits.reg := params.rd
-            }.otherwise {
-                io.lsu_instr.ready := true.B
-            }
+        io.lsu_instr.ready := true.B
+        when(state === State.stat_normal && opcode(4) === 0.U) {
+            io.write_back.valid := true.B
+            io.write_back.bits.data := load_data
+            io.write_back.bits.reg := params.rd
         }
     }
 }

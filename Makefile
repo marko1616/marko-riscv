@@ -12,7 +12,7 @@ ELFS         = $(OBJS:.o=.elf)
 BINS         = $(OBJS:.o=.bin)
 
 LD_SCRIPT = tests/asmtst/general.ld
-CFLAGS = -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles
+CFLAGS = -march=rv64ia_zicsr -mabi=lp64 -nostdlib -nostartfiles
 LDFLAGS = -T $(LD_SCRIPT)
 
 # Targets

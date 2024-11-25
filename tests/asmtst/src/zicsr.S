@@ -13,3 +13,5 @@ _start:
     csrrwi a0, 0x800, 0x1F
 
     csrr a0, 0x800
+end:
+    j end

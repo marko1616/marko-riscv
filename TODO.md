@@ -129,24 +129,24 @@
 - [ ] lr.d
 - [ ] sc.w
 - [ ] sc.d
-- [ ] amoswap.w
-- [ ] amoswap.d
-- [ ] amoadd.w
-- [ ] amoadd.d
-- [ ] amoxor.w
-- [ ] amoxor.d
-- [ ] amoand.w
-- [ ] amoand.d
-- [ ] amoor.w
-- [ ] amoor.d
-- [ ] amomin.w
-- [ ] amomin.d
-- [ ] amomax.w
-- [ ] amomax.d
-- [ ] amominu.w
-- [ ] amominu.d
-- [ ] amomaxu.w
-- [ ] amomaxu.d
+- [x] amoswap.w
+- [x] amoswap.d
+- [x] amoadd.w
+- [x] amoadd.d
+- [x] amoxor.w
+- [x] amoxor.d
+- [x] amoand.w
+- [x] amoand.d
+- [x] amoor.w
+- [x] amoor.d
+- [x] amomin.w
+- [x] amomin.d
+- [x] amomax.w
+- [x] amomax.d
+- [x] amominu.w
+- [x] amominu.d
+- [x] amomaxu.w
+- [x] amomaxu.d
 </details>
 
 <details>

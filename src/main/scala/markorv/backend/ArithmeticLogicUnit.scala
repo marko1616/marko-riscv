@@ -32,17 +32,17 @@ class ArithmeticLogicUnit extends Module {
     write_back_orig := 0.U
 
     // ALU operation codes[3,0]
-    val ALU_ADD = "b0001".U
-    val ALU_SLL = "b0011".U
-    val ALU_SLT = "b0101".U
+    val ALU_ADD  = "b0001".U
+    val ALU_SLL  = "b0011".U
+    val ALU_SLT  = "b0101".U
     val ALU_SLTU = "b0111".U
-    val ALU_XOR = "b1001".U
-    val ALU_SRL = "b1011".U
-    val ALU_OR = "b1101".U
-    val ALU_AND = "b1111".U
+    val ALU_XOR  = "b1001".U
+    val ALU_SRL  = "b1011".U
+    val ALU_OR   = "b1101".U
+    val ALU_AND  = "b1111".U
 
-    val ALU_SRA = "b1010".U
-    val ALU_SUB = "b0000".U
+    val ALU_SRA  = "b1010".U
+    val ALU_SUB  = "b0000".U
 
     // Define a helper function to set write_back values
     def perform_op(result: UInt): Unit = {

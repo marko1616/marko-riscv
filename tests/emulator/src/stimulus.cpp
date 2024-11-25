@@ -620,7 +620,7 @@ int main(int argc, char **argv, char **env)
             top->reset = 1;
         else
             top->reset = 0;
-
+        
         // Posedge clk
         context->timeInc(1);
         top->clock = 1;

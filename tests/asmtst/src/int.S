@@ -20,6 +20,8 @@ main:
 loop:
     addi a1, a1, 1
     bne a1, a2, loop
+end:
+    j end
 
 .section .data
 data:

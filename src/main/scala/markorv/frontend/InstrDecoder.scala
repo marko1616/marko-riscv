@@ -69,6 +69,8 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val OP_SYSTEM   = "b1110011".U
     val OP_MISC_MEM = "b0001111".U
 
+    val OP_AMO      = "b0101111".U
+
     val opcode  = instr(6, 0)
     val rd      = instr(11, 7)
     val rs1     = instr(19, 15)
@@ -354,6 +356,32 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                     valid_instr := true.B
                     operate_unit := 2.U
                 }
+            }
+
+            is(OP_AMO) {
+                // aq rl intenionally ignored due to strict TSO model.
+                reg_source_requests.source1 := rs1
+                reg_source_requests.source2 := rs2
+                params.rd := rd
+
+                when(instr(31)) {
+                    // amo compare
+                    issue_task.lsu_opcode := Cat("b100".U,instr(30,29),funct3(0))
+                }.otherwise {
+                    when(instr(28,27) === 0.U) {
+                        // amo clac
+                        issue_task.lsu_opcode := Cat("b101".U,instr(30,29),funct3(0))
+                    }.elsewhen(instr(28,27) === 1.U) {
+                        // amo swap
+                        issue_task.lsu_opcode := Cat("b11000".U,funct3(0))
+                    }.otherwise {
+                        // lr sc
+                        issue_task.lsu_opcode := Cat("b111".U,instr(28,27),funct3(0))
+                    }
+                }
+
+                valid_instr := true.B
+                operate_unit := 1.U   
             }
         }
     }

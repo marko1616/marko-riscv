@@ -71,6 +71,8 @@ class MarkoRvCore extends Module {
     data_cache_warpper.io.cache_write_outfire <> data_cache.io.write_outfire
     data_cache.io.read_addr <> data_cache_warpper.io.read_cache_line_addr
     data_cache.io.read_cache_line <> data_cache_warpper.io.read_cache_line
+    data_cache.io.invalid_addr <> data_cache_warpper.io.cache_invalid_addr
+    data_cache.io.invalid_outfire <> data_cache_warpper.io.cache_invalid_outfire
 
     instr_cache_read_warpper.io.read_cache_line_addr <> instr_cache.io.read_addr
     instr_cache_read_warpper.io.read_cache_line <> instr_cache.io.read_cache_line
@@ -116,8 +118,8 @@ class MarkoRvCore extends Module {
     data_cache_warpper.io.write_outfire <> load_store_unit.io.write_outfire
     data_cache_warpper.io.read_data <> load_store_unit.io.read_data
     data_cache_warpper.io.read_req <> load_store_unit.io.read_req
-    data_cache.io.invalid_addr <> load_store_unit.io.invalid_addr
-    data_cache.io.invalid_outfire <> load_store_unit.io.invalid_outfire
+    data_cache_warpper.io.invalid_addr <> load_store_unit.io.invalid_addr
+    data_cache_warpper.io.invalid_outfire <> load_store_unit.io.invalid_outfire
 
     axi_ctrl.io.ports(0).write_req <> data_cache.io.upstream_write_req
     axi_ctrl.io.ports(0).write_outfire <> data_cache.io.upstream_write_outfire
