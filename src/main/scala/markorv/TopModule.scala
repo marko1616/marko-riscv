@@ -63,6 +63,8 @@ class MarkoRvCore extends Module {
     int_ctrl.io.mstatus <> csr_file.io.mstatus
     int_ctrl.io.mie <> csr_file.io.mie
     misc_unit.io.set_privilege <> int_ctrl.io.set_privilege
+    misc_unit.io.ecall <> int_ctrl.io.ecall
+    misc_unit.io.ebreak <> int_ctrl.io.ebreak
     misc_unit.io.ret <> int_ctrl.io.ret
     misc_unit.io.ret <> csr_file.io.ret
 
@@ -120,6 +122,8 @@ class MarkoRvCore extends Module {
     data_cache_warpper.io.read_req <> load_store_unit.io.read_req
     data_cache_warpper.io.invalid_addr <> load_store_unit.io.invalid_addr
     data_cache_warpper.io.invalid_outfire <> load_store_unit.io.invalid_outfire
+    load_store_unit.io.local_load_reserved.ready := true.B
+    load_store_unit.io.invalidate_reserved := misc_unit.io.ret
 
     axi_ctrl.io.ports(0).write_req <> data_cache.io.upstream_write_req
     axi_ctrl.io.ports(0).write_outfire <> data_cache.io.upstream_write_outfire

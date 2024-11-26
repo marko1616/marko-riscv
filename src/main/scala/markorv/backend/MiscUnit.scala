@@ -10,7 +10,11 @@ class MiscUnit extends Module {
     val io = IO(new Bundle {
         // misc_opcode encoding:
         // Bit [2,0] == 4 MISC-MEM operate.
-        // Bit [2,0] == 3 System operate(mret ecall ebrack).
+        // Bit [2,0] == 3 System operate(mret ecall ebrack wfi).
+        // Bit [4,3] == 0 wfi
+        // Bit [4,3] == 1 ecall
+        // Bit [4,3] == 2 ebreak
+        // Bit [4,3] == 3 mret
         // Bit [2,0] == 2 Fence operate(fence fence.i) reserved.
         // Bit [2,0] == 1 Cache line operate(zicbox) reserved.
         // Bit [2,0] == 0 CSR(zicsr) operate. Bit[3] = rs1 == x0 ? 1 : 0.
@@ -30,6 +34,8 @@ class MiscUnit extends Module {
         val peek_privilege = Output(UInt(2.W))
         val set_privilege = Input(UInt(2.W))
 
+        val ecall = Decoupled(UInt(64.W))
+        val ebreak = Decoupled(UInt(64.W))
         val ret = Output(Bool()) 
     })
     // M mode when reset.
@@ -53,6 +59,10 @@ class MiscUnit extends Module {
     io.write_back.bits.data := 0.U
 
     io.peek_privilege := privilege_reg
+    io.ecall.valid := false.B
+    io.ebreak.valid := false.B
+    io.ecall.bits := 0.U
+    io.ebreak.bits := 0.U
     io.ret := false.B
 
     when(io.misc_instr.valid) {
@@ -90,10 +100,30 @@ class MiscUnit extends Module {
             io.outfire := true.B
         }
         when(opcode(2,0) === 3.U) {
-            // mret
-            io.ret := true.B
-            privilege_reg := io.set_privilege
-            io.outfire := true.B
+            when(opcode(4,3) === 0.U) {
+                // wfi
+                io.outfire := true.B
+            }
+            when(opcode(4,3) === 1.U) {
+                // ecall
+                io.ecall.valid := true.B
+                io.ecall.bits := params.pc + 4.U
+                privilege_reg := io.set_privilege
+                io.outfire := true.B
+            }
+            when(opcode(4,3) === 2.U) {
+                // ebreak
+                io.ebreak.valid := true.B
+                io.ebreak.bits := params.pc + 4.U
+                privilege_reg := io.set_privilege
+                io.outfire := true.B
+            }
+            when(opcode(4,3) === 3.U) {
+                // mret
+                io.ret := true.B
+                privilege_reg := io.set_privilege
+                io.outfire := true.B
+            }
         }
     }
 }

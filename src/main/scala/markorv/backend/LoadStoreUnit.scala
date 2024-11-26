@@ -76,15 +76,19 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
         val invalid_addr = Decoupled(UInt(64.W))
         val invalid_outfire = Input(Bool())
 
+        val local_load_reserved = Decoupled(UInt(64.W))
+        val invalidate_reserved = Input(Bool())
+
         val direct_out = Flipped(new MemoryIO(data_width, addr_width))
         val outfire = Output(Bool())
-        val peek = Output(UInt(64.W))
     })
     object State extends ChiselEnum {
         val stat_normal, stat_amo_cache, stat_amo_read, stat_amo_write = Value
     }
     val state = RegInit(State.stat_normal)
-    io.peek := state.asTypeOf(UInt(4.W))
+    val local_load_reserved_valid = RegInit(false.B)
+    val local_load_reserved_addr = RegInit(0.U(64.W))
+    val sc_uninterruptible = Wire(Bool())
 
     // Alias
     val opcode = io.lsu_instr.bits.lsu_opcode
@@ -109,6 +113,14 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     val AMO_LR   = "b1110".U
     val AMO_SC   = "b1111".U
+    val AMO_SC_FAILED = "h0000006d61726b6f".U
+
+    def invalidate_reserved(write_addr: UInt) = {
+        when(write_addr === local_load_reserved_addr && !sc_uninterruptible) {
+            local_load_reserved_valid := false.B
+            local_load_reserved_addr := 0.U
+        }
+    }
 
     // default
     io.lsu_instr.ready := false.B
@@ -137,7 +149,11 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     io.direct_out.write_req.bits.addr := 0.U
     io.direct_out.write_req.bits.data := 0.U
 
+    io.local_load_reserved.valid := local_load_reserved_valid
+    io.local_load_reserved.bits := local_load_reserved_addr
+
     io.outfire := false.B
+    sc_uninterruptible := false.B
     op_fired := false.B
     load_data := 0.U
 
@@ -181,6 +197,9 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
         }.otherwise {
             source2 := params.source2(31,0).asSInt.pad(64).asUInt
         }
+
+        val is_lr = io.lsu_instr.bits.lsu_opcode(4, 1) === AMO_LR
+        val is_sc = io.lsu_instr.bits.lsu_opcode(4, 1) === AMO_SC
 
         switch(io.lsu_instr.bits.lsu_opcode(4, 1)) {
             is(AMO_SWAP) {
@@ -228,19 +247,59 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
                     data := source2
                 }
             }
+            is(AMO_SC) {
+                data := source2
+            }
         }
 
-        io.direct_out.write_req.valid := true.B
-        io.direct_out.write_req.bits.size := "b10".U + opcode(0)
-        io.direct_out.write_req.bits.addr := addr
-        io.direct_out.write_req.bits.data := data
-
-        when(io.direct_out.write_outfire) {
+        when(is_lr) {
             op_fired := true.B
+            local_load_reserved_valid := true.B
+            local_load_reserved_addr := addr
+
             io.write_back.valid := true.B
             io.write_back.bits.data := amo_data_reg
             io.write_back.bits.reg := params.rd
             state := State.stat_normal
+        }.elsewhen(is_sc) {
+            when(local_load_reserved_valid && local_load_reserved_addr === addr) {
+                when(io.direct_out.write_req.ready) {
+                    // Make sure wont break the AXI state machine.
+                    sc_uninterruptible := true.B
+                }
+                io.direct_out.write_req.valid := true.B
+                io.direct_out.write_req.bits.size := "b10".U + opcode(0)
+                io.direct_out.write_req.bits.addr := addr
+                io.direct_out.write_req.bits.data := data
+                when(io.direct_out.write_outfire) {
+                    op_fired := true.B
+                    local_load_reserved_valid := false.B
+                    local_load_reserved_addr := 0.U
+                    io.write_back.valid := true.B
+                    io.write_back.bits.data := 0.U
+                    io.write_back.bits.reg := params.rd
+                    state := State.stat_normal
+                }
+            }.otherwise {
+                op_fired := true.B
+                io.write_back.valid := true.B
+                io.write_back.bits.data := AMO_SC_FAILED
+                io.write_back.bits.reg := params.rd
+                state := State.stat_normal
+            }
+        }.otherwise {
+            invalidate_reserved(addr)
+            io.direct_out.write_req.valid := true.B
+            io.direct_out.write_req.bits.size := "b10".U + opcode(0)
+            io.direct_out.write_req.bits.addr := addr
+            io.direct_out.write_req.bits.data := data
+            when(io.direct_out.write_outfire) {
+                op_fired := true.B
+                io.write_back.valid := true.B
+                io.write_back.bits.data := amo_data_reg
+                io.write_back.bits.reg := params.rd
+                state := State.stat_normal
+            }
         }
     }
 
@@ -314,6 +373,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
                 when(addr < "h80000000".U) {
                     // Skip cache.
+                    invalidate_reserved(addr)
                     io.direct_out.write_req.valid := true.B
                     io.direct_out.write_req.bits.size := size
                     io.direct_out.write_req.bits.addr := addr
@@ -323,6 +383,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
                         op_fired := true.B
                     }
                 }.otherwise {
+                    invalidate_reserved(addr)
                     io.write_req.valid := true.B
                     write_req.size := size
                     write_req.addr := addr

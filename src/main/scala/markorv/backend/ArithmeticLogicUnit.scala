@@ -45,7 +45,7 @@ class ArithmeticLogicUnit extends Module {
     val ALU_SUB  = "b0000".U
 
     // Define a helper function to set write_back values
-    def perform_op(result: UInt): Unit = {
+    def perform_op(result: UInt) = {
         io.write_back.valid := true.B
         io.write_back.bits.reg := io.alu_instr.bits.params.rd
         write_back_orig := result

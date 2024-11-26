@@ -76,12 +76,12 @@
 </details>
 
 <details>
-<summary><strong> System Instructions </strong></summary>
+<summary><strong> System Instructions </strong>✅</summary>
 
-- [ ] ecall
-- [ ] ebreak
+- [x] ecall
+- [x] ebreak
 - [x] mret
-- [ ] wfi
+- [x] wfi
 </details>
 
 <details>
@@ -123,12 +123,12 @@
 </details>
 
 <details>
-<summary><strong> A Extension Instructions（Low Piro）</strong></summary>
+<summary><strong> A Extension Instructions</strong>✅</summary>
 
-- [ ] lr.w
-- [ ] lr.d
-- [ ] sc.w
-- [ ] sc.d
+- [x] lr.w
+- [x] lr.d
+- [x] sc.w
+- [x] sc.d
 - [x] amoswap.w
 - [x] amoswap.d
 - [x] amoadd.w

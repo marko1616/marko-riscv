@@ -3,7 +3,7 @@
 _start:
     j main
 trap_handler:
-    li a0, 0x1
+    csrr a0, mcause
     mret
 
 main:
@@ -17,11 +17,14 @@ main:
     la t0, data
     addi t0, t0, 1016
 
+    ecall
+    ebreak
+
 loop:
     addi a1, a1, 1
+    nop
+    nop
     bne a1, a2, loop
-end:
-    j end
 
 .section .data
 data:

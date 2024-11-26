@@ -11,8 +11,5 @@ SECTIONS
 
     .data 0x10000400 : {
         *(.data)
-        dtb_start = .;
-        KEEP(*(.dtb))
-        dtb_end = .;
     }
 }

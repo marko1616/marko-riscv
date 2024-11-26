@@ -95,7 +95,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     params.source1 := 0.U(data_width.W)
     params.source2 := 0.U(data_width.W)
     params.rd := 0.U
-    params.pc := 0.U
+    params.pc := pc
 
     when(io.instr_bundle.valid) {
         switch(opcode) {
@@ -283,7 +283,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 issue_task.branch_opcode := "b00001".U
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
                 issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
-                params.pc := pc
                 params.rd := rd
 
                 valid_instr := true.B
@@ -295,7 +294,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
                 issue_task.pred_pc := io.instr_bundle.bits.pred_pc
                 issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
-                params.pc := pc
                 params.rd := rd
 
                 reg_source_requests.source1 := rs1
@@ -342,9 +340,24 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
                     valid_instr := true.B
                     operate_unit := 2.U
+                }.elsewhen(instr === "h10500073".U) {
+                    // wfi
+                    issue_task.misc_opcode := "b00011".U
+                    valid_instr := true.B
+                    operate_unit := 2.U
+                }.elsewhen(instr === "h00000073".U) {
+                    // ecall
+                    issue_task.misc_opcode := "b01011".U
+                    valid_instr := true.B
+                    operate_unit := 2.U
+                }.elsewhen(instr === "h00100073".U) {
+                    // ebreak
+                    issue_task.misc_opcode := "b10011".U
+                    valid_instr := true.B
+                    operate_unit := 2.U
                 }.elsewhen(instr === "h30200073".U) {
                     // mret
-                    issue_task.misc_opcode := "b00011".U
+                    issue_task.misc_opcode := "b11011".U
                     valid_instr := true.B
                     operate_unit := 2.U
                 }

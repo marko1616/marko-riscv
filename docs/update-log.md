@@ -2,9 +2,9 @@
 
 * 🛠️ Chore: RAM init change hex to binary.
 * 🛠️ Fix: outfire signal at instruction issuer.
+* ✅ Feat: Support for atomic operation.
 * ✅ Feat: Virtual uart.
 * ✅ Feat: Basic boot sequence.
-* ✅ Feat: Remove LSU state machine.
 * ✅ Feat: Better build and compile implementation.
 * ✅ Feat: Custom cpp & verilator based test workflow.
 * ✅ Feat: Support for basic Zicsr.
