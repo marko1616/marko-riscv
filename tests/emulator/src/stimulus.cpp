@@ -15,6 +15,8 @@
 #define ROM_SIZE (1024LL * 16)
 #define RAM_SIZE (1024LL * 1024 * 8)
 
+#define USAGE "Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--max-clock <max clock>] [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n"
+
 struct parsedArgs {
     std::string ram_path;
     std::string rom_path;
@@ -27,6 +29,11 @@ struct parsedArgs {
     int random_range_max = 0;
     bool verbose = false;
     bool axi_debug = false;
+};
+
+struct IRQ {
+    bool valid = 0;
+    uint32_t code = 0;
 };
 
 struct axiSignal {
@@ -67,6 +74,17 @@ public:
 
     virtual uint64_t read(uint64_t addr) = 0;
     virtual void write(uint64_t addr, uint64_t data, uint8_t strb) = 0;
+
+    virtual void posedge_step() {
+        return;
+    }
+
+    virtual IRQ get_irq() {
+        IRQ irq;
+        irq.valid = false;
+        irq.code = 0;
+        return irq;
+    }
 };
 
 class VirtualUart : public Slave {
@@ -536,7 +554,7 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
                 args.axi_debug = true;
                 break;
             case 8: // --help
-                std::cout << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--max-clock <max clock>] [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
+                std::cout << std::format(USAGE, argv[0]);
                 return 0;
             default:
                 std::cerr << std::format("Unknown option or missing argument. Use --help for usage information.\n");
@@ -547,12 +565,12 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
     // Check if required parameter is provided
     if (args.ram_path.empty()) {
         std::cerr << "Error: --ram-path is required.\n";
-        std::cerr << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--max-clock <max clock>] [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
+        std::cerr << std::format(USAGE, argv[0]);
         return 1;
     }
     if (args.rom_path.empty()) {
         std::cerr << "Error: --rom-path is required.\n";
-        std::cerr << std::format("Usage: {} --rom-path <bin rom payload> --ram-path <bin ram payload> [--max-clock <max clock>] [--random-async-interruption] [--assert-last-peek <hex>] [--random-range <min:max>] [--axi-debug]\n", argv[0]);
+        std::cerr << std::format(USAGE, argv[0]);
         return 1;
     }
 
