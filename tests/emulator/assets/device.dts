@@ -59,6 +59,8 @@
 
 		clint@2000000 {
 			interrupts-extended = <&cpu0clint 0x03 &cpu0clint 0x07>;
+            /* mtimecmp = 0x2000000 + 0x4000 */
+            /* mtime = 0x2000000 + 0xBFF8 */
 			reg = <0x00 0x2000000 0x00 0x10000>;
             status = "okay";
 			compatible = "sifive,clint0\0riscv,clint0";
