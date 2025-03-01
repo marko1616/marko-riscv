@@ -45,5 +45,6 @@ gen-rom:
 
 clean:
 	rm -f $(OBJS) $(ELFS) $(BINS)
+	rm -rf out
 	rm -rf obj_dir
 	rm -rf generated
