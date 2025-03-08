@@ -349,3 +349,7 @@ obj_dir/
 
 # Build tool
 mill
+
+*.dtb
+*.dump
+*.bin

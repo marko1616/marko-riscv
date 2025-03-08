@@ -6,6 +6,7 @@ OBJCOPY = riscv64-unknown-elf-objcopy
 # Directories and Files
 ASM_TEST_DIR = tests/asmtst/src
 CAPSTONE_DIR = $(shell realpath libs/capstone)
+CXXOPTS_DIR = $(shell realpath libs/cxxopts)
 ASM_SRCS     = $(shell find $(ASM_TEST_DIR) -name '*.S')
 OBJS         = $(ASM_SRCS:.S=.o)
 ELFS         = $(OBJS:.o=.elf)
@@ -25,7 +26,7 @@ init:
 compile:
 	mill -i markorv.runMain markorv.MarkoRvCore
 	verilator --cc generated/MarkoRvCore.sv --exe tests/emulator/src/stimulus.cpp --build \
-		-CFLAGS  "-g -I$(CAPSTONE_DIR)/include -std=c++23" \
+		-CFLAGS  "-g -I$(CAPSTONE_DIR)/include -I$(CXXOPTS_DIR)/include -std=c++23" \
 		-LDFLAGS "-L$(CAPSTONE_DIR) -lcapstone"
 
 gen-tests: $(BINS)

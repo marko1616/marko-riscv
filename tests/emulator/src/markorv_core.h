@@ -46,7 +46,7 @@ class alignas(VL_CACHE_LINE_BYTES) VMarkoRvCore VL_NOT_FINAL : public VerilatedM
     VL_OUT8(&io_axi_rready,0,0);
     VL_IN8(&io_axi_rresp,1,0);
     VL_IN8(&io_debug_async_flush,0,0);
-    VL_OUT8(&io_debug_async_outfired,0,0);
+    VL_OUT8(&io_debug_async_outfire,0,0);
     VL_OUT64(&io_axi_awaddr,63,0);
     VL_OUT64(&io_axi_wdata,63,0);
     VL_OUT64(&io_axi_araddr,63,0);

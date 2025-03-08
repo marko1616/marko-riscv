@@ -3,7 +3,7 @@ package markorv
 import chisel3._
 import chisel3.util._
 
-class InterruptionControler extends Module {
+class InterruptionController extends Module {
     val io = IO(new Bundle {
         val outer_int = Input(Bool())
         val outer_int_outfire = Output(Bool())

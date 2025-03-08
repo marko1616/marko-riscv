@@ -5,7 +5,7 @@
 #include <fstream>
 #include <memory>
 
-#include <getopt.h>
+#include <cxxopts.hpp>
 #include <capstone/capstone.h>
 
 #include "markorv_core.h"
@@ -464,130 +464,119 @@ void cycle_verbose(uint64_t cycle, uint64_t pc, uint64_t raw_instr, uint64_t pee
 }
 
 int parse_args(int argc, char **argv, parsedArgs &args) {
-    // Define long options
-    struct option long_options[] = {
-        {"rom-path", required_argument, nullptr, 0},
-        {"ram-path", required_argument, nullptr, 0},
-        {"max-clock", required_argument, nullptr, 0},
-        {"random-async-interruption", no_argument, nullptr, 0},
-        {"assert-last-peek", required_argument, nullptr, 0},
-        {"random-range", required_argument, nullptr, 0},
-        {"verbose", no_argument, nullptr, 0},
-        {"axi-debug", no_argument, nullptr, 0},
-        {"help", no_argument, nullptr, 0},
-        {nullptr, 0, nullptr, 0}
-    };
-
-    int option;
-    int option_index;
-    while ((option = getopt_long(argc, argv, "", long_options, &option_index)) != -1) {
-        switch (option_index) {
-            case 0:
-                if (optarg == nullptr) {
-                    break;
-                }
-                args.rom_path = optarg;
-                break;
-            case 1:
-                if (optarg == nullptr) {
-                    break;
-                }
-                args.ram_path = optarg;
-                break;
-            case 2:
-                if (optarg == nullptr) {
-                    break;
-                }
-                args.max_clock = std::stoull(optarg, nullptr, 16);
-                break;
-            case 3:
-                args.random_async_interruption = true;
-                break;
-            case 4:
-                if (optarg == nullptr) {
-                    std::cerr << "Error: --assert-last-peek requires a value.\n";
-                    return 1;
-                }
-                try {
-                    args.assert_last_peek = std::stoull(optarg, nullptr, 16);
-                    args.assert_last_peek_valid = true;
-                } catch (const std::invalid_argument &) {
-                    std::cerr << std::format("Invalid hex value for --assert-last-peek: {}\n", optarg);
-                    return 1;
-                } catch (const std::out_of_range &) {
-                    std::cerr << std::format("Hex value out of range for --assert-last-peek: {}\n", optarg);
-                    return 1;
-                }
-                break;
-            case 5:
-                if (optarg == nullptr) {
-                    std::cerr << "Error: --random-range requires a value.\n";
-                    return 1;
-                }
-                try {
-                    std::string range(optarg);
-                    size_t colon_pos = range.find(':');
-                    if (colon_pos == std::string::npos) {
-                        throw std::invalid_argument("Range format must be min:max");
-                    }
-
-                    args.random_range_min = std::stoi(range.substr(0, colon_pos));
-                    args.random_range_max = std::stoi(range.substr(colon_pos + 1));
-
-                    if (args.random_range_min > args.random_range_max) {
-                        throw std::invalid_argument("Min value must be <= max value");
-                    }
-
-                    args.random_range_valid = true;
-                } catch (const std::invalid_argument &e) {
-                    std::cerr << std::format("Invalid range format for --random-range: {} ({})\n", optarg, e.what());
-                    return 1;
-                } catch (const std::out_of_range &) {
-                    std::cerr << std::format("Range values out of range for --random-range: {}\n", optarg);
-                    return 1;
-                }
-                break;
-            case 6:
-                args.verbose = true;
-                break;
-            case 7:
-                args.axi_debug = true;
-                break;
-            case 8: // --help
-                std::cout << std::format(USAGE, argv[0]);
-                return 0;
-            default:
-                std::cerr << std::format("Unknown option or missing argument. Use --help for usage information.\n");
-                return 1;
+    try {
+        cxxopts::Options options(argv[0], "MarkoRvCore simulator");
+        
+        options.add_options()
+            ("rom-path", "Path to ROM payload", cxxopts::value<std::string>())
+            ("ram-path", "Path to RAM payload", cxxopts::value<std::string>())
+            ("max-clock", "Maximum clock cycles to simulate (hex value)", cxxopts::value<std::string>()->default_value(std::to_string(DEFAULT_MAX_CLOCK)))
+            ("random-async-interruption", "Enable random async interruption")
+            ("assert-last-peek", "Assert value of last peek (hex value)", cxxopts::value<std::string>())
+            ("random-range", "Set random range for interruption (format: min:max)", cxxopts::value<std::string>())
+            ("verbose", "Enable verbose output")
+            ("axi-debug", "Enable AXI debug output")
+            ("help", "Print usage information")
+        ;
+        
+        auto result = options.parse(argc, argv);
+        
+        if (result.count("help")) {
+            std::cout << options.help() << std::endl;
+            return 0;
         }
-    }
+        
+        // Required arguments
+        if (!result.count("ram-path")) {
+            std::cerr << "Error: --ram-path is required.\n";
+            std::cout << options.help() << std::endl;
+            return 1;
+        }
+        
+        if (!result.count("rom-path")) {
+            std::cerr << "Error: --rom-path is required.\n";
+            std::cout << options.help() << std::endl;
+            return 1;
+        }
+        
+        // Parse arguments
+        args.ram_path = result["ram-path"].as<std::string>();
+        args.rom_path = result["rom-path"].as<std::string>();
+        
+        if (result.count("max-clock")) {
+            try {
+                args.max_clock = std::stoull(result["max-clock"].as<std::string>(), nullptr, 16);
+            } catch (const std::exception&) {
+                std::cerr << "Invalid hex value for --max-clock\n";
+                return 1;
+            }
+        }
+        
+        args.random_async_interruption = result.count("random-async-interruption") > 0;
+        
+        if (result.count("assert-last-peek")) {
+            try {
+                args.assert_last_peek = std::stoull(result["assert-last-peek"].as<std::string>(), nullptr, 16);
+                args.assert_last_peek_valid = true;
+            } catch (const std::invalid_argument&) {
+                std::cerr << std::format("Invalid hex value for --assert-last-peek: {}\n", 
+                    result["assert-last-peek"].as<std::string>());
+                return 1;
+            } catch (const std::out_of_range&) {
+                std::cerr << std::format("Hex value out of range for --assert-last-peek: {}\n", 
+                    result["assert-last-peek"].as<std::string>());
+                return 1;
+            }
+        }
+        
+        if (result.count("random-range")) {
+            try {
+                std::string range = result["random-range"].as<std::string>();
+                size_t colon_pos = range.find(':');
+                if (colon_pos == std::string::npos) {
+                    throw std::invalid_argument("Range format must be min:max");
+                }
 
-    // Check if required parameter is provided
-    if (args.ram_path.empty()) {
-        std::cerr << "Error: --ram-path is required.\n";
-        std::cerr << std::format(USAGE, argv[0]);
+                args.random_range_min = std::stoi(range.substr(0, colon_pos));
+                args.random_range_max = std::stoi(range.substr(colon_pos + 1));
+
+                if (args.random_range_min > args.random_range_max) {
+                    throw std::invalid_argument("Min value must be <= max value");
+                }
+
+                args.random_range_valid = true;
+            } catch (const std::invalid_argument& ex) {
+                std::cerr << std::format("Invalid range format for --random-range: {} ({})\n", 
+                    result["random-range"].as<std::string>(), ex.what());
+                return 1;
+            } catch (const std::out_of_range&) {
+                std::cerr << std::format("Range values out of range for --random-range: {}\n", 
+                    result["random-range"].as<std::string>());
+                return 1;
+            }
+        }
+        
+        args.verbose = result.count("verbose") > 0;
+        args.axi_debug = result.count("axi-debug") > 0;
+        
+        // Output parsed results
+        std::cout << std::format("ROM payload path: {}\n", args.rom_path);
+        std::cout << std::format("RAM payload path: {}\n", args.ram_path);
+        std::cout << std::format("Random async interruption {}\n", args.random_async_interruption ? "enabled" : "disabled");
+
+        if (args.assert_last_peek_valid) {
+            std::cout << std::format("Assert last peek hex: 0x{:x}\n", args.assert_last_peek);
+        }
+
+        if (args.random_range_valid) {
+            std::cout << std::format("Random range: {} to {}\n", args.random_range_min, args.random_range_max);
+        }
+        
+        return 0;
+    } catch (const std::exception&) {
+        std::cerr << "Error parsing options" << std::endl;
         return 1;
     }
-    if (args.rom_path.empty()) {
-        std::cerr << "Error: --rom-path is required.\n";
-        std::cerr << std::format(USAGE, argv[0]);
-        return 1;
-    }
-
-    // Output parsed results
-    std::cout << std::format("ROM payload path: {}\n", args.rom_path);
-    std::cout << std::format("RAM payload path: {}\n", args.ram_path);
-    std::cout << std::format("Random async interruption {}\n", args.random_async_interruption ? "enabled" : "disabled");
-
-    if (args.assert_last_peek_valid) {
-        std::cout << std::format("Assert last peek hex: 0x{:x}\n", args.assert_last_peek);
-    }
-
-    if (args.random_range_valid) {
-        std::cout << std::format("Random range: {} to {}\n", args.random_range_min, args.random_range_max);
-    }
-
-    return 0;
 }
 
 void init_stimulus(const std::unique_ptr<VMarkoRvCore> &top) {
@@ -634,33 +623,36 @@ int main(int argc, char **argv, char **env)
     uint64_t clock_cnt = 0;
     axiSignal axi;    
     while (!Verilated::gotFinish() && clock_cnt < args.max_clock) {
-        if (clock_cnt < 4)
+        if (clock_cnt < 4) {
             top->reset = 1;
-        else
+        } else {
             top->reset = 0;
-        
+        }
+
+        // Debug out
+        if(args.verbose)
+            cycle_verbose(clock_cnt, top->io_pc, top->io_instr_now, top->io_peek, triggered);
         // Posedge clk
         context->timeInc(1);
         top->clock = 1;
         top->eval();
-        // Debug out
-        if(args.verbose)
-            cycle_verbose(clock_cnt, top->io_pc, top->io_instr_now, top->io_peek, triggered);
         init_stimulus(top);
         // Handle axi
-        std::memset(&axi, 0, sizeof(axiSignal));
-        read_axi(top, axi);
-        slaves.sim_step(axi);
-        if (args.axi_debug)
-            axi_debug(axi);
-        set_axi(top, axi);
+        if (!top->reset) {
+            std::memset(&axi, 0, sizeof(axiSignal));
+            read_axi(top, axi);
+            slaves.sim_step(axi);
+            if (args.axi_debug)
+                axi_debug(axi);
+            set_axi(top, axi);
+        }
         
         top->io_debug_async_flush = triggered;
 
         if (clock_cnt == trigger_time && args.random_async_interruption)
             triggered = true;
         
-        if (top->io_debug_async_outfired)
+        if (top->io_debug_async_outfire)
             triggered = false;
 
         // Negedge clk

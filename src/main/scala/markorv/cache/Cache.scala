@@ -2,6 +2,7 @@ package markorv.cache
 
 import chisel3._
 import chisel3.util._
+import markorv.cache._
 
 class Cache(
     n_set: Int = 8,
