@@ -1,3 +1,6 @@
 [submodule "libs/capstone"]
 	path = libs/capstone
 	url = https://github.com/capstone-engine/capstone.git
+[submodule "libs/cxxopts"]
+	path = libs/cxxopts
+	url = https://github.com/jarro2783/cxxopts.git

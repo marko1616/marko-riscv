@@ -5,15 +5,9 @@ import chisel3.util._
 import _root_.circt.stage.ChiselStage
 
 import markorv._
-import markorv.io._
 import markorv.frontend._
 import markorv.backend._
-import markorv.cache.Cache
-import markorv.cache.CacheLine
-import markorv.cache.ReadOnlyCache
-import markorv.cache.CacheReadWarpper
-import markorv.cache.CacheReadWriteWarpper
-import markorv.bus.AxiLiteMasterIO
+import markorv.bus._
 
 class MarkoRvCore extends Module {
     val io = IO(new Bundle {
@@ -23,15 +17,10 @@ class MarkoRvCore extends Module {
         val instr_now = Output(UInt(64.W))
         val peek = Output(UInt(64.W))
         val debug_async_flush = Input(Bool())
-        val debug_async_outfired = Output(Bool())
+        val debug_async_outfire = Output(Bool())
     })
 
     val axi_ctrl = Module(new AXICtrl(64, 64))
-    val instr_cache = Module(new ReadOnlyCache(32, 4, 16, 64))
-    val instr_cache_read_warpper = Module(new CacheReadWarpper(32, 4, 16))
-
-    val data_cache = Module(new Cache(32, 4, 16, 64))
-    val data_cache_warpper = Module(new CacheReadWriteWarpper(32, 4, 16))
 
     val instr_fetch_queue = Module(new InstrFetchQueue)
     val instr_fetch_unit = Module(new InstrFetchUnit)
@@ -45,15 +34,34 @@ class MarkoRvCore extends Module {
 
     val register_file = Module(new RegFile)
     val csr_file = Module(new ControlStatusRegisters)
-    val int_ctrl = Module(new InterruptionControler)
+    val int_ctrl = Module(new InterruptionController)
 
     val write_back = Module(new WriteBack)
+    val lsu_iocontroller = Module(new LoadStoreController)
+    val ifq_iocontroller = Module(new LoadStoreController)
+
+    // AXI bus
+    load_store_unit.io.read_req <> lsu_iocontroller.io.read_req
+    load_store_unit.io.read_data <> lsu_iocontroller.io.read_data
+    load_store_unit.io.write_req <> lsu_iocontroller.io.write_req
+    load_store_unit.io.write_outfire <> lsu_iocontroller.io.write_outfire
+
+    instr_fetch_queue.io.read_req <> ifq_iocontroller.io.read_req
+    instr_fetch_queue.io.read_data <> ifq_iocontroller.io.read_data
+    ifq_iocontroller.io.write_req.valid := 0.U
+    ifq_iocontroller.io.write_req.bits.size := 0.U
+    ifq_iocontroller.io.write_req.bits.addr := 0.U
+    ifq_iocontroller.io.write_req.bits.data := 0.U
+    ifq_iocontroller.io.write_req.bits.direct := false.B
+
+    lsu_iocontroller.io.axi_bus <> axi_ctrl.io.ports(1)
+    ifq_iocontroller.io.axi_bus <> axi_ctrl.io.ports(0)
 
     // Exception & flush control.
     // Impossible flush at same cycle.
     val flush = int_ctrl.io.flush | branch_unit.io.flush
     int_ctrl.io.outer_int <> io.debug_async_flush
-    int_ctrl.io.outer_int_outfire <> io.debug_async_outfired
+    int_ctrl.io.outer_int_outfire <> io.debug_async_outfire
 
     int_ctrl.io.pc <> instr_fetch_unit.io.peek_pc
     int_ctrl.io.privilege <> misc_unit.io.peek_privilege
@@ -68,23 +76,7 @@ class MarkoRvCore extends Module {
     misc_unit.io.ret <> int_ctrl.io.ret
     misc_unit.io.ret <> csr_file.io.ret
 
-
-    data_cache_warpper.io.cache_write_req <> data_cache.io.write_req
-    data_cache_warpper.io.cache_write_outfire <> data_cache.io.write_outfire
-    data_cache.io.read_addr <> data_cache_warpper.io.read_cache_line_addr
-    data_cache.io.read_cache_line <> data_cache_warpper.io.read_cache_line
-    data_cache.io.invalid_addr <> data_cache_warpper.io.cache_invalid_addr
-    data_cache.io.invalid_outfire <> data_cache_warpper.io.cache_invalid_outfire
-
-    instr_cache_read_warpper.io.read_cache_line_addr <> instr_cache.io.read_addr
-    instr_cache_read_warpper.io.read_cache_line <> instr_cache.io.read_cache_line
-
-    instr_cache.io.upstream_read_addr <> axi_ctrl.io.ports(1).read_addr
-    instr_cache.io.upstream_read_data <> axi_ctrl.io.ports(1).read_data
-
     instr_fetch_queue.io.flush <> flush
-    instr_fetch_queue.io.read_req <> instr_cache_read_warpper.io.read_req
-    instr_fetch_queue.io.read_data <> instr_cache_read_warpper.io.read_data
     instr_fetch_queue.io.pc <> instr_fetch_unit.io.peek_pc
     instr_fetch_queue.io.reg_read <> register_file.io.read_addrs(2)
     instr_fetch_queue.io.reg_data <> register_file.io.read_datas(2)
@@ -103,11 +95,6 @@ class MarkoRvCore extends Module {
 
     io.axi <> axi_ctrl.io.outer
 
-    axi_ctrl.io.ports(1).write_req.valid := false.B
-    axi_ctrl.io.ports(1).write_req.bits.size := 0.U
-    axi_ctrl.io.ports(1).write_req.bits.addr := 0.U
-    axi_ctrl.io.ports(1).write_req.bits.data := 0.U
-
     instr_issuer.io.reg_read1 <> register_file.io.read_addrs(0)
     instr_issuer.io.reg_read2 <> register_file.io.read_addrs(1)
     instr_issuer.io.reg_data1 <> register_file.io.read_datas(0)
@@ -116,22 +103,8 @@ class MarkoRvCore extends Module {
     instr_issuer.io.acquire_reg <> register_file.io.acquire_reg
     instr_issuer.io.acquired <> register_file.io.acquired
 
-    data_cache_warpper.io.write_req <> load_store_unit.io.write_req
-    data_cache_warpper.io.write_outfire <> load_store_unit.io.write_outfire
-    data_cache_warpper.io.read_data <> load_store_unit.io.read_data
-    data_cache_warpper.io.read_req <> load_store_unit.io.read_req
-    data_cache_warpper.io.invalid_addr <> load_store_unit.io.invalid_addr
-    data_cache_warpper.io.invalid_outfire <> load_store_unit.io.invalid_outfire
     load_store_unit.io.local_load_reserved.ready := true.B
     load_store_unit.io.invalidate_reserved := misc_unit.io.ret
-
-    axi_ctrl.io.ports(0).write_req <> data_cache.io.upstream_write_req
-    axi_ctrl.io.ports(0).write_outfire <> data_cache.io.upstream_write_outfire
-    axi_ctrl.io.ports(0).read_data <> data_cache.io.upstream_read_data
-    axi_ctrl.io.ports(0).read_addr <> data_cache.io.upstream_read_addr
-
-    axi_ctrl.io.ports(2) <> load_store_unit.io.direct_out
-
     write_back.io.reg_write <> register_file.io.write_addr
     write_back.io.write_data <> register_file.io.write_data
 
