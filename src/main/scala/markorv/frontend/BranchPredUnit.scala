@@ -51,7 +51,7 @@ class BranchPredUnit extends Module {
             io.bpu_result.is_branch := true.B
             io.bpu_result.pred_taken := true.B
             io.bpu_result.pred_pc := (io.reg_data + io.bpu_instr
-                .instr(19, 15)
+                .instr(31, 20)
                 .asSInt
                 .pad(64)
                 .asUInt) & ~(1.U(64.W))

@@ -350,6 +350,7 @@ obj_dir/
 # Build tool
 mill
 
+*.s
 *.dtb
 *.dump
 *.bin

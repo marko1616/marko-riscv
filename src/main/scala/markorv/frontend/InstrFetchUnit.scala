@@ -21,7 +21,7 @@ class InstrFetchUnit extends Module {
         val exu_outfires = Input(Vec(4, Bool()))
         val invalid_drop = Input(Bool())
 
-        val peek_pc = Output(UInt(64.W))
+        val get_pc = Output(UInt(64.W))
         val set_pc = Input(UInt(64.W))
         val flush = Input(Bool())
         val fetch_hlt = Input(Bool())
@@ -43,7 +43,7 @@ class InstrFetchUnit extends Module {
     io.instr_bundle.bits.pc := pc
 
     io.fetch_bundle.ready := io.instr_bundle.ready && !io.fetch_hlt
-    io.peek_pc := pc
+    io.get_pc := pc
     io.peek_fetched := fetched_count
 
     val outfire_instr = io.exu_outfires.reduce(_ | _).asTypeOf(UInt(2.W)) + io.invalid_drop.asTypeOf(UInt(2.W))

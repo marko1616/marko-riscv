@@ -211,7 +211,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                     issue_task.alu_opcode := "b00000".U
                 }.otherwise {
                     issue_task.alu_opcode := Cat(
-                      1.U(1.W),
+                      0.U(1.W),
                       funct3,
                       1.U(1.W)
                     )

@@ -2,23 +2,7 @@ package markorv
 
 import chisel3._
 import chisel3.util._
-
-class ExceptionState extends Bundle {
-    val privilege = UInt(2.W)
-    val exception_pc = UInt(64.W)
-}
-
-class ExceptionInfo extends Bundle {
-    val interruption = Bool()
-    val cause_code = UInt(6.W)
-    val state = new ExceptionState
-}
-
-class ExceptionHandleIO extends Bundle {
-    val set = Input(Bool())
-    val exception_info = Input(new ExceptionInfo)
-    val exception_handler = Output(UInt(64.W))
-}
+import markorv.trap._
 
 class ControlStatusRegistersIO extends Bundle {
     val read_addr = Input(UInt(12.W))
@@ -32,10 +16,10 @@ class ControlStatusRegistersIO extends Bundle {
 class ControlStatusRegisters extends Module {
     val io = IO(new Bundle {
         val csrio = new ControlStatusRegistersIO
-        val set_exception = new ExceptionHandleIO
+        val set_trap = new TrapHandleIO
 
-        val ret = Input(Bool())
-        val ret_exception = Output(new ExceptionState)
+        val trap_ret = Input(Bool())
+        val trap_ret_info = Output(new TrapState)
 
         val mstatus = Output(UInt(64.W))
         val mie = Output(UInt(64.W))
@@ -210,16 +194,17 @@ class ControlStatusRegisters extends Module {
         }
     }
 
-    val set_exception = io.set_exception
-    val exception_info = set_exception.exception_info
-    val set = set_exception.set
-    set_exception.exception_handler := 0.U
+    val set_trap = io.set_trap
+    val trap_info = set_trap.trap_info
+    val set = set_trap.set
+    set_trap.trap_handler := 0.U
+    set_trap.privilege := 0.U
 
     when(set) {
-        val privilege = exception_info.state.privilege
-        val exception_pc = exception_info.state.exception_pc
-        val interruption = exception_info.interruption
-        val cause_code = exception_info.cause_code
+        val privilege = trap_info.state.privilege
+        val exception_pc = trap_info.state.exception_pc
+        val interruption = trap_info.interruption
+        val cause_code = trap_info.cause_code
 
         val int_disable = "hfffffffffffffff5".U
         val sie = mstatus(1)
@@ -232,15 +217,17 @@ class ControlStatusRegisters extends Module {
         mcause_code := cause_code
 
         when(mtvec(1,0) === 0.U) {
-            set_exception.exception_handler := Cat(mtvec(63,2),0.U(2.W))
+            set_trap.trap_handler := Cat(mtvec(63,2),0.U(2.W))
         }.elsewhen(mtvec(1,0) === 1.U) {
-            set_exception.exception_handler := Cat(mtvec(63,2),0.U(2.W)) + 4.U*cause_code
+            set_trap.trap_handler := Cat(mtvec(63,2),0.U(2.W)) + 4.U*cause_code
         }
+        // TODO trap delegate
+        set_trap.privilege := 3.U
     }
 
-    val ret_exception = io.ret_exception
-    val ret = io.ret
-    ret_exception := 0.U.asTypeOf(new ExceptionState)
+    val ret_exception = io.trap_ret_info
+    val ret = io.trap_ret
+    ret_exception := 0.U.asTypeOf(new TrapState)
 
     when(ret) {
         val privilege = mstatus(12, 11)
