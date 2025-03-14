@@ -34,7 +34,7 @@ class MarkoRvCore extends Module {
 
     val register_file = Module(new RegFile)
     val csr_file = Module(new ControlStatusRegisters)
-    val int_ctrl = Module(new InterruptionController)
+    val trap_ctrl = Module(new TrapController)
 
     val write_back = Module(new WriteBack)
     val lsu_iocontroller = Module(new LoadStoreController)
@@ -59,35 +59,34 @@ class MarkoRvCore extends Module {
 
     // Exception & flush control.
     // Impossible flush at same cycle.
-    val flush = int_ctrl.io.flush | branch_unit.io.flush
-    int_ctrl.io.outer_int <> io.debug_async_flush
-    int_ctrl.io.outer_int_outfire <> io.debug_async_outfire
+    val flush = trap_ctrl.io.flush | branch_unit.io.flush
+    trap_ctrl.io.outer_int <> io.debug_async_flush
+    trap_ctrl.io.outer_int_outfire <> io.debug_async_outfire
 
-    int_ctrl.io.pc <> instr_fetch_unit.io.peek_pc
-    int_ctrl.io.privilege <> misc_unit.io.peek_privilege
-    int_ctrl.io.fetched <> instr_fetch_unit.io.peek_fetched
-    int_ctrl.io.set_exception <> csr_file.io.set_exception
-    int_ctrl.io.ret_exception <> csr_file.io.ret_exception
-    int_ctrl.io.mstatus <> csr_file.io.mstatus
-    int_ctrl.io.mie <> csr_file.io.mie
-    misc_unit.io.set_privilege <> int_ctrl.io.set_privilege
-    misc_unit.io.ecall <> int_ctrl.io.ecall
-    misc_unit.io.ebreak <> int_ctrl.io.ebreak
-    misc_unit.io.ret <> int_ctrl.io.ret
-    misc_unit.io.ret <> csr_file.io.ret
+    trap_ctrl.io.pc <> instr_fetch_unit.io.get_pc
+    trap_ctrl.io.privilege <> misc_unit.io.get_privilege
+    trap_ctrl.io.fetched <> instr_fetch_unit.io.peek_fetched
+    trap_ctrl.io.set_trap <> csr_file.io.set_trap
+    trap_ctrl.io.trap_ret_info <> csr_file.io.trap_ret_info
+    trap_ctrl.io.mstatus <> csr_file.io.mstatus
+    trap_ctrl.io.mie <> csr_file.io.mie
+    misc_unit.io.set_privilege <> trap_ctrl.io.set_privilege
+    misc_unit.io.trap_ret <> trap_ctrl.io.trap_ret
+    misc_unit.io.trap_ret <> csr_file.io.trap_ret
+    misc_unit.io.exception <> trap_ctrl.io.exceptions(0)
 
     instr_fetch_queue.io.flush <> flush
-    instr_fetch_queue.io.pc <> instr_fetch_unit.io.peek_pc
+    instr_fetch_queue.io.pc <> instr_fetch_unit.io.get_pc
     instr_fetch_queue.io.reg_read <> register_file.io.read_addrs(2)
     instr_fetch_queue.io.reg_data <> register_file.io.read_datas(2)
 
     instr_fetch_unit.io.invalid_drop <> instr_decoder.io.invalid_drop
     instr_fetch_unit.io.fetch_bundle <> instr_fetch_queue.io.fetch_bundle
-    instr_fetch_unit.io.fetch_hlt <> int_ctrl.io.fetch_hlt
+    instr_fetch_unit.io.fetch_hlt <> trap_ctrl.io.fetch_hlt
     instr_fetch_unit.io.flush <> flush
     instr_fetch_unit.io.set_pc := 0.U
-    when(int_ctrl.io.flush) {
-        instr_fetch_unit.io.set_pc := int_ctrl.io.set_pc
+    when(trap_ctrl.io.flush) {
+        instr_fetch_unit.io.set_pc := trap_ctrl.io.set_pc
     }
     when(branch_unit.io.flush) {
         instr_fetch_unit.io.set_pc := branch_unit.io.set_pc
@@ -104,7 +103,7 @@ class MarkoRvCore extends Module {
     instr_issuer.io.acquired <> register_file.io.acquired
 
     load_store_unit.io.local_load_reserved.ready := true.B
-    load_store_unit.io.invalidate_reserved := misc_unit.io.ret
+    load_store_unit.io.invalidate_reserved := misc_unit.io.trap_ret
     write_back.io.reg_write <> register_file.io.write_addr
     write_back.io.write_data <> register_file.io.write_data
 
@@ -118,7 +117,7 @@ class MarkoRvCore extends Module {
         io.instr_now := 0.U
     }
 
-    register_file.io.read_addrs(3) := 10.U
+    register_file.io.read_addrs(3) := 14.U
     io.peek := register_file.io.read_datas(3)
 
     // Main pipeline.

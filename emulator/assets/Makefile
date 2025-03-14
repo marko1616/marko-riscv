@@ -21,15 +21,11 @@ DTB_OBJ = device.o
 CFLAGS = -march=rv64ia_zicsr -mabi=lp64 -nostdlib -nostartfiles
 LDFLAGS = -T $(LD_SCRIPT)
 
-all: $(BIN) $(DISASM)
+all: $(ELF) $(DISASM)
 
 # Compile assembly and link with DTB
 $(ELF): $(SRC) $(LD_SCRIPT) $(DTB_OBJ)
 	$(GCC) $(CFLAGS) -o $@ -Wl,$(LDFLAGS) $(SRC) $(DTB_OBJ)
-
-# Convert ELF to binary
-$(BIN): $(ELF)
-	$(OBJCOPY) -O binary $< $@
 
 # Generate disassembly
 $(DISASM): $(ELF)

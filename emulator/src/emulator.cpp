@@ -9,6 +9,7 @@
 #include <capstone/capstone.h>
 
 #include "markorv_core.h"
+#include "elf.hpp"
 
 #define BUS_WIDTH 8
 #define DEFAULT_MAX_CLOCK 0x400
@@ -69,6 +70,7 @@ struct axiSignal {
 
 class Slave {
 public:
+    uint64_t base_addr;
     std::ranges::iota_view<uint64_t, uint64_t> range;
     virtual ~Slave() = default;
 
@@ -89,7 +91,8 @@ public:
 
 class VirtualUart : public Slave {
 public:
-    explicit VirtualUart() {
+    explicit VirtualUart(uint64_t base_addr) {
+        this->base_addr = base_addr;
         range = std::ranges::iota_view<uint64_t, uint64_t>(0x0, 0x8);
 
         ier = 0x00;
@@ -167,7 +170,9 @@ private:
 
 class VirtualRAM : public Slave {
 public:
-    explicit VirtualRAM(const std::string& file_path, uint64_t size) {
+    explicit VirtualRAM(uint64_t base_addr, const std::string& file_path, uint64_t size) {
+        this->base_addr = base_addr;
+        this->size = size;
         range = std::ranges::iota_view<uint64_t, uint64_t>(0x0, size);
 
         ram = static_cast<uint8_t*>(std::malloc(size));
@@ -203,6 +208,7 @@ public:
     }
 private:
     uint8_t* ram;
+    uint64_t size;
 
     int init_ram(const std::string& file_path, uint64_t size) {
         std::ifstream file(file_path, std::ios::binary);
@@ -210,16 +216,32 @@ private:
             std::cerr << "Can't open file:" << file_path << std::endl;
             return 1;
         }
-
-        file.seekg(0, std::ios::end);
-        std::streamsize file_size = file.tellg();
-        file.seekg(0, std::ios::beg);
-
-        if (file_size > size) {
-            std::cerr << "File size is too big:" << file_size << std::endl;
-            return 1;
+        std::vector<uint8_t> raw((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        auto elf = ELF::from_raw(raw);
+        if (elf.get_class_type() != ELF::ClassType::ELFCLASS64) {
+            throw std::runtime_error("ELF class type must be ELFCLASS64");
         }
-        file.read(reinterpret_cast<char*>(ram), file_size);
+        if (elf.get_machine_type() != ELF::MachineType::EM_RISCV) {
+            throw std::runtime_error("ELF machine type must be EM_RISCV");
+        }
+
+        auto program_headers = elf.get_program_headers_64();
+        for (auto& program_header : program_headers) {
+            if (program_header.p_type != ELF::SegmentType::PT_LOAD)
+                continue;
+            uint64_t target_addr = program_header.p_paddr - this->base_addr;
+            if (target_addr < 0 || target_addr >= this->size) {
+                throw std::runtime_error(std::format("Target address({:x}) is out of bounds", target_addr));
+            }
+            if (program_header.p_filesz > this->size - target_addr) {
+                throw std::runtime_error(std::format("Write size({:x}) exceeds available memory space", program_header.p_filesz));
+            }
+            std::memcpy(
+                ram + target_addr,
+                raw.data() + program_header.p_offset,
+                program_header.p_filesz
+            );
+        }
 
         return 0;
     }
@@ -227,23 +249,18 @@ private:
 
 class VirtualAxiSlaves {
 public:
-    struct slaveWithAddr {
-        std::unique_ptr<Slave> slave;
-        uint64_t base_addr;
-    };
-
     enum axi_read_state {
-        stat_ridle,
-        stat_send
+        STAT_RIDLE,
+        STAT_SEND
     };
     enum axi_write_state {
-        stat_widle,
-        stat_accept_req,
-        stat_outfire,
+        STAT_WIDLE,
+        STAT_ACCEPT_REQ,
+        STAT_OUTFIRE,
     };
     explicit VirtualAxiSlaves() {
-        read_state = stat_ridle;
-        write_state = stat_widle;
+        read_state = STAT_RIDLE;
+        write_state = STAT_WIDLE;
         read_addr = 0;
         write_addr = 0;
         write_data = 0;
@@ -252,8 +269,8 @@ public:
 
     ~VirtualAxiSlaves() = default;
 
-    void register_slave(std::unique_ptr<Slave> slave, uint64_t base_addr) {
-        slaves.emplace_back(std::move(slave), base_addr);
+    void register_slave(std::unique_ptr<Slave> slave) {
+        slaves.emplace_back(std::move(slave));
     }
 
     void sim_step(axiSignal &axi) {
@@ -262,7 +279,7 @@ public:
     }
 
 private:
-    std::vector<slaveWithAddr> slaves;
+    std::vector<std::unique_ptr<Slave>> slaves;
     axi_read_state read_state;
     axi_write_state write_state;
     uint64_t read_addr;
@@ -272,22 +289,22 @@ private:
 
     void handle_read(axiSignal &axi) {
         switch (read_state) {
-            case stat_ridle:
+            case STAT_RIDLE:
                 axi.arready = true;
                 if (axi.arvalid) {
                     read_addr = axi.araddr;
-                    read_state = stat_send;
+                    read_state = STAT_SEND;
                 }
                 break;
 
-            case stat_send:
+            case STAT_SEND:
                 axi.rvalid = true;
                 auto slave = std::ranges::find_if(slaves,
-                                    [this](const slaveWithAddr &slave) -> bool {
-                                        return std::ranges::contains(slave.slave->range, this->read_addr-slave.base_addr);
+                                    [this](const std::unique_ptr<Slave> &slave) -> bool {
+                                        return std::ranges::contains(slave->range, this->read_addr-slave->base_addr);
                                     });
                 if (slave != slaves.end()) {
-                    axi.rdata = (*slave).slave->read(read_addr-(*slave).base_addr);
+                    axi.rdata = (*slave)->read(read_addr-(*slave)->base_addr);
                     axi.rresp = 0b00; // OKAY
                 } else {
                     axi.rdata = 0;
@@ -295,7 +312,7 @@ private:
                 }
 
                 if (axi.rready) {
-                    read_state = stat_ridle;
+                    read_state = STAT_RIDLE;
                 }
                 break;
         }
@@ -303,38 +320,38 @@ private:
 
     void handle_write(axiSignal &axi) {
         switch (write_state) {
-            case stat_widle:
+            case STAT_WIDLE:
                 axi.awready = true;
                 if (axi.awvalid) {
                     write_addr = axi.awaddr;
-                    write_state = stat_accept_req;
+                    write_state = STAT_ACCEPT_REQ;
                 }
                 break;
 
-            case stat_accept_req:
+            case STAT_ACCEPT_REQ:
                 axi.wready = true;
                 if (axi.wvalid) {
                     write_data = axi.wdata;
                     write_mask = axi.wstrb;
-                    write_state = stat_outfire;
+                    write_state = STAT_OUTFIRE;
                 }
                 break;
 
-            case stat_outfire:
+            case STAT_OUTFIRE:
                 axi.bvalid = true;
                 auto slave = std::ranges::find_if(slaves,
-                                    [this](const slaveWithAddr &slave) -> bool {
-                                        return std::ranges::contains(slave.slave->range, this->write_addr-slave.base_addr);
+                                    [this](const std::unique_ptr<Slave> &slave) -> bool {
+                                        return std::ranges::contains(slave->range, this->write_addr-slave->base_addr);
                                     });
                 if (slave != slaves.end()) {
-                    (*slave).slave->write(write_addr-(*slave).base_addr, write_data, write_mask);
+                    (*slave)->write(write_addr-(*slave)->base_addr, write_data, write_mask);
                     axi.bresp = 0b00; // OKAY
                 } else {
                     axi.bresp = 0b11; // DECERR
                 }
 
                 if (axi.bready) {
-                    write_state = stat_widle;
+                    write_state = STAT_WIDLE;
                 }
                 break;
         }
@@ -598,9 +615,9 @@ int main(int argc, char **argv, char **env)
     top->clock = 0;
     top->reset = 0;
     VirtualAxiSlaves slaves;
-    slaves.register_slave(std::make_unique<VirtualRAM>(args.rom_path, ROM_SIZE), 0x10000000);
-    slaves.register_slave(std::make_unique<VirtualRAM>(args.ram_path, RAM_SIZE), 0x80000000);
-    slaves.register_slave(std::make_unique<VirtualUart>(), 0x20000000);
+    slaves.register_slave(std::make_unique<VirtualRAM>(0x10000000, args.rom_path, ROM_SIZE));
+    slaves.register_slave(std::make_unique<VirtualRAM>(0x80000000, args.ram_path, RAM_SIZE));
+    slaves.register_slave(std::make_unique<VirtualUart>(0x20000000));
 
     // RV64G only not for C extension.
     if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64, &capstone_handle) != CS_ERR_OK) {
