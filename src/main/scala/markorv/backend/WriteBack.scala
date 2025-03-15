@@ -13,13 +13,10 @@ class WriteBack extends Module {
 
         val reg_write = Output(UInt(5.W))
         val write_data = Output(UInt(64.W))
-
-        val outfires = Vec(4, Output(Bool()))
     })
 
     for (i <- 0 until io.write_backs.length) {
         io.write_backs(i).ready := true.B
-        io.outfires(i) := true.B
     }
 
     io.reg_write := 0.U

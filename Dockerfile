@@ -33,7 +33,9 @@ RUN apt-get update && apt-get install -y \
     git \
     wget \
     curl \
-    openjdk-21-jdk
+    openjdk-21-jdk \
+    python3-rich \
+    python3-pyelftools
 
 RUN useradd -m build-user && \
     echo "build-user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
