@@ -117,7 +117,7 @@ class MarkoRvCore extends Module {
         io.instr_now := 0.U
     }
 
-    register_file.io.read_addrs(3) := 14.U
+    register_file.io.read_addrs(3) := 3.U
     io.peek := register_file.io.read_datas(3)
 
     // Main pipeline.
@@ -165,30 +165,10 @@ class MarkoRvCore extends Module {
     )
 
     // Write Back
-    PipelineConnect(
-        load_store_unit.io.write_back,
-        write_back.io.write_backs(0),
-        write_back.io.outfires(0),
-        flush
-    )
-    PipelineConnect(
-        arithmetic_logic_unit.io.write_back,
-        write_back.io.write_backs(1),
-        write_back.io.outfires(1),
-        flush
-    )
-    PipelineConnect(
-        branch_unit.io.write_back,
-        write_back.io.write_backs(2),
-        write_back.io.outfires(2),
-        flush
-    )
-    PipelineConnect(
-        misc_unit.io.write_back,
-        write_back.io.write_backs(3),
-        write_back.io.outfires(3),
-        flush
-    )
+    load_store_unit.io.write_back <> write_back.io.write_backs(0)
+    arithmetic_logic_unit.io.write_back <> write_back.io.write_backs(1)
+    branch_unit.io.write_back <> write_back.io.write_backs(2)
+    misc_unit.io.write_back <> write_back.io.write_backs(3)
 }
 
 object MarkoRvCore extends App {

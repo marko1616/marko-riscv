@@ -91,39 +91,33 @@ class ArithmeticLogicUnit extends Module {
             is(ALU_SLL) {
                 when(io.alu_instr.bits.alu_opcode(4)) {
                     perform_op(
-                      io.alu_instr.bits.params.source1 << io.alu_instr.bits.params
-                          .source2(4, 0)
+                      io.alu_instr.bits.params.source1 << io.alu_instr.bits.params.source2(4, 0)
                     )
                 }.otherwise {
                     perform_op(
-                      io.alu_instr.bits.params.source1 << io.alu_instr.bits.params
-                          .source2(5, 0)
+                      io.alu_instr.bits.params.source1 << io.alu_instr.bits.params.source2(5, 0)
                     )
                 }
             }
             is(ALU_SRL) {
                 when(io.alu_instr.bits.alu_opcode(4)) {
                     perform_op(
-                      io.alu_instr.bits.params.source1 >> io.alu_instr.bits.params
-                          .source2(4, 0)
+                      io.alu_instr.bits.params.source1(31,0) >> io.alu_instr.bits.params.source2(4, 0)
                     )
                 }.otherwise {
                     perform_op(
-                      io.alu_instr.bits.params.source1 >> io.alu_instr.bits.params
-                          .source2(5, 0)
+                      io.alu_instr.bits.params.source1 >> io.alu_instr.bits.params.source2(5, 0)
                     )
                 }
             }
             is(ALU_SRA) {
                 when(io.alu_instr.bits.alu_opcode(4)) {
                     perform_op(
-                      (io.alu_instr.bits.params.source1.asSInt >> io.alu_instr.bits.params
-                          .source2(4, 0)).asUInt
+                      (io.alu_instr.bits.params.source1(31,0).asSInt >> io.alu_instr.bits.params.source2(4, 0)).asUInt
                     )
                 }.otherwise {
                     perform_op(
-                      io.alu_instr.bits.params.source1 >> io.alu_instr.bits.params
-                          .source2(5, 0)
+                      (io.alu_instr.bits.params.source1.asSInt >> io.alu_instr.bits.params.source2(5, 0)).asUInt
                     )
                 }
             }
@@ -133,9 +127,7 @@ class ArithmeticLogicUnit extends Module {
 
     // Cut and padding to 64Bit for `word` wide command.
     when(io.alu_instr.bits.alu_opcode(4)) {
-        io.write_back.bits.data := (write_back_orig(31, 0).asSInt
-            .pad(64))
-            .asUInt
+        io.write_back.bits.data := (write_back_orig(31, 0).asSInt.pad(64)).asUInt
     }.otherwise {
         io.write_back.bits.data := write_back_orig
     }
