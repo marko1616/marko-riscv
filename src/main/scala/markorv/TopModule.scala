@@ -12,12 +12,11 @@ import markorv.bus._
 class MarkoRvCore extends Module {
     val io = IO(new Bundle {
         val axi = new AxiLiteMasterIO(64, 64)
+        val time = Input(UInt(64.W))
 
         val pc = Output(UInt(64.W))
         val instr_now = Output(UInt(64.W))
         val peek = Output(UInt(64.W))
-        val debug_async_flush = Input(Bool())
-        val debug_async_outfire = Output(Bool())
     })
 
     val axi_ctrl = Module(new AXICtrl(64, 64))
@@ -60,8 +59,7 @@ class MarkoRvCore extends Module {
     // Exception & flush control.
     // Impossible flush at same cycle.
     val flush = trap_ctrl.io.flush | branch_unit.io.flush
-    trap_ctrl.io.outer_int <> io.debug_async_flush
-    trap_ctrl.io.outer_int_outfire <> io.debug_async_outfire
+    trap_ctrl.io.outer_int := false.B
 
     trap_ctrl.io.pc <> instr_fetch_unit.io.get_pc
     trap_ctrl.io.privilege <> misc_unit.io.get_privilege
@@ -107,7 +105,10 @@ class MarkoRvCore extends Module {
     write_back.io.reg_write <> register_file.io.write_addr
     write_back.io.write_data <> register_file.io.write_data
 
+    csr_file.io.instret <> write_back.io.instret
+    csr_file.io.time <> io.time
     csr_file.io.csrio <> misc_unit.io.csrio
+    csr_file.io.privilege <> misc_unit.io.get_privilege
     register_file.io.flush := flush
   
     io.pc <> instr_fetch_unit.io.instr_bundle.bits.pc
@@ -117,7 +118,7 @@ class MarkoRvCore extends Module {
         io.instr_now := 0.U
     }
 
-    register_file.io.read_addrs(3) := 3.U
+    register_file.io.read_addrs(3) := 10.U
     io.peek := register_file.io.read_datas(3)
 
     // Main pipeline.

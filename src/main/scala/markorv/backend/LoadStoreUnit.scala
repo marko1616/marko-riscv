@@ -110,7 +110,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     val AMO_LR   = "b1110".U
     val AMO_SC   = "b1111".U
-    val AMO_SC_FAILED = "h0000006d61726b6f".U
+    val AMO_SC_FAILED = "h0000000000000001".U
 
     def invalidate_reserved(write_addr: UInt) = {
         when(write_addr === local_load_reserved_addr) {
@@ -148,6 +148,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
         // TODO: Cache
         // Clear cache
         val addr = params.source1.asUInt & "hfffffffffffffff0".U
+        state := State.stat_amo_read
     }
 
     when(state === State.stat_amo_read) {

@@ -318,18 +318,44 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 operate_unit := 3.U
             }
             is(OP_SYSTEM) {
-                // TODO ecall ebreak wfi sfence.vma
+                // TODO sfence.vma
                 when(funct3 =/= 0.U) {
                     val is_imm = funct3(2)
 
                     // CSR addr.
                     params.source2 := instr(31, 20)
-                    when(rs1 === 0.U && ~is_imm) {
-                        // Allow having write side effect.
-                        issue_task.misc_opcode := "b01000".U
+
+                    /*
+                        Register operand
+                        Instruction   rd=x0  rs1=x0  Reads CSR  Writes CSR
+                        CSRRW         Yes    -       No         Yes
+                        CSRRW         No     -       Yes        Yes
+                        CSRRS/CSRRC   -      Yes     Yes        No
+                        CSRRS/CSRRC   -      No      Yes        Yes
+
+                        Immediate operand
+                        Instruction   rd=x0  uimm=0  Reads CSR  Writes CSR
+                        CSRRWI        Yes    -       No         Yes
+                        CSRRWI        No     -       Yes        Yes
+                        CSRRSI/CSRRCI -      Yes     Yes        No
+                        CSRRSI/CSRRCI -      No      Yes        Yes
+                    */
+                    when(funct3(1,0) === "b01".U) {
+                        // CSRRW, CSRRWI
+                        when(rd === 0.U) {
+                            issue_task.misc_opcode := "b10000".U
+                        }.otherwise {
+                            issue_task.misc_opcode := "b11000".U
+                        }
                     }.otherwise {
-                        issue_task.misc_opcode := "b00000".U
+                        // CSRRS, CSRRC, CSRRSI, CSRRCI
+                        when(rs1 === 0.U) {
+                            issue_task.misc_opcode := "b01000".U
+                        }.otherwise {
+                            issue_task.misc_opcode := "b11000".U
+                        }
                     }
+
                     when(is_imm) {
                         params.source1 := rs1.pad(64)
                     }.otherwise {

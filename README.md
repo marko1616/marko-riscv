@@ -57,3 +57,11 @@ Check the [docs](./docs) folder for detailed architecture information and update
     make emu
     obj_dir/VMarkoRvCore --rom-path tests/emulator/assets/boot.bin --ram-path tests/asmtst/xxx.bin
     ```
+
+### How to get a fitted riscv-gnu-toolchain
+```bash
+sudo apt-get install autoconf automake autotools-dev curl python3 python3-pip python3-tomli libmpc-dev libmpfr-dev libgmp-dev gawk build-essential bison flex texinfo gperf libtool patchutils bc zlib1g-dev libexpat-dev ninja-build git cmake libglib2.0-dev libslirp-dev
+git clone https://github.com/riscv-collab/riscv-gnu-toolchain.git
+cd riscv-gnu-toolchain
+./configure --prefix=/path/to/riscv-gnu-toolchain-build/ --with-arch=rv64ia_zicsr --with-abi=lp64
+```

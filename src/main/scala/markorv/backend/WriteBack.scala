@@ -13,6 +13,7 @@ class WriteBack extends Module {
 
         val reg_write = Output(UInt(5.W))
         val write_data = Output(UInt(64.W))
+        val instret = Output(UInt(1.W))
     })
 
     for (i <- 0 until io.write_backs.length) {
@@ -21,10 +22,12 @@ class WriteBack extends Module {
 
     io.reg_write := 0.U
     io.write_data := 0.U
+    io.instret := 0.U
 
     // Impossible to write back multiple times in one cycle.
     for (i <- 0 until io.write_backs.length) {
         when(io.write_backs(i).valid) {
+            io.instret := 1.U
             io.reg_write := io.write_backs(i).bits.reg
             io.write_data := io.write_backs(i).bits.data
         }

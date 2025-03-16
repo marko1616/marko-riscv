@@ -18,7 +18,7 @@ class MiscUnit extends Module {
         // Bit [4,3] == 3 mret
         // Bit [2,0] == 2 Fence operate(fence fence.i) reserved.
         // Bit [2,0] == 1 Cache line operate(zicbox) reserved.
-        // Bit [2,0] == 0 CSR(zicsr) operate. Bit[3] = rs1 == x0 ? 1 : 0.
+        // Bit [2,0] == 0 CSR(zicsr) operate. Bit[3] = read csr ? 1 : 0. Bit[4] = write csr ? 1 : 0.
         val misc_instr = Flipped(Decoupled(new Bundle {
             val misc_opcode = UInt(5.W)
             val params = new DecoderOutParams(64)
@@ -47,6 +47,7 @@ class MiscUnit extends Module {
     val CSRRW = "b01".U
     val CSRRS = "b10".U
     val CSRRC = "b11".U
+    io.csrio.read_en := false.B
     io.csrio.write_en := false.B
     io.csrio.read_addr := 0.U
     io.csrio.write_addr := 0.U
@@ -71,12 +72,8 @@ class MiscUnit extends Module {
             val csr_src1 = params.source1
             val csr_addr = params.source2
             val csr_func = params.immediate
-            /*
-            * If rs1 == x0, the `csrrc` and `csrrs` instructions behave as read-only operations.
-            * They will not cause any side effects, such as illegal instruction exceptions,
-            * when attempting to write to a read-only CSR (Control and Status Register).
-            */
-            val csr_ro = opcode(3) && csr_func =/= CSRRW
+            io.csrio.read_en := opcode(3)
+            io.csrio.write_en := opcode(4)
 
             // Reserved for illegal instruction exceptions.
             val is_csr_read_only = csr_addr(11, 10) === 3.U
@@ -85,7 +82,6 @@ class MiscUnit extends Module {
             io.csrio.read_addr := csr_addr
             val csr_data = io.csrio.read_data
 
-            io.csrio.write_en := ~csr_ro
             io.csrio.write_addr := csr_addr
             switch(csr_func(1, 0)) {
                 is(CSRRW) {

@@ -7,14 +7,12 @@ import markorv.trap._
 class TrapController extends Module {
     val io = IO(new Bundle {
         val outer_int = Input(Bool())
-        val outer_int_outfire = Output(Bool())
-
         val exceptions = Vec(1, Flipped(Decoupled(new ExceptionInfo)))
 
         val fetched = Input(UInt(4.W))
         val fetch_hlt = Output(Bool())
 
-        val set_trap = Flipped(new TrapHandleIO)
+        val set_trap = Flipped(new TrapHandleInterface)
 
         val flush = Output(Bool())
         val pc = Input(UInt(64.W))
@@ -30,7 +28,6 @@ class TrapController extends Module {
     })
     def do_trap(cause: UInt, is_int: Bool, inst_exc_pc: UInt) = {
         io.set_trap.set := true.B
-        io.outer_int_outfire := true.B
         int_pending := false.B
 
         trap_info.interruption := is_int
@@ -54,7 +51,6 @@ class TrapController extends Module {
     val mie = io.mstatus(3)
     val sie = io.mstatus(1)
 
-    io.outer_int_outfire := false.B   
     io.fetch_hlt := false.B
     io.flush := false.B
     io.set_pc := 0.U

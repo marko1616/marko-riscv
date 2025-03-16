@@ -168,10 +168,18 @@
 </details>
 
 <details>
+<summary><strong> Zicntr Extension CSR</strong>✅</summary>
+
+- [x] cycle
+- [x] time
+- [x] instret
+</details>
+
+<details>
 <summary><strong> System Tasks </strong></summary>
 
-- [x] L1 Instruction cache
-- [x] L1 Data cache
+- [ ] L1 Instruction cache
+- [ ] L1 Data cache
 - [ ] L2 Cache
 - [x] Exception & Interruption
 - [ ] TLB
