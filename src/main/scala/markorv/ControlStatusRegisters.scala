@@ -6,29 +6,54 @@ import markorv.trap._
 
 class ControlStatusRegistersIO extends Bundle {
     val read_addr = Input(UInt(12.W))
+    val read_en = Input(Bool())
     val write_addr = Input(UInt(12.W))
     val write_en = Input(Bool())
 
     val read_data = Output(UInt(64.W))
     val write_data = Input(UInt(64.W))
+
+    val illegal = Output(Bool())
 }
 
 class ControlStatusRegisters extends Module {
     val io = IO(new Bundle {
         val csrio = new ControlStatusRegistersIO
-        val set_trap = new TrapHandleIO
+        val set_trap = new TrapHandleInterface
+
+        val privilege = Input(UInt(2.W))
 
         val trap_ret = Input(Bool())
         val trap_ret_info = Output(new TrapState)
 
         val mstatus = Output(UInt(64.W))
         val mie = Output(UInt(64.W))
+
+        val instret = Input(UInt(1.W))
+        val time = Input(UInt(64.W))
     })
     // While read write simultaneously shuould return old value.
 
-    // Machine custom register(MRW)
-    // For Zicsr test.
-    val MCUSTOMTST_ADDR = "h800".U(12.W)
+    def read_csr(data: UInt, required_privilege: UInt) = {
+        when(required_privilege <= io.privilege) {
+            io.csrio.read_data := data
+        }.otherwise {
+            io.csrio.illegal := true.B
+        }
+    }
+
+    def write_csr(target: Data, data: UInt, required_privilege: UInt) = {
+        when(required_privilege <= io.privilege) {
+            target := data
+        }.otherwise {
+            io.csrio.illegal := true.B
+        }
+    }
+
+    // Unprivileged Counter/Timers(URO)
+    val CYCLE_ADDR = "hc00".U(12.W)
+    val TIME_ADDR = "hc01".U(12.W)
+    val INSTRET_ADDR = "hc02".U(12.W)
 
     // Machine infomations(MRO).
     val MVENDORID_ADDR = "hf11".U(12.W)
@@ -53,7 +78,9 @@ class ControlStatusRegisters extends Module {
     val MTVAL_ADDR = "h343".U(12.W)
     val MIP_ADDR = "h344".U(12.W)
 
-    val mcustomtst = RegInit(0.U(64.W))
+    val cycle = RegInit(0.U(64.W))
+    val time = WireInit(0.U(64.W))
+    val instret = RegInit(0.U(64.W))
 
     val mstatus = RegInit(0.U(64.W))
     val misa = RegInit("h8000000000000100".U(64.W))
@@ -70,127 +97,100 @@ class ControlStatusRegisters extends Module {
 
     val mcounteren = RegInit(0.U(32.W))
 
+    io.csrio.read_data := 0.U
+    io.csrio.illegal := false.B
     io.mstatus := mstatus
     io.mie := mie
 
-    io.csrio.read_data := 0.U
-    switch(io.csrio.read_addr) {
-        is(MCUSTOMTST_ADDR) {
-            io.csrio.read_data := mcustomtst
-        }
+    cycle := cycle + 1.U
+    time := io.time
+    instret := instret + io.instret
 
-        is(MVENDORID_ADDR) {
-            // Non-commercial.
-            io.csrio.read_data := "h0000000000000000".U
-        }
-        is(MARCHID_ADDR) {
+    when(io.csrio.read_en) {
+        when(io.csrio.read_addr === CYCLE_ADDR){
+            // TODO S mode
+            read_csr(cycle, Mux(mcounteren(0), "b00".U, "b11".U))
+        }.elsewhen(io.csrio.read_addr === TIME_ADDR) {
+            // TODO S mode
+            read_csr(time, Mux(mcounteren(1), "b00".U, "b11".U))
+        }.elsewhen(io.csrio.read_addr === INSTRET_ADDR) {
+            // TODO S mode
+            read_csr(instret, Mux(mcounteren(2), "b00".U, "b11".U))
+        }.elsewhen(io.csrio.read_addr === MVENDORID_ADDR) {
             // In development.
-            io.csrio.read_data := "h0000000000000000".U
-        }
-        is(MIMPID_ADDR) {
+            read_csr("h0000000000000000".U, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MARCHID_ADDR) {
             // In development.
-            io.csrio.read_data := "h0000000000000000".U
-        }
-        is(MHARTID_ADDR) {
+            read_csr("h0000000000000000".U, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MIMPID_ADDR) {
+            // In development.
+            read_csr("h0000000000000000".U, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MHARTID_ADDR) {
             // 0x0
-            io.csrio.read_data := "h0000000000000000".U
-        }
-        is(MCONFIGPTR_ADDR) {
+            read_csr("h0000000000000000".U, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MCONFIGPTR_ADDR) {
             // TODO machine config
-            io.csrio.read_data := "h0000000000000000".U
-        }
-
-        is(MSTATUS_ADDR) {
-            io.csrio.read_data := mstatus
-        }
-        is(MISA_ADDR) {
+            read_csr("h0000000000000000".U, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MSTATUS_ADDR) {
+            read_csr(mstatus, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MISA_ADDR) {
             // RV64I
-            io.csrio.read_data := misa
-        }
-        is(MEDELEG_ADDR) {
-            io.csrio.read_data := medeleg
-        }
-        is(MIDELEG_ADDR) {
-            io.csrio.read_data := mideleg
-        }
-        is(MIE_ADDR) {
-            io.csrio.read_data := mie
-        }
-        is(MTVEC_ADDR) {
-            io.csrio.read_data := mtvec
-        }
-        is(MCOUNTEREN_ADDR) {
-            io.csrio.read_data := mcounteren
-        }
-
-        is(MSCRATCH_ADDR) {
-            io.csrio.read_data := mscratch
-        }
-        is(MEPC_ADDR) {
-            io.csrio.read_data := mepc
-        }
-        is(MCAUSE_ADDR) {
-            io.csrio.read_data := Cat(mcause_interruption, 0.U(57.W), mcause_code)
-        }
-        is(MTVAL_ADDR) {
-            io.csrio.read_data := mtval
-        }
-        is(MIP_ADDR) {
+            read_csr(misa, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MEDELEG_ADDR) {
+            read_csr(medeleg, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MIDELEG_ADDR) {
+            read_csr(mideleg, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MIE_ADDR) {
+            read_csr(mie, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MTVEC_ADDR) {
+            read_csr(mtvec, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MCOUNTEREN_ADDR) {
+            read_csr(mcounteren, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MSCRATCH_ADDR) {
+            read_csr(mscratch, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MEPC_ADDR) {
+            read_csr(mepc, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MCAUSE_ADDR) {
+            read_csr(Cat(mcause_interruption, 0.U(57.W), mcause_code), "b11".U)
+        }.elsewhen(io.csrio.read_addr === MTVAL_ADDR) {
+            read_csr(mtval, "b11".U)
+        }.elsewhen(io.csrio.read_addr === MIP_ADDR) {
             // TODO
         }
     }
 
     when(io.csrio.write_en) {
-        switch(io.csrio.write_addr) {
-            is(MCUSTOMTST_ADDR) {
-                mcustomtst := io.csrio.write_data
-            }
-
-            is(MSTATUS_ADDR) {
-                // write mask shown that which fields is implemented.
-                val write_mask = "h00000000000000aa".U
-                mstatus := write_mask & io.csrio.write_data
-            }
-            is(MISA_ADDR) {
-                // Can't write this to switch func for now.
-            }
-            is(MEDELEG_ADDR) {
-                // TODO S mode
-                medeleg := io.csrio.write_data
-            }
-            is(MIDELEG_ADDR) {
-                // TODO S mode
-                mideleg := io.csrio.write_data
-            }
-            is(MIE_ADDR) {
-                mie := io.csrio.write_data
-            }
-            is(MTVEC_ADDR) {
-                // mtvec mode >= 2 is Reserved
-                val write_mask = "hfffffffffffffffd".U
-                mtvec := write_mask & io.csrio.write_data
-            }
-            is(MCOUNTEREN_ADDR) {
-                // TODO counter
-                mcounteren := io.csrio.write_data
-            }
-
-            is(MSCRATCH_ADDR) {
-                mscratch := io.csrio.write_data
-            }
-            is(MEPC_ADDR) {
-                mepc := io.csrio.write_data
-            }
-            is(MCAUSE_ADDR) {
-                mcause_interruption := io.csrio.write_data(63) === 1.U
-                mcause_code := io.csrio.write_data(5, 0)
-            }
-            is(MTVAL_ADDR) {
-                mtval := io.csrio.write_data
-            }
-            is(MIP_ADDR) {
-                // TODO
-            }
+        when(io.csrio.write_addr === MSTATUS_ADDR) {
+            // write mask shown that which fields is implemented.
+            val write_mask = "h00000000000000aa".U
+            write_csr(mstatus, write_mask & io.csrio.write_data, "b11".U)
+        }.elsewhen(io.csrio.write_addr === MISA_ADDR) {
+            // Can't write this to switch func for now.
+        }.elsewhen(io.csrio.write_addr === MEDELEG_ADDR) {
+            // TODO S mode
+            write_csr(medeleg, io.csrio.write_data, "b11".U)
+        }.elsewhen(io.csrio.write_addr === MIDELEG_ADDR) {
+            // TODO S mode
+            write_csr(mideleg, io.csrio.write_data, "b11".U)
+        }.elsewhen(io.csrio.write_addr === MIE_ADDR) {
+            write_csr(mie, io.csrio.write_data, "b11".U)
+        }.elsewhen(io.csrio.write_addr === MTVEC_ADDR) {
+            // mtvec mode >= 2 is Reserved
+            val write_mask = "hfffffffffffffffd".U
+            write_csr(mtvec, write_mask & io.csrio.write_data, "b11".U)
+        }.elsewhen(io.csrio.write_addr === MCOUNTEREN_ADDR) {
+            write_csr(mcounteren, io.csrio.write_data, "b11".U)
+        }.elsewhen(io.csrio.write_addr === MSCRATCH_ADDR) {
+            write_csr(mscratch, io.csrio.write_data, "b11".U)
+        }.elsewhen(io.csrio.write_addr === MEPC_ADDR) {
+            write_csr(mepc, io.csrio.write_data, "b11".U)
+        }.elsewhen(io.csrio.write_addr === MCAUSE_ADDR) {
+            write_csr(mcause_interruption, io.csrio.write_data(63) === 1.U, "b11".U)
+            write_csr(mcause_code, io.csrio.write_data(5, 0), "b11".U)
+        }.elsewhen(io.csrio.write_addr === MTVAL_ADDR) {
+            write_csr(mtval, io.csrio.write_data, "b11".U)
+        }.elsewhen(io.csrio.write_addr === MIP_ADDR) {
+            // TODO
         }
     }
 

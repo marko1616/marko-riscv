@@ -11,7 +11,9 @@ EMULATOR_PATH = BASE_PATH / "obj_dir" / "VMarkoRvCore"
 ROM_PATH = BASE_PATH / "emulator" / "assets" / "boot.elf"
 RAM_DUMP_PATH = BASE_PATH / "tests" / "ram_dump.bin"
 
-TEST_CASES = ["rv64ui-p-add",
+TEST_CASES = [
+# I Extension
+            "rv64ui-p-add",
             "rv64ui-p-addi",
             "rv64ui-p-addiw",
             "rv64ui-p-addw",
@@ -24,7 +26,6 @@ TEST_CASES = ["rv64ui-p-add",
             "rv64ui-p-blt",
             "rv64ui-p-bltu",
             "rv64ui-p-bne",
-#           "rv64ui-p-fence_i",
             "rv64ui-p-jal",
             "rv64ui-p-jalr",
             "rv64ui-p-lb",
@@ -64,7 +65,29 @@ TEST_CASES = ["rv64ui-p-add",
             "rv64ui-p-subw",
             "rv64ui-p-sw",
             "rv64ui-p-xor",
-            "rv64ui-p-xori"
+            "rv64ui-p-xori",
+# Zifencei Extension
+#           "rv64ui-p-fence_i",
+# A Extension
+            "rv64ua-p-amoadd_d",
+            "rv64ua-p-amoadd_w",
+            "rv64ua-p-amoand_d",
+            "rv64ua-p-amoand_w",
+            "rv64ua-p-amomax_d",
+            "rv64ua-p-amomax_w",
+            "rv64ua-p-amomaxu_d",
+            "rv64ua-p-amomaxu_w",
+            "rv64ua-p-amomin_d",
+            "rv64ua-p-amomin_w",
+            "rv64ua-p-amominu_d",
+            "rv64ua-p-amominu_w",
+            "rv64ua-p-amoor_d",
+            "rv64ua-p-amoor_w",
+            "rv64ua-p-amoswap_d",
+            "rv64ua-p-amoswap_w",
+            "rv64ua-p-amoxor_d",
+            "rv64ua-p-amoxor_w",
+            "rv64ua-p-lrsc",
 ]
 
 passed_count = 0
@@ -75,7 +98,7 @@ for case in TEST_CASES:
         str(EMULATOR_PATH),
         "--rom-path", str(ROM_PATH),
         "--ram-path", str(TESTS_PATH / case),
-        "--max-clock", "2000",
+        "--max-clock", "8000",
         "--ram-dump", str(RAM_DUMP_PATH)
     ]
     result = subprocess.run(command, capture_output=True, text=True)

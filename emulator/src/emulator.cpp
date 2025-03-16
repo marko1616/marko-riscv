@@ -458,6 +458,10 @@ void axi_debug(const axiSignal& axi) {
                              axi.rvalid, axi.rready, axi.rdata, axi.rresp);
 }
 
+void set_time(const std::unique_ptr<VMarkoRvCore> &top) {
+    top->io_time = std::time(nullptr);
+}
+
 void cycle_verbose(uint64_t cycle, uint64_t pc, uint64_t raw_instr, uint64_t peek) {
     uint8_t raw_code[4] = {0};
     std::cout << std::format("Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Peek: 0x{:04x} Asm: ",cycle, pc, raw_instr, peek);
@@ -545,7 +549,7 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
 
 void init_stimulus(const std::unique_ptr<VMarkoRvCore> &top) {
     clear_axi(top);
-    top->io_debug_async_flush = 0;
+    set_time(top);
 }
 
 int main(int argc, char **argv, char **env)

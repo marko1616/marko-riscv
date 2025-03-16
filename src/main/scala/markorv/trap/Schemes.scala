@@ -14,7 +14,7 @@ class TrapInfo extends Bundle {
     val state = new TrapState
 }
 
-class TrapHandleIO extends Bundle {
+class TrapHandleInterface extends Bundle {
     val set = Input(Bool())
     val trap_info = Input(new TrapInfo)
     val trap_handler = Output(UInt(64.W))
@@ -24,4 +24,8 @@ class TrapHandleIO extends Bundle {
 class ExceptionInfo extends Bundle {
     val cause = UInt(6.W)
     val ret_addr = UInt(64.W)
+}
+
+class CoreLocalInterruptInterface extends {
+    
 }
