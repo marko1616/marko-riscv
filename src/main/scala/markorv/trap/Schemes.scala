@@ -25,7 +25,3 @@ class ExceptionInfo extends Bundle {
     val cause = UInt(6.W)
     val ret_addr = UInt(64.W)
 }
-
-class CoreLocalInterruptInterface extends {
-    
-}

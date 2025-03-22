@@ -3,134 +3,79 @@ package markorv.backend
 import chisel3._
 import chisel3.util._
 
+import markorv.utils.ChiselUtils._
 import markorv.frontend.DecoderOutParams
 import markorv.backend._
+
+object BranchFunct extends ChiselEnum {
+    val beq  = Value("b0000".U)
+    val bne  = Value("b0001".U)
+    val blt  = Value("b0100".U)
+    val bge  = Value("b0101".U)
+    val bltu = Value("b0110".U)
+    val bgeu = Value("b0111".U)
+
+    val jal  = Value("b1000".U)
+    val jalr = Value("b1001".U)
+}
 
 class BranchUnit extends Module {
     val io = IO(new Bundle {
         val branch_instr = Flipped(Decoupled(new Bundle {
-            val branch_opcode = UInt(5.W)
+            val branch_opcode = new BranchOpcode
             val pred_taken = Bool()
             val pred_pc = UInt(64.W)
-            val recovery_pc = UInt(64.W)
+            val recover_pc = UInt(64.W)
             val params = new DecoderOutParams
         }))
 
-        val write_back = Decoupled(new Bundle {
+        val register_commit = Decoupled(new Bundle {
             val reg = Input(UInt(5.W))
             val data = Input(UInt(64.W))
         })
 
+        val flush = Bool()
+        val set_pc = UInt(64.W)
         val outfire = Output(Bool())
-
-        val flush = Output(Bool())
-        val set_pc = Output(UInt(64.W))
     })
 
     io.outfire := false.B
-
     io.branch_instr.ready := true.B
+
+    io.register_commit.valid := false.B
+    io.register_commit.bits.reg := 0.U
+    io.register_commit.bits.data := 0.U
     io.flush := false.B
     io.set_pc := 0.U
 
-    io.write_back.valid := false.B
-    io.write_back.bits.reg := 0.U
-    io.write_back.bits.data := 0.U
+    val params     = io.branch_instr.bits.params
+    val pred_pc    = io.branch_instr.bits.pred_pc
+    val pred_taken = io.branch_instr.bits.pred_taken
+    val recover_pc = io.branch_instr.bits.recover_pc
+    val source1    = params.source1
+    val source2    = params.source2
+    val jalr_pc    = ((source1 + source2) & ~(1.U(64.W)))
 
-    when(io.branch_instr.valid) {
-        switch(io.branch_instr.bits.branch_opcode) {
-            is("b00001".U) {
-                // jal
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.branch_instr.bits.params.rd
-                io.write_back.bits.data := io.branch_instr.bits.params.pc + 4.U
-            }
-            is("b00011".U) {
-                // jalr
-                val jump_addr = Wire(UInt(64.W))
-                jump_addr := (io.branch_instr.bits.params.source1 + io.branch_instr.bits.params.immediate) & ~(1.U(64.W))
-                io.write_back.valid := true.B
-                io.write_back.bits.reg := io.branch_instr.bits.params.rd
-                io.write_back.bits.data := io.branch_instr.bits.params.pc + 4.U
+    val (funct, valid_funct) = BranchFunct.safe(io.branch_instr.bits.branch_opcode.funct)
+    val branch_taken = MuxLookup(funct, false.B)(Seq(
+        BranchFunct.beq -> (source1 === source2),
+        BranchFunct.bne -> (source1 =/= source2),
+        BranchFunct.blt -> (source1.asSInt < source2.asSInt),
+        BranchFunct.bge -> (source1.asSInt >= source2.asSInt),
+        BranchFunct.bltu -> (source1 < source2),
+        BranchFunct.bgeu -> (source1 >= source2),
+    ))
+    val recover = MuxLookup(funct, branch_taken =/= pred_taken)(Seq(
+        BranchFunct.jal -> (false.B),
+        BranchFunct.jalr -> (jalr_pc =/= pred_pc)
+    ))
 
-                when(io.branch_instr.bits.pred_pc =/= jump_addr) {
-                    io.flush := true.B
-                    io.set_pc := jump_addr
-                }
-            }
-            is("b00000".U) {
-                // beq
-                when(
-                  io.branch_instr.bits.params.source1 === io.branch_instr.bits.params.source2
-                ) {
-                    io.flush := ~io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }.otherwise {
-                    io.flush := io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }
-            }
-            is("b00010".U) {
-                // bne
-                when(
-                  io.branch_instr.bits.params.source1 =/= io.branch_instr.bits.params.source2
-                ) {
-                    io.flush := ~io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }.otherwise {
-                    io.flush := io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }
-            }
-            is("b01000".U) {
-                // blt
-                when(
-                  io.branch_instr.bits.params.source1.asSInt < io.branch_instr.bits.params.source2.asSInt
-                ) {
-                    io.flush := ~io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }.otherwise {
-                    io.flush := io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }
-            }
-            is("b01010".U) {
-                // bge
-                when(
-                  io.branch_instr.bits.params.source1.asSInt >= io.branch_instr.bits.params.source2.asSInt
-                ) {
-                    io.flush := ~io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }.otherwise {
-                    io.flush := io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }
-            }
-            is("b01100".U) {
-                // bltu
-                when(
-                  io.branch_instr.bits.params.source1 < io.branch_instr.bits.params.source2
-                ) {
-                    io.flush := ~io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }.otherwise {
-                    io.flush := io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }
-            }
-            is("b01110".U) {
-                // bgeu
-                when(
-                  io.branch_instr.bits.params.source1 >= io.branch_instr.bits.params.source2
-                ) {
-                    io.flush := ~io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }.otherwise {
-                    io.flush := io.branch_instr.bits.pred_taken
-                    io.set_pc := io.branch_instr.bits.recovery_pc
-                }
-            }
-        }
-        io.outfire := true.B
+    when(valid_funct) {
+        io.register_commit.valid := io.branch_instr.valid
+        io.register_commit.bits.reg := Mux(funct.in(BranchFunct.jal, BranchFunct.jalr), params.rd, 0.U)
+        io.register_commit.bits.data := Mux(funct.in(BranchFunct.jal, BranchFunct.jalr), params.pc + 4.U, 0.U)
+        io.flush := io.branch_instr.valid && recover
+        io.set_pc := Mux(funct === BranchFunct.jalr, jalr_pc, recover_pc)
+        io.outfire := io.branch_instr.valid
     }
 }

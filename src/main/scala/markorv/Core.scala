@@ -28,14 +28,15 @@ class MarkoRvCore extends Module {
 
     val load_store_unit = Module(new LoadStoreUnit)
     val arithmetic_logic_unit = Module(new ArithmeticLogicUnit)
-    val branch_unit = Module(new BranchUnit)
     val misc_unit = Module(new MiscUnit)
+    val multiply_unit = Module(new MultiplyUnit)
+    val branch_unit = Module(new BranchUnit)
 
     val register_file = Module(new RegFile)
     val csr_file = Module(new ControlStatusRegisters)
     val trap_ctrl = Module(new TrapController)
 
-    val write_back = Module(new WriteBack)
+    val commit_unit = Module(new CommitUnit)
     val lsu_iocontroller = Module(new LoadStoreController)
     val ifq_iocontroller = Module(new LoadStoreController)
 
@@ -63,7 +64,7 @@ class MarkoRvCore extends Module {
 
     trap_ctrl.io.pc <> instr_fetch_unit.io.get_pc
     trap_ctrl.io.privilege <> misc_unit.io.get_privilege
-    trap_ctrl.io.fetched <> instr_fetch_unit.io.peek_fetched
+    trap_ctrl.io.fetched <> instr_fetch_unit.io.get_fetched
     trap_ctrl.io.set_trap <> csr_file.io.set_trap
     trap_ctrl.io.trap_ret_info <> csr_file.io.trap_ret_info
     trap_ctrl.io.mstatus <> csr_file.io.mstatus
@@ -102,15 +103,15 @@ class MarkoRvCore extends Module {
 
     load_store_unit.io.local_load_reserved.ready := true.B
     load_store_unit.io.invalidate_reserved := misc_unit.io.trap_ret
-    write_back.io.reg_write <> register_file.io.write_addr
-    write_back.io.write_data <> register_file.io.write_data
+    commit_unit.io.reg_write <> register_file.io.write_addr
+    commit_unit.io.write_data <> register_file.io.write_data
 
-    csr_file.io.instret <> write_back.io.instret
+    csr_file.io.instret <> commit_unit.io.instret
     csr_file.io.time <> io.time
     csr_file.io.csrio <> misc_unit.io.csrio
     csr_file.io.privilege <> misc_unit.io.get_privilege
     register_file.io.flush := flush
-  
+
     io.pc <> instr_fetch_unit.io.instr_bundle.bits.pc
     when(instr_fetch_unit.io.instr_bundle.valid) {
         io.instr_now := instr_fetch_unit.io.instr_bundle.bits.instr
@@ -139,7 +140,8 @@ class MarkoRvCore extends Module {
     instr_fetch_unit.io.exu_outfires(0) := arithmetic_logic_unit.io.outfire
     instr_fetch_unit.io.exu_outfires(1) := load_store_unit.io.outfire
     instr_fetch_unit.io.exu_outfires(2) := misc_unit.io.outfire
-    instr_fetch_unit.io.exu_outfires(3) := branch_unit.io.outfire
+    instr_fetch_unit.io.exu_outfires(3) := multiply_unit.io.outfire
+    instr_fetch_unit.io.exu_outfires(4) := branch_unit.io.outfire
     PipelineConnect(
         instr_issuer.io.alu_out,
         arithmetic_logic_unit.io.alu_instr,
@@ -159,6 +161,12 @@ class MarkoRvCore extends Module {
         flush
     )
     PipelineConnect(
+        instr_issuer.io.mu_out,
+        multiply_unit.io.mu_instr,
+        multiply_unit.io.outfire,
+        flush
+    )
+    PipelineConnect(
         instr_issuer.io.branch_out,
         branch_unit.io.branch_instr,
         branch_unit.io.outfire,
@@ -166,10 +174,36 @@ class MarkoRvCore extends Module {
     )
 
     // Write Back
-    load_store_unit.io.write_back <> write_back.io.write_backs(0)
-    arithmetic_logic_unit.io.write_back <> write_back.io.write_backs(1)
-    branch_unit.io.write_back <> write_back.io.write_backs(2)
-    misc_unit.io.write_back <> write_back.io.write_backs(3)
+    PipelineConnect(
+        load_store_unit.io.register_commit,
+        commit_unit.io.register_commits(0),
+        true.B,
+        flush
+    )
+    PipelineConnect(
+        arithmetic_logic_unit.io.register_commit,
+        commit_unit.io.register_commits(1),
+        true.B,
+        flush
+    )
+    PipelineConnect(
+        misc_unit.io.register_commit,
+        commit_unit.io.register_commits(2),
+        true.B,
+        flush
+    )
+    PipelineConnect(
+        multiply_unit.io.register_commit,
+        commit_unit.io.register_commits(3),
+        true.B,
+        flush
+    )
+    PipelineConnect(
+        branch_unit.io.register_commit,
+        commit_unit.io.register_commits(4),
+        true.B,
+        flush & ~branch_unit.io.register_commit.valid
+    )
 }
 
 object MarkoRvCore extends App {

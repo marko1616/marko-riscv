@@ -9,7 +9,7 @@ class InstrIPBundle extends Bundle {
     val instr = Output(UInt(32.W))
     val pred_taken = Output(Bool())
     val pred_pc = Output(UInt(64.W))
-    val recovery_pc = Output(UInt(64.W))
+    val recover_pc = Output(UInt(64.W))
     val pc = Output(UInt(64.W))
 }
 
@@ -18,7 +18,7 @@ class InstrFetchUnit extends Module {
         val fetch_bundle = Flipped(Decoupled(new FetchQueueEntities))
         val instr_bundle = Decoupled(new InstrIPBundle)
 
-        val exu_outfires = Input(Vec(4, Bool()))
+        val exu_outfires = Input(Vec(5, Bool()))
         val invalid_drop = Input(Bool())
 
         val get_pc = Output(UInt(64.W))
@@ -26,7 +26,7 @@ class InstrFetchUnit extends Module {
         val flush = Input(Bool())
         val fetch_hlt = Input(Bool())
 
-        val peek_fetched = Output(UInt(4.W))
+        val get_fetched = Output(UInt(4.W))
     })
 
     val fetched_count = RegInit(0.U(4.W))
@@ -38,13 +38,13 @@ class InstrFetchUnit extends Module {
     io.instr_bundle.valid := false.B
     io.instr_bundle.bits.instr := 0.U(32.W)
     io.instr_bundle.bits.pred_taken := false.B
-    io.instr_bundle.bits.recovery_pc := pc
+    io.instr_bundle.bits.recover_pc := pc
     io.instr_bundle.bits.pred_pc := pc
     io.instr_bundle.bits.pc := pc
 
     io.fetch_bundle.ready := io.instr_bundle.ready && !io.fetch_hlt
     io.get_pc := pc
-    io.peek_fetched := fetched_count
+    io.get_fetched := fetched_count
 
     val outfire_instr = io.exu_outfires.reduce(_ | _).asTypeOf(UInt(2.W)) + io.invalid_drop.asTypeOf(UInt(2.W))
     when(io.fetch_bundle.valid && io.instr_bundle.ready && !io.fetch_hlt) {
@@ -52,7 +52,7 @@ class InstrFetchUnit extends Module {
         io.instr_bundle.bits.instr := io.fetch_bundle.bits.instr
         io.instr_bundle.bits.pred_taken := io.fetch_bundle.bits.pred_taken
         io.instr_bundle.bits.pred_pc := io.fetch_bundle.bits.pred_pc
-        io.instr_bundle.bits.recovery_pc := io.fetch_bundle.bits.recovery_pc
+        io.instr_bundle.bits.recover_pc := io.fetch_bundle.bits.recover_pc
         io.instr_bundle.bits.pc := pc
 
         next_pc := io.fetch_bundle.bits.pred_pc

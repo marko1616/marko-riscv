@@ -88,6 +88,12 @@ TEST_CASES = [
             "rv64ua-p-amoxor_d",
             "rv64ua-p-amoxor_w",
             "rv64ua-p-lrsc",
+# M Extension
+            "rv64um-p-mul",
+            "rv64um-p-mulh",
+            "rv64um-p-mulhsu",
+            "rv64um-p-mulhu",
+            "rv64um-p-mulw",
 ]
 
 passed_count = 0

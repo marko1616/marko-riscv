@@ -34,7 +34,7 @@ class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int)
             val cache_line = new CacheLine(n_set, n_way, n_byte)
         })
         val cache_write_outfire = Input(Bool())
-    
+
         val cache_invalid_addr = Decoupled(UInt(64.W))
         val cache_invalid_outfire = Input(Bool())
 
@@ -86,7 +86,7 @@ class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int)
             op_addr := io.read_req.bits.addr
         }
         when(io.write_req.valid) {
-            op_addr := io.write_req.bits.addr            
+            op_addr := io.write_req.bits.addr
         }
         when(io.invalid_addr.valid) {
             op_addr := io.invalid_addr.bits
@@ -136,7 +136,7 @@ class CacheReadWriteWarpper(n_set: Int, n_way: Int, n_byte: Int)
                             cache_line_buff(i).valid := false.B
                         }
                     }
-                } 
+                }
             }
         }
 
