@@ -11,11 +11,11 @@ class FetchQueueEntities extends Bundle {
     val is_branch = Bool()
     val pred_taken = Bool()
     val pred_pc = UInt(64.W)
-    val recovery_pc = UInt(64.W)
+    val recover_pc = UInt(64.W)
 }
 
 class InstrFetchQueue(
-    queue_size: Int = 16,
+    queue_size: Int = 4,
     n_set: Int = 8,
     n_way: Int = 4,
     n_byte: Int = 16
@@ -99,7 +99,7 @@ class InstrFetchQueue(
                 instr_queue.io.enq.bits.is_branch := bpu.io.bpu_result.is_branch
                 instr_queue.io.enq.bits.pred_taken := bpu.io.bpu_result.pred_taken
                 instr_queue.io.enq.bits.pred_pc := bpu.io.bpu_result.pred_pc
-                instr_queue.io.enq.bits.recovery_pc := bpu.io.bpu_result.recovery_pc
+                instr_queue.io.enq.bits.recover_pc := bpu.io.bpu_result.recover_pc
                 instr_queue.io.enq.valid := true.B
 
                 end_pc_reg := bpu.io.bpu_result.pred_pc

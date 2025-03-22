@@ -68,11 +68,7 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             val direct = Bool()
         })
         val write_outfire = Input(Bool())
-
-        val write_back = Decoupled(new Bundle {
-            val reg = Input(UInt(5.W))
-            val data = Input(UInt(data_width.W))
-        })
+        val register_commit = Decoupled(new RegisterCommit)
 
         val local_load_reserved = Decoupled(UInt(64.W))
         val invalidate_reserved = Input(Bool())
@@ -133,9 +129,9 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     read_req.direct := false.B
     io.read_data.ready := false.B
 
-    io.write_back.valid := false.B
-    io.write_back.bits.data := 0.U(data_width.W)
-    io.write_back.bits.reg := 0.U(5.W)
+    io.register_commit.valid := false.B
+    io.register_commit.bits.data := 0.U(data_width.W)
+    io.register_commit.bits.reg := 0.U(5.W)
 
     io.local_load_reserved.valid := local_load_reserved_valid
     io.local_load_reserved.bits := local_load_reserved_addr
@@ -244,9 +240,9 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             local_load_reserved_valid := true.B
             local_load_reserved_addr := addr
 
-            io.write_back.valid := true.B
-            io.write_back.bits.data := amo_data_reg
-            io.write_back.bits.reg := params.rd
+            io.register_commit.valid := true.B
+            io.register_commit.bits.data := amo_data_reg
+            io.register_commit.bits.reg := params.rd
             state := State.stat_normal
         }.elsewhen(is_sc) {
             when(local_load_reserved_valid && local_load_reserved_addr === addr) {
@@ -259,16 +255,16 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
                     op_fired := true.B
                     local_load_reserved_valid := false.B
                     local_load_reserved_addr := 0.U
-                    io.write_back.valid := true.B
-                    io.write_back.bits.data := 0.U
-                    io.write_back.bits.reg := params.rd
+                    io.register_commit.valid := true.B
+                    io.register_commit.bits.data := 0.U
+                    io.register_commit.bits.reg := params.rd
                     state := State.stat_normal
                 }
             }.otherwise {
                 op_fired := true.B
-                io.write_back.valid := true.B
-                io.write_back.bits.data := AMO_SC_FAILED
-                io.write_back.bits.reg := params.rd
+                io.register_commit.valid := true.B
+                io.register_commit.bits.data := AMO_SC_FAILED
+                io.register_commit.bits.reg := params.rd
                 state := State.stat_normal
             }
         }.otherwise {
@@ -280,19 +276,19 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             write_req.direct := true.B
             when(io.write_outfire) {
                 op_fired := true.B
-                io.write_back.valid := true.B
-                io.write_back.bits.data := amo_data_reg
-                io.write_back.bits.reg := params.rd
+                io.register_commit.valid := true.B
+                io.register_commit.bits.data := amo_data_reg
+                io.register_commit.bits.reg := params.rd
                 state := State.stat_normal
             }
         }
     }
 
     when(!io.lsu_instr.valid) {
-        io.lsu_instr.ready := io.write_back.ready && state === State.stat_normal
+        io.lsu_instr.ready := io.register_commit.ready && state === State.stat_normal
     }
 
-    when(io.lsu_instr.valid && io.write_back.ready && state === State.stat_normal) {
+    when(io.lsu_instr.valid && io.register_commit.ready && state === State.stat_normal) {
         when(io.lsu_instr.bits.lsu_opcode(5)) {
             // AMO
             state := State.stat_amo_cache
@@ -340,9 +336,9 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
         io.outfire := true.B
         io.lsu_instr.ready := true.B
         when(state === State.stat_normal && opcode(4) === 0.U) {
-            io.write_back.valid := true.B
-            io.write_back.bits.data := load_data
-            io.write_back.bits.reg := params.rd
+            io.register_commit.valid := true.B
+            io.register_commit.bits.data := load_data
+            io.register_commit.bits.reg := params.rd
         }
     }
 }

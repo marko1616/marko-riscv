@@ -3,7 +3,9 @@ package markorv.frontend
 import chisel3._
 import chisel3.util._
 
+import markorv.utils.ChiselUtils._
 import markorv.frontend._
+import markorv.backend._
 
 class DecoderOutParams(data_width: Int = 64) extends Bundle {
     val immediate = UInt(data_width.W)
@@ -15,20 +17,19 @@ class DecoderOutParams(data_width: Int = 64) extends Bundle {
 
 class RegisterSourceRequests(data_width: Int = 64) extends Bundle {
     val source1 = UInt(5.W)
-    val source1_read_word = Bool()
     val source2 = UInt(5.W)
-    val source2_read_word = Bool()
 }
 
 class IssueTask extends Bundle {
-    val operate_unit = UInt(2.W)
-    val alu_opcode = UInt(5.W)
+    val operate_unit = UInt(3.W)
+    val alu_opcode = new ALUOpcode()
     val lsu_opcode = UInt(6.W)
     val misc_opcode = UInt(5.W)
-    val branch_opcode = UInt(5.W)
+    val branch_opcode = new BranchOpcode
+    val mu_opcode = new MUOpcode
     val pred_taken = Bool()
     val pred_pc = UInt(64.W)
-    val recovery_pc = UInt(64.W)
+    val recover_pc = UInt(64.W)
     val params = new DecoderOutParams(64)
     val reg_source_requests = new RegisterSourceRequests(64)
 }
@@ -48,7 +49,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val pc = Wire(UInt(64.W))
     val valid_instr = Wire(Bool())
     // 0 for alu 1 for lsu 2 for branch
-    val operate_unit = Wire(UInt(2.W))
+    val operate_unit = Wire(UInt(3.W))
     val params = Wire(new DecoderOutParams(data_width))
 
     val reg_source_requests = WireDefault(
@@ -69,6 +70,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val OP_SYSTEM   = "b1110011".U
     val OP_MISC_MEM = "b0001111".U
 
+    // A Extension
     val OP_AMO      = "b0101111".U
 
     val opcode  = instr(6, 0)
@@ -88,8 +90,8 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
     io.invalid_drop := false.B
 
     io.issue_task.valid := false.B
-    io.issue_task.bits := 0.U.asTypeOf(new IssueTask)
-    issue_task := 0.U.asTypeOf(new IssueTask)
+    io.issue_task.bits := new IssueTask().zero
+    issue_task := new IssueTask().zero
 
     params.immediate := 0.U(data_width.W)
     params.source1 := 0.U(data_width.W)
@@ -101,7 +103,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
         switch(opcode) {
             is(OP_LUI) {
                 // lui
-                issue_task.alu_opcode := 1.U
+                issue_task.alu_opcode.funct3 := "b000".U
                 params.source1 := (instr(31, 12) << 12).asSInt
                     .pad(64)
                     .asUInt
@@ -113,7 +115,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is(OP_AUIPC) {
                 // auipc
-                issue_task.alu_opcode := 1.U
+                issue_task.alu_opcode.funct3 := "b000".U
                 params.source1 := (instr(31, 12) << 12).asSInt
                     .pad(64)
                     .asUInt
@@ -125,33 +127,25 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is(OP_IMM) {
                 // addi slti sltiu xori ori andi slli srli srai
+                issue_task.alu_opcode.funct3 := funct3
                 when(funct3 === "b001".U) {
                     // slli
-                    issue_task.alu_opcode := "b00011".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.elsewhen(funct3 === "b101".U && instr(30)) {
                     // srai
-                    issue_task.alu_opcode := "b01011".U
+                    issue_task.alu_opcode.sra_sub := true.B
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.elsewhen(funct3 === "b101".U) {
                     // srli
-                    issue_task.alu_opcode := "b01010".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.otherwise {
-                    issue_task.alu_opcode := Cat(
-                      0.U(1.W),
-                      funct3,
-                      1.U(1.W)
-                    )
-                    params.source2 := (instr(31, 20).asSInt
-                        .pad(64))
-                        .asUInt
+                    params.source2 := (instr(31, 20).asSInt.pad(64)).asUInt
                 }
                 reg_source_requests.source1 := rs1
                 params.rd := rd
@@ -161,30 +155,25 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is(OP_IMM32) {
                 // addiw slliw srliw sraiw
+                issue_task.alu_opcode.op32 := true.B
+                issue_task.alu_opcode.funct3 := funct3
                 when(funct3 === "b001".U) {
                     // slliw
-                    issue_task.alu_opcode := "b10011".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.elsewhen(funct3 === "b101".U && instr(30)) {
                     // sraiw
-                    issue_task.alu_opcode := "b11011".U
+                    issue_task.alu_opcode.sra_sub := true.B
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.elsewhen(funct3 === "b101".U) {
                     // srliw
-                    issue_task.alu_opcode := "b11010".U
                     params.source2 := (instr(25, 20).asSInt
                         .pad(64))
                         .asUInt
                 }.otherwise {
-                    issue_task.alu_opcode := Cat(
-                      1.U(1.W),
-                      funct3,
-                      1.U(1.W)
-                    )
                     params.source2 := (instr(31, 20).asSInt
                         .pad(64))
                         .asUInt
@@ -196,61 +185,61 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 operate_unit := 0.U
             }
             is(OP) {
-                // add sub slt sltu xor or and sll srl sra
-                when(funct3 === "b001".U) {
-                    // sll
-                    issue_task.alu_opcode := "b00011".U
-                }.elsewhen(funct3 === "b101".U && instr(30)) {
-                    // sra
-                    issue_task.alu_opcode := "b01011".U
-                }.elsewhen(funct3 === "b101".U) {
-                    // srl
-                    issue_task.alu_opcode := "b01010".U
-                }.elsewhen(funct3 === "b000".U && instr(30)) {
-                    // sub
-                    issue_task.alu_opcode := "b00000".U
+                when(funct7 === "b0000001".U) {
+                    // M Extension
+                    reg_source_requests.source1 := rs1
+                    reg_source_requests.source2 := rs2
+                    issue_task.mu_opcode.funct3 := funct3
+                    params.rd := rd
+                    valid_instr := true.B
+                    operate_unit := 3.U
                 }.otherwise {
-                    issue_task.alu_opcode := Cat(
-                      0.U(1.W),
-                      funct3,
-                      1.U(1.W)
-                    )
-                }
-                reg_source_requests.source1 := rs1
-                reg_source_requests.source2 := rs2
-                params.rd := rd
+                    // I Extension
+                    // add sub slt sltu xor or and sll srl sra
+                    issue_task.alu_opcode.funct3 := funct3
+                    when(funct3 === "b101".U && instr(30)) {
+                        // sra
+                        issue_task.alu_opcode.sra_sub := true.B
+                    }.elsewhen(funct3 === "b000".U && instr(30)) {
+                        // sub
+                        issue_task.alu_opcode.sra_sub := true.B
+                    }
+                    reg_source_requests.source1 := rs1
+                    reg_source_requests.source2 := rs2
+                    params.rd := rd
 
-                valid_instr := true.B
-                operate_unit := 0.U
+                    valid_instr := true.B
+                    operate_unit := 0.U
+                }
             }
             is(OP_32) {
-                // addw subw sllw srlw sraw
-                when(funct3 === "b001".U) {
-                    // sllw
-                    issue_task.alu_opcode := "b10011".U
-                }.elsewhen(funct3 === "b101".U && instr(30)) {
-                    // sraw
-                    issue_task.alu_opcode := "b11011".U
-                }.elsewhen(funct3 === "b101".U) {
-                    // srlw
-                    issue_task.alu_opcode := "b11010".U
-                }.elsewhen(funct3 === "b000".U && instr(30)) {
-                    // subw
-                    issue_task.alu_opcode := "b10000".U
+                when(funct7 === "b0000001".U) {
+                    // M Extension
+                    reg_source_requests.source1 := rs1
+                    reg_source_requests.source2 := rs2
+                    issue_task.mu_opcode.op32 := true.B
+                    issue_task.mu_opcode.funct3 := funct3
+                    params.rd := rd
+                    valid_instr := true.B
+                    operate_unit := 3.U
                 }.otherwise {
-                    issue_task.alu_opcode := Cat(
-                      1.U(1.W),
-                      funct3,
-                      1.U(1.W)
-                    )
-                }
-                reg_source_requests.source1 := rs1
-                reg_source_requests.source1_read_word := true.B
-                reg_source_requests.source2 := rs2
-                params.rd := rd
+                    // addw subw sllw srlw sraw
+                    issue_task.alu_opcode.op32 := true.B
+                    issue_task.alu_opcode.funct3 := funct3
+                    when(funct3 === "b101".U && instr(30)) {
+                        // sra
+                        issue_task.alu_opcode.sra_sub := true.B
+                    }.elsewhen(funct3 === "b000".U && instr(30)) {
+                        // sub
+                        issue_task.alu_opcode.sra_sub := true.B
+                    }
+                    reg_source_requests.source1 := rs1
+                    reg_source_requests.source2 := rs2
+                    params.rd := rd
 
-                valid_instr := true.B
-                operate_unit := 0.U
+                    valid_instr := true.B
+                    operate_unit := 0.U
+                }
             }
             is(OP_LOAD) {
                 // Load Memory
@@ -280,42 +269,45 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is(OP_JAL) {
                 // jal
-                issue_task.branch_opcode := "b00001".U
+                val branch_op = WireInit(new BranchOpcodeJal().zero)
+                issue_task.branch_opcode.fromjal(branch_op)
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
-                issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
+                issue_task.recover_pc := io.instr_bundle.bits.recover_pc
                 params.rd := rd
 
                 valid_instr := true.B
-                operate_unit := 3.U
+                operate_unit := 4.U
             }
             is(OP_JALR) {
                 // jalr
-                issue_task.branch_opcode := "b00011".U
+                val branch_op = WireInit(new BranchOpcodeJal().zero)
+                branch_op.jalr := true.B
+                issue_task.branch_opcode.fromjal(branch_op)
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
                 issue_task.pred_pc := io.instr_bundle.bits.pred_pc
-                issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
+                issue_task.recover_pc := io.instr_bundle.bits.recover_pc
                 params.rd := rd
 
                 reg_source_requests.source1 := rs1
-                params.immediate := instr(31, 20).asSInt
-                    .pad(64)
-                    .asUInt
+                params.source2 := instr(31, 20).asSInt.pad(64).asUInt
 
                 valid_instr := true.B
-                operate_unit := 3.U
+                operate_unit := 4.U
             }
             is(OP_BRANCH) {
                 // branch
-                issue_task.branch_opcode := Cat(0.U, funct3, 0.U)
+                val branch_op = WireInit(new BranchOpcodeBranch().zero)
+                branch_op.funct3 := funct3
+                issue_task.branch_opcode.frombranch(branch_op)
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
                 issue_task.pred_pc := io.instr_bundle.bits.pred_pc
-                issue_task.recovery_pc := io.instr_bundle.bits.recovery_pc
+                issue_task.recover_pc := io.instr_bundle.bits.recover_pc
 
                 reg_source_requests.source1 := rs1
                 reg_source_requests.source2 := rs2
 
                 valid_instr := true.B
-                operate_unit := 3.U
+                operate_unit := 4.U
             }
             is(OP_SYSTEM) {
                 // TODO sfence.vma
@@ -396,7 +388,6 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                     operate_unit := 2.U
                 }
             }
-
             is(OP_AMO) {
                 // aq rl intenionally ignored due to strict TSO model.
                 reg_source_requests.source1 := rs1
@@ -420,7 +411,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 }
 
                 valid_instr := true.B
-                operate_unit := 1.U   
+                operate_unit := 1.U
             }
         }
     }

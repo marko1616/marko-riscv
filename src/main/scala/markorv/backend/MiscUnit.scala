@@ -23,11 +23,7 @@ class MiscUnit extends Module {
             val misc_opcode = UInt(5.W)
             val params = new DecoderOutParams(64)
         }))
-
-        val write_back = Decoupled(new Bundle {
-            val reg = Input(UInt(5.W))
-            val data = Input(UInt(64.W))
-        })
+        val register_commit = Decoupled(new RegisterCommit)
 
         val csrio = Flipped(new ControlStatusRegistersIO)
         val outfire = Output(Bool())
@@ -36,7 +32,7 @@ class MiscUnit extends Module {
         val set_privilege = Flipped(Decoupled(UInt(2.W)))
 
         val exception = Decoupled(new ExceptionInfo)
-        val trap_ret = Output(Bool()) 
+        val trap_ret = Output(Bool())
     })
     // M mode when reset.
     val privilege_reg = RegInit(3.U(2.W))
@@ -55,9 +51,9 @@ class MiscUnit extends Module {
 
     io.outfire := false.B
     io.misc_instr.ready := true.B
-    io.write_back.valid := false.B
-    io.write_back.bits.reg := 0.U
-    io.write_back.bits.data := 0.U
+    io.register_commit.valid := false.B
+    io.register_commit.bits.reg := 0.U
+    io.register_commit.bits.data := 0.U
 
     io.exception.valid := false.B
     io.exception.bits.cause := 0.U
@@ -95,9 +91,9 @@ class MiscUnit extends Module {
                 }
             }
 
-            io.write_back.valid := true.B
-            io.write_back.bits.reg := params.rd
-            io.write_back.bits.data := csr_data
+            io.register_commit.valid := true.B
+            io.register_commit.bits.reg := params.rd
+            io.register_commit.bits.data := csr_data
             io.outfire := true.B
         }
         when(opcode(2,0) === 3.U) {

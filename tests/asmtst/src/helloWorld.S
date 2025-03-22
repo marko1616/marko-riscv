@@ -1,5 +1,5 @@
     .section .text
-.global _start
+    .global _start
 _start:
     la a0, string
 output_loop:

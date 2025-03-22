@@ -105,7 +105,7 @@
 </details>
 
 <details>
-<summary><strong> Zicsr Extension Instructions</strong>✅</summary>
+<summary><strong> Zicsr Extension Instructions </strong>✅</summary>
 
 - [x] csrrw
 - [x] csrrs
@@ -123,7 +123,7 @@
 </details>
 
 <details>
-<summary><strong> A Extension Instructions</strong>✅</summary>
+<summary><strong> A Extension Instructions </strong>✅</summary>
 
 - [x] lr.w
 - [x] lr.d
@@ -150,13 +150,13 @@
 </details>
 
 <details>
-<summary><strong> M Extension Instructions（Low Piro）</strong></summary>
+<summary><strong> M Extension Instructions </strong></summary>
 
-- [ ] mul
-- [ ] mulh
-- [ ] mulhsu
-- [ ] mulhu
-- [ ] mulw
+- [X] mul
+- [X] mulh
+- [X] mulhsu
+- [X] mulhu
+- [X] mulw
 - [ ] div
 - [ ] divu
 - [ ] rem
