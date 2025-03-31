@@ -54,8 +54,8 @@ class MarkoRvCore extends Module {
     ifq_iocontroller.io.write_req.bits.data := 0.U
     ifq_iocontroller.io.write_req.bits.direct := false.B
 
-    lsu_iocontroller.io.axi_bus <> axi_ctrl.io.ports(1)
-    ifq_iocontroller.io.axi_bus <> axi_ctrl.io.ports(0)
+    lsu_iocontroller.io.io_bus <> axi_ctrl.io.ports(1)
+    ifq_iocontroller.io.io_bus <> axi_ctrl.io.ports(0)
 
     // Exception & flush control.
     // Impossible flush at same cycle.
@@ -97,7 +97,7 @@ class MarkoRvCore extends Module {
     instr_issuer.io.reg_read2 <> register_file.io.read_addrs(1)
     instr_issuer.io.reg_data1 <> register_file.io.read_datas(0)
     instr_issuer.io.reg_data2 <> register_file.io.read_datas(1)
-    instr_issuer.io.occupied_regs <> register_file.io.peek_occupied
+    instr_issuer.io.occupied_regs <> register_file.io.get_occupied
     instr_issuer.io.acquire_reg <> register_file.io.acquire_reg
     instr_issuer.io.acquired <> register_file.io.acquired
 
@@ -119,7 +119,7 @@ class MarkoRvCore extends Module {
         io.instr_now := 0.U
     }
 
-    register_file.io.read_addrs(3) := 10.U
+    register_file.io.read_addrs(3) := 14.U
     io.peek := register_file.io.read_datas(3)
 
     // Main pipeline.

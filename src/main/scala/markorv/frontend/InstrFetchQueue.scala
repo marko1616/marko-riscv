@@ -24,7 +24,6 @@ class InstrFetchQueue(
         val read_req = Decoupled(new Bundle {
             val addr = UInt(64.W)
             val size = UInt(2.W)
-            // true for signed read
             val sign = Bool()
             val direct = Bool()
         })
@@ -38,14 +37,12 @@ class InstrFetchQueue(
         val flush = Input(Bool())
     })
     val bpu = Module(new BranchPredUnit)
-    val instr_queue = Module(
-      new Queue(
+    val instr_queue = Module(new Queue(
         new FetchQueueEntities,
         queue_size,
         flow = true,
         hasFlush = true
-      )
-    )
+    ))
     // Ensure the atomicity of read req while flush.
     val flush_skip = RegInit(false.B)
     when(io.flush) {

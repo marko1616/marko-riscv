@@ -12,7 +12,7 @@ class InstrIssueUnit extends Module {
         val issue_task = Flipped(Decoupled(new IssueTask))
 
         val lsu_out = Decoupled(new Bundle {
-            val lsu_opcode = UInt(6.W)
+            val lsu_opcode = new LoadStoreOpcode
             val params = new DecoderOutParams(64)
         })
 
@@ -22,7 +22,7 @@ class InstrIssueUnit extends Module {
         })
 
         val misc_out = Decoupled(new Bundle {
-            val misc_opcode = UInt(5.W)
+            val misc_opcode = new MiscOpcode
             val params = new DecoderOutParams(64)
         })
 
@@ -50,9 +50,9 @@ class InstrIssueUnit extends Module {
         val occupied_regs = Input(UInt(32.W))
         val outfire = Output(Bool())
     })
-
-    val params = Wire(new DecoderOutParams(64))
-    params := io.issue_task.bits.params
+    val final_params = Wire(new DecoderOutParams(64))
+    val params = io.issue_task.bits.params
+    final_params := params
 
     val occupied_reg = Wire(Bool())
     val exec_unit_ready = Wire(Bool())
@@ -66,11 +66,11 @@ class InstrIssueUnit extends Module {
     io.mu_out.valid := false.B
     io.branch_out.valid := false.B
 
-    io.lsu_out.bits.lsu_opcode := 0.U
+    io.lsu_out.bits.lsu_opcode := new LoadStoreOpcode().zero
     io.lsu_out.bits.params := new DecoderOutParams(64).zero
     io.alu_out.bits.alu_opcode := new ALUOpcode().zero
     io.alu_out.bits.params := new DecoderOutParams(64).zero
-    io.misc_out.bits.misc_opcode := 0.U
+    io.misc_out.bits.misc_opcode := new MiscOpcode().zero
     io.misc_out.bits.params := new DecoderOutParams(64).zero
     io.mu_out.bits.mu_opcode := new MUOpcode().zero
     io.mu_out.bits.params := new DecoderOutParams(64).zero
@@ -91,10 +91,10 @@ class InstrIssueUnit extends Module {
     reg_data1 := io.reg_data1
     reg_data2 := io.reg_data2
     when(io.issue_task.bits.reg_source_requests.source1 =/= 0.U) {
-        params.source1 := reg_data1
+        final_params.source1 := params.source1 + reg_data1
     }
     when(io.issue_task.bits.reg_source_requests.source2 =/= 0.U) {
-        params.source2 := reg_data2
+        final_params.source2 := params.source2 + reg_data2
     }
     occupied_reg := io.occupied_regs(
       io.issue_task.bits.reg_source_requests.source1
@@ -102,27 +102,27 @@ class InstrIssueUnit extends Module {
 
     when(io.issue_task.valid && exec_unit_ready && ~occupied_reg) {
         // Only try to acquire register when all other are prepared.
-        io.acquire_reg := params.rd
+        io.acquire_reg := final_params.rd
         when(io.issue_task.bits.operate_unit === 0.U && io.acquired) {
             io.outfire := true.B
             io.alu_out.valid := true.B
             io.alu_out.bits.alu_opcode := io.issue_task.bits.alu_opcode
-            io.alu_out.bits.params := params
+            io.alu_out.bits.params := final_params
         }.elsewhen(io.issue_task.bits.operate_unit === 1.U && io.acquired) {
             io.outfire := true.B
             io.lsu_out.valid := true.B
             io.lsu_out.bits.lsu_opcode := io.issue_task.bits.lsu_opcode
-            io.lsu_out.bits.params := params
+            io.lsu_out.bits.params := final_params
         }.elsewhen(io.issue_task.bits.operate_unit === 2.U && io.acquired) {
             io.outfire := true.B
             io.misc_out.valid := true.B
             io.misc_out.bits.misc_opcode := io.issue_task.bits.misc_opcode
-            io.misc_out.bits.params := params
+            io.misc_out.bits.params := final_params
         }.elsewhen(io.issue_task.bits.operate_unit === 3.U && io.acquired) {
             io.outfire := true.B
             io.mu_out.valid := true.B
             io.mu_out.bits.mu_opcode := io.issue_task.bits.mu_opcode
-            io.mu_out.bits.params := params
+            io.mu_out.bits.params := final_params
         }.elsewhen(io.issue_task.bits.operate_unit === 4.U && io.acquired) {
             io.outfire := true.B
             io.branch_out.valid := true.B
@@ -130,7 +130,7 @@ class InstrIssueUnit extends Module {
             io.branch_out.bits.pred_taken := io.issue_task.bits.pred_taken
             io.branch_out.bits.pred_pc := io.issue_task.bits.pred_pc
             io.branch_out.bits.recover_pc := io.issue_task.bits.recover_pc
-            io.branch_out.bits.params := params
+            io.branch_out.bits.params := final_params
         }
     }
 
