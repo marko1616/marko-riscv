@@ -116,7 +116,7 @@
 </details>
 
 <details>
-<summary><strong> S Extension Instructions </strong></summary>
+<summary><strong> S Mode Instructions </strong></summary>
 
 - [ ] sret
 - [ ] sfence.vma
@@ -150,21 +150,21 @@
 </details>
 
 <details>
-<summary><strong> M Extension Instructions </strong></summary>
+<summary><strong> M Extension Instructions </strong>✅</summary>
 
 - [X] mul
 - [X] mulh
 - [X] mulhsu
 - [X] mulhu
 - [X] mulw
-- [ ] div
-- [ ] divu
-- [ ] rem
-- [ ] remu
-- [ ] divw
-- [ ] divuw
-- [ ] remw
-- [ ] remuw
+- [x] div
+- [x] divu
+- [x] rem
+- [x] remu
+- [x] divw
+- [x] divuw
+- [x] remw
+- [x] remuw
 </details>
 
 <details>

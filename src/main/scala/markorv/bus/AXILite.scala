@@ -62,15 +62,11 @@ class AXIPort(data_width: Int, addr_width: Int) extends Module {
 
             io.outer.wvalid := true.B
             io.outer.wdata := io.req.write_req.bits.data
-            io.outer.wstrb := MuxCase(
-              "b11111111".U,
-              Seq(
-                (size === 0.U) -> "b00000001".U,
-                (size === 1.U) -> "b00000011".U,
-                (size === 2.U) -> "b00001111".U
-                // size === 3.U is the default case
-              )
-            )
+            io.outer.wstrb := MuxLookup(size,"b11111111".U)(Seq(
+                0.U -> "b00000001".U,
+                1.U -> "b00000011".U,
+                2.U -> "b00001111".U
+            ))
             when(io.outer.wready) {
                 state := State.stat_wait_wresp
             }

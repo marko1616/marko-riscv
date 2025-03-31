@@ -6,7 +6,7 @@ import chisel3.util._
 import markorv.utils.ChiselUtils._
 import markorv.frontend.DecoderOutParams
 
-object MUFunct3Norm extends ChiselEnum {
+object MultiplyUnitFunct3Op64 extends ChiselEnum {
     val mul    = Value("b000".U)
     val mulh   = Value("b001".U)
     val mulhsu = Value("b010".U)
@@ -17,12 +17,12 @@ object MUFunct3Norm extends ChiselEnum {
     val remu   = Value("b111".U)
 }
 
-object MUFunct3Op32 extends ChiselEnum {
+object MultiplyUnitFunct3Op32 extends ChiselEnum {
     val mulw   = Value("b000".U)
-	val divw   = Value("b100".U)
-	val divuw  = Value("b101".U)
-	val remw   = Value("b110".U)
-	val remuw  = Value("b111".U)
+    val divw   = Value("b100".U)
+    val divuw  = Value("b101".U)
+    val remw   = Value("b110".U)
+    val remuw  = Value("b111".U)
 }
 
 class MultiplyParams extends Bundle {
@@ -41,6 +41,31 @@ class MultiplyCacheParams extends Bundle {
 class MultiplyCache extends Bundle {
     val params = new MultiplyCacheParams
     val result = UInt(128.W)
+}
+
+class DivideParams extends Bundle {
+    val src1 = UInt(64.W)
+    val src2 = UInt(64.W)
+    val sign = Bool()
+}
+
+class DivideCacheParams extends Bundle {
+    val src1 = UInt(64.W)
+    val src2 = UInt(64.W)
+    val sign = Bool()
+    val op32 = Bool()
+}
+
+class DivideResult extends Bundle {
+    val quotient = UInt(64.W)
+    val remainder = UInt(64.W)
+}
+
+class DivideCache extends Bundle {
+    // Zero init is not valid due to 0/0 != 0
+    val valid = Bool()
+    val params = new DivideCacheParams
+    val result = new DivideResult
 }
 
 class MUOpcode extends Bundle {
@@ -125,6 +150,79 @@ class Booth4 extends Module {
         io.result.valid := true.B
         io.result.bits := (accumulator + (partial_product << 64.U)).asUInt
         accumulator := 0.S
+        state := 0.U
+    }
+}
+
+class NonRestoringDivider extends Module {
+    val io = IO(new Bundle {
+        val src = Flipped(Decoupled(new DivideParams))
+        val result = Decoupled(new DivideResult)
+        val idle = Output(Bool())
+    })
+    object DividerState extends ChiselEnum {
+        val stat_idle    = Value
+        val stat_compute = Value
+        val stat_finish  = Value
+    }
+    val sign = io.src.bits.sign
+    val raw_dividend = io.src.bits.src1
+    val raw_divisor = io.src.bits.src2
+    val raw_dividend_sign = Mux(sign, raw_dividend.asSInt < 0.S, false.B)
+    val raw_divisor_sign = Mux(sign, raw_divisor.asSInt < 0.S, false.B)
+    val dividend = Mux(raw_dividend_sign, (-(raw_dividend.asSInt)).asUInt, raw_dividend)
+    val divisor = Mux(raw_divisor_sign, (-(raw_divisor.asSInt)).asUInt, raw_divisor)
+    val quotient = RegInit(0.U(64.W))
+    val remainder = RegInit(0.S(65.W))
+    val divisor_shift = RegInit(0.U(6.W))
+
+    val state = RegInit(DividerState.stat_idle)
+    val idle = state === DividerState.stat_idle
+    io.idle := idle
+    io.src.ready := idle
+    io.result.valid := state === DividerState.stat_finish
+    io.result.bits := new DivideResult().zero
+
+    when(state === DividerState.stat_idle) {
+        val division_by_zero = divisor === 0.U
+        val divisor_larger_than_dividend = divisor > dividend
+        when(io.src.valid) {
+            when(division_by_zero) {
+                io.result.valid := true.B
+                io.result.bits.quotient := "hffffffffffffffff".U
+                io.result.bits.remainder := raw_dividend
+            }.elsewhen(divisor_larger_than_dividend) {
+                io.result.valid := true.B
+                io.result.bits.quotient := 0.U
+                io.result.bits.remainder := raw_dividend
+            }.otherwise {
+                quotient := 0.U
+                remainder := dividend.zexts(65)
+                val dividend_leading_zero = PriorityEncoder(Reverse(dividend))
+                val divisor_leading_zero = PriorityEncoder(Reverse(divisor))
+                divisor_shift := divisor_leading_zero - dividend_leading_zero
+                state := DividerState.stat_compute
+            }
+        }
+    }.elsewhen(state === DividerState.stat_compute) {
+        val shifted_divisor = divisor << divisor_shift
+        val shifted_quotient = 1.U << divisor_shift
+        val is_remainder_neg = remainder < 0.S
+        remainder := Mux(is_remainder_neg, remainder+shifted_divisor.zexts(65), remainder-shifted_divisor.zexts(65))
+        quotient := Mux(is_remainder_neg, quotient-shifted_quotient, quotient+shifted_quotient)
+        when(divisor_shift === 0.U) {
+            state := DividerState.stat_finish
+        }.otherwise {
+            divisor_shift := divisor_shift - 1.U
+        }
+    }.elsewhen(state === DividerState.stat_finish) {
+        val neg_remainder = remainder < 0.S
+        val adjusted_remainder = Mux(neg_remainder, remainder+divisor.zexts(65), remainder).asUInt
+        val adjusted_quotient = Mux(neg_remainder, quotient-1.U, quotient)
+        io.result.valid := true.B
+        io.result.bits.quotient := Mux(raw_dividend_sign =/= raw_divisor_sign, adjusted_quotient.neg ,adjusted_quotient)
+        io.result.bits.remainder := Mux(sign && raw_dividend_sign, adjusted_remainder.neg, adjusted_remainder)
+        state := DividerState.stat_idle
     }
 }
 
@@ -138,80 +236,140 @@ class MultiplyUnit extends Module {
         val outfire = Output(Bool())
     })
     val booth4 = Module(new Booth4)
+    val divider = Module(new NonRestoringDivider)
     val mul_cache = RegInit((new MultiplyCache).zero)
-    val mul_type = RegInit(0.U(3.W))
-    val op32 = RegInit(false.B)
-    val sign = Wire(UInt(2.W))
-    sign := MuxLookup(io.mu_instr.bits.mu_opcode.funct3, "b00".U)(Seq(
-        MUFunct3Norm.mul.litValue.U    -> "b11".U,
-        MUFunct3Norm.mulh.litValue.U   -> "b11".U,
-        MUFunct3Norm.mulhsu.litValue.U -> "b01".U,
-        MUFunct3Norm.mulhu.litValue.U  -> "b00".U
-    ))
-    when(io.mu_instr.bits.mu_opcode.op32 &&
-            io.mu_instr.bits.mu_opcode.funct3 === MUFunct3Op32.mulw.litValue.U) {
-        sign := "b11".U
-    }
-    val can_use_cache = mul_cache.params.src1 === io.mu_instr.bits.params.source1 &&
-                        mul_cache.params.src2 === io.mu_instr.bits.params.source2 &&
-                        mul_cache.params.sign === sign &&
-                        mul_cache.params.op32 === op32
+    val div_cache = RegInit((new DivideCache).zero)
+    val is_div = io.mu_instr.bits.mu_opcode.funct3(2)
+    val op32 = io.mu_instr.bits.mu_opcode.op32
+    val funct3 = io.mu_instr.bits.mu_opcode.funct3
+    val (op64_funct3, op64_funct3_valid) = MultiplyUnitFunct3Op64.safe(funct3)
+    val (op32_funct3, op32_funct3_valid) = MultiplyUnitFunct3Op32.safe(funct3)
+    val funct3_valid = Mux(op32, op32_funct3_valid, op64_funct3_valid)
 
     io.outfire := false.B
-    io.mu_instr.ready := io.register_commit.ready && booth4.io.idle
+    io.mu_instr.ready := io.register_commit.ready && booth4.io.idle && divider.io.idle
     io.register_commit.valid := false.B
     io.register_commit.bits := new RegisterCommit().zero
 
     booth4.io.src.valid := false.B
-    booth4.io.src.bits.sign := 0.U
-    booth4.io.src.bits.src1 := 0.U
-    booth4.io.src.bits.src2 := 0.U
+    booth4.io.src.bits := new MultiplyParams().zero
     booth4.io.result.ready := true.B
 
-    when(io.mu_instr.valid && booth4.io.src.ready) {
-        mul_type := io.mu_instr.bits.mu_opcode.funct3
-        op32 := io.mu_instr.bits.mu_opcode.op32
-        when(!can_use_cache) {
-            booth4.io.src.valid := true.B
-            booth4.io.src.bits.sign := sign
-            val src1 = Wire(UInt(64.W))
-            val src2 = Wire(UInt(64.W))
+    divider.io.src.valid := false.B
+    divider.io.src.bits := new DivideParams().zero
+    divider.io.result.ready := true.B
 
-            when(io.mu_instr.bits.mu_opcode.op32) {
-                src1 := io.mu_instr.bits.params.source1(31, 0).sextu(64)
-                src2 := io.mu_instr.bits.params.source2(31, 0).sextu(64)
-            }.otherwise {
-                src1 := io.mu_instr.bits.params.source1
-                src2 := io.mu_instr.bits.params.source2
+    when(is_div && funct3_valid) {
+        val sign = Mux(op32,
+        MuxLookup(op32_funct3, false.B)(Seq(
+            MultiplyUnitFunct3Op32.divw     -> true.B,
+            MultiplyUnitFunct3Op32.remw     -> true.B,
+        )),
+        MuxLookup(op64_funct3, false.B)(Seq(
+            MultiplyUnitFunct3Op64.div      -> true.B,
+            MultiplyUnitFunct3Op64.rem      -> true.B,
+        )))
+        val div_cache_available = div_cache.params.src1 === io.mu_instr.bits.params.source1 &&
+                            div_cache.params.src2 === io.mu_instr.bits.params.source2 &&
+                            div_cache.params.sign === sign &&
+                            div_cache.params.op32 === op32 &&
+                            div_cache.valid
+
+        when(io.mu_instr.valid) {
+            when(!div_cache_available) {
+                val src1 = Wire(UInt(64.W))
+                val src2 = Wire(UInt(64.W))
+
+                when(io.mu_instr.bits.mu_opcode.op32) {
+                    src1 := Mux(sign,io.mu_instr.bits.params.source1(31, 0).sextu(64),io.mu_instr.bits.params.source1(31, 0).zextu(64))
+                    src2 := Mux(sign,io.mu_instr.bits.params.source2(31, 0).sextu(64),io.mu_instr.bits.params.source2(31, 0).zextu(64))
+                }.otherwise {
+                    src1 := io.mu_instr.bits.params.source1
+                    src2 := io.mu_instr.bits.params.source2
+                }
+
+                divider.io.src.valid := true.B
+                divider.io.src.bits.src1 := src1
+                divider.io.src.bits.src2 := src2
+                divider.io.src.bits.sign := sign
             }
-
-            booth4.io.src.bits.src1 := src1
-            booth4.io.src.bits.src2 := src2
         }
-    }
-    when(booth4.io.result.valid || (io.mu_instr.valid && can_use_cache)) {
-        io.outfire := true.B
-        io.register_commit.valid := true.B
-        io.register_commit.bits.reg := io.mu_instr.bits.params.rd
-        val result = Mux(booth4.io.result.valid, booth4.io.result.bits, mul_cache.result)
-        val final_result = Wire(UInt(64.W))
 
-        final_result := MuxLookup(mul_type, result(63, 0))(Seq(
-            MUFunct3Norm.mul.litValue.U    -> result(63, 0),
-            MUFunct3Norm.mulh.litValue.U   -> result(127, 64),
-            MUFunct3Norm.mulhsu.litValue.U -> result(127, 64),
-            MUFunct3Norm.mulhu.litValue.U  -> result(127, 64)
-        ))
-        when(op32 && mul_type === MUFunct3Op32.mulw.litValue.U) {
-            final_result := result(31, 0).sextu(64)
+        when(divider.io.result.valid || (io.mu_instr.valid && div_cache_available)) {
+            io.outfire := true.B
+            io.register_commit.valid := true.B
+            io.register_commit.bits.reg := io.mu_instr.bits.params.rd
+            val result = Mux(divider.io.result.valid, divider.io.result.bits, div_cache.result)
+            val final_result = Mux(op32,
+            MuxLookup(op32_funct3, result.remainder(31,0).sextu(64))(Seq(
+                MultiplyUnitFunct3Op32.divw  -> result.quotient(31,0).sextu(64),
+                MultiplyUnitFunct3Op32.divuw -> result.quotient(31,0).sextu(64)
+            )),
+            MuxLookup(op64_funct3, result.remainder)(Seq(
+                MultiplyUnitFunct3Op64.div  -> result.quotient,
+                MultiplyUnitFunct3Op64.divu -> result.quotient
+            )))
+            io.register_commit.bits.data := final_result
+            when(divider.io.result.valid) {
+                div_cache.params.src1 := io.mu_instr.bits.params.source1
+                div_cache.params.src2 := io.mu_instr.bits.params.source2
+                div_cache.params.sign := sign
+                div_cache.params.op32 := op32
+                div_cache.result := divider.io.result.bits
+                div_cache.valid := true.B
+            }
         }
-        io.register_commit.bits.data := final_result
-        when(booth4.io.result.valid) {
-            mul_cache.params.src1 := io.mu_instr.bits.params.source1
-            mul_cache.params.src2 := io.mu_instr.bits.params.source2
-            mul_cache.params.sign := sign
-            mul_cache.params.op32 := op32
-            mul_cache.result := booth4.io.result.bits
+    }.elsewhen(funct3_valid) {
+        val sign = Mux(op32,
+        MuxLookup(op32_funct3, "b00".U)(Seq(
+            MultiplyUnitFunct3Op32.mulw     -> "b11".U
+        )),
+        MuxLookup(op64_funct3, "b00".U)(Seq(
+            MultiplyUnitFunct3Op64.mul      -> "b11".U,
+            MultiplyUnitFunct3Op64.mulh     -> "b11".U,
+            MultiplyUnitFunct3Op64.mulhsu   -> "b01".U,
+            MultiplyUnitFunct3Op64.mulhu    -> "b00".U
+        )))
+        val mul_cache_available = mul_cache.params.src1 === io.mu_instr.bits.params.source1 &&
+                            mul_cache.params.src2 === io.mu_instr.bits.params.source2 &&
+                            mul_cache.params.sign === sign &&
+                            mul_cache.params.op32 === op32
+
+        when(io.mu_instr.valid) {
+            when(!mul_cache_available) {
+                booth4.io.src.valid := true.B
+                booth4.io.src.bits.sign := sign
+                val src1 = Wire(UInt(64.W))
+                val src2 = Wire(UInt(64.W))
+
+                when(io.mu_instr.bits.mu_opcode.op32) {
+                    src1 := io.mu_instr.bits.params.source1(31, 0).sextu(64)
+                    src2 := io.mu_instr.bits.params.source2(31, 0).sextu(64)
+                }.otherwise {
+                    src1 := io.mu_instr.bits.params.source1
+                    src2 := io.mu_instr.bits.params.source2
+                }
+
+                booth4.io.src.bits.src1 := src1
+                booth4.io.src.bits.src2 := src2
+            }
+        }
+        when(booth4.io.result.valid || (io.mu_instr.valid && mul_cache_available)) {
+            io.outfire := true.B
+            io.register_commit.valid := true.B
+            io.register_commit.bits.reg := io.mu_instr.bits.params.rd
+            val result = Mux(booth4.io.result.valid, booth4.io.result.bits, mul_cache.result)
+            val final_result = Mux(op32,
+            result(31, 0).sextu(64),
+            Mux(op64_funct3 === MultiplyUnitFunct3Op64.mul, result(63, 0), result(127, 64)))
+            io.register_commit.bits.data := final_result
+            when(booth4.io.result.valid) {
+                mul_cache.params.src1 := io.mu_instr.bits.params.source1
+                mul_cache.params.src2 := io.mu_instr.bits.params.source2
+                mul_cache.params.sign := sign
+                mul_cache.params.op32 := op32
+                mul_cache.result := booth4.io.result.bits
+            }
         }
     }
 }

@@ -14,7 +14,7 @@ class RegFile(data_width: Int = 64) extends Module {
         val acquire_reg = Input(UInt(5.W))
         val acquired = Output(Bool())
 
-        val peek_occupied = Output(UInt(32.W))
+        val get_occupied = Output(UInt(32.W))
         val flush = Input(Bool())
     })
     // While read and write a same register simultaneously will output write data.
@@ -39,7 +39,7 @@ class RegFile(data_width: Int = 64) extends Module {
           Mux(io.read_addrs(i) === 0.U, 0.U, regs(io.read_addrs(i)))
         )
     }
-    io.peek_occupied := reg_acquire_flags_next
+    io.get_occupied := reg_acquire_flags_next
 
     // Acquire regiser lastly to avoid allow release and acquire simultaneously.
     when(io.acquire_reg =/= 0.U && ~reg_acquire_flags(io.acquire_reg)) {

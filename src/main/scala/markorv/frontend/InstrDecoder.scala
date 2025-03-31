@@ -8,7 +8,6 @@ import markorv.frontend._
 import markorv.backend._
 
 class DecoderOutParams(data_width: Int = 64) extends Bundle {
-    val immediate = UInt(data_width.W)
     val source1 = UInt(data_width.W)
     val source2 = UInt(data_width.W)
     val rd = UInt(5.W)
@@ -23,8 +22,8 @@ class RegisterSourceRequests(data_width: Int = 64) extends Bundle {
 class IssueTask extends Bundle {
     val operate_unit = UInt(3.W)
     val alu_opcode = new ALUOpcode()
-    val lsu_opcode = UInt(6.W)
-    val misc_opcode = UInt(5.W)
+    val lsu_opcode = new LoadStoreOpcode
+    val misc_opcode = new MiscOpcode
     val branch_opcode = new BranchOpcode
     val mu_opcode = new MUOpcode
     val pred_taken = Bool()
@@ -43,8 +42,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
         val outfire = Output(Bool())
     })
 
-    val issue_task = Wire(new IssueTask)
-
+    val issue_task = WireInit(new IssueTask().zero)
     val instr = Wire(UInt(32.W))
     val pc = Wire(UInt(64.W))
     val valid_instr = Wire(Bool())
@@ -91,9 +89,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
 
     io.issue_task.valid := false.B
     io.issue_task.bits := new IssueTask().zero
-    issue_task := new IssueTask().zero
 
-    params.immediate := 0.U(data_width.W)
     params.source1 := 0.U(data_width.W)
     params.source2 := 0.U(data_width.W)
     params.rd := 0.U
@@ -243,8 +239,10 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is(OP_LOAD) {
                 // Load Memory
-                issue_task.lsu_opcode := Cat("b000".U, funct3)
-                params.immediate := instr(31, 20).asSInt
+                val norm_opcode = WireInit(new LoadStoreOpcodeNorm().zero)
+                norm_opcode.from_load(funct3)
+                issue_task.lsu_opcode.fromnorm(norm_opcode)
+                params.source1 := instr(31, 20).asSInt
                     .pad(64)
                     .asUInt
                 reg_source_requests.source1 := rs1
@@ -256,8 +254,10 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
             is(OP_STOR) {
                 // Store Memory
-                issue_task.lsu_opcode := Cat("b010".U, funct3)
-                params.immediate := Cat(
+                val norm_opcode = WireInit(new LoadStoreOpcodeNorm().zero)
+                norm_opcode.from_store(funct3)
+                issue_task.lsu_opcode.fromnorm(norm_opcode)
+                params.source1 := Cat(
                   instr(31, 25),
                   instr(11, 7)
                 ).asSInt.pad(64).asUInt
@@ -270,7 +270,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
             is(OP_JAL) {
                 // jal
                 val branch_op = WireInit(new BranchOpcodeJal().zero)
-                issue_task.branch_opcode.fromjal(branch_op)
+                issue_task.branch_opcode.from_jal(branch_op)
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
                 issue_task.recover_pc := io.instr_bundle.bits.recover_pc
                 params.rd := rd
@@ -282,7 +282,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 // jalr
                 val branch_op = WireInit(new BranchOpcodeJal().zero)
                 branch_op.jalr := true.B
-                issue_task.branch_opcode.fromjal(branch_op)
+                issue_task.branch_opcode.from_jal(branch_op)
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
                 issue_task.pred_pc := io.instr_bundle.bits.pred_pc
                 issue_task.recover_pc := io.instr_bundle.bits.recover_pc
@@ -298,7 +298,7 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 // branch
                 val branch_op = WireInit(new BranchOpcodeBranch().zero)
                 branch_op.funct3 := funct3
-                issue_task.branch_opcode.frombranch(branch_op)
+                issue_task.branch_opcode.from_branch(branch_op)
                 issue_task.pred_taken := io.instr_bundle.bits.pred_taken
                 issue_task.pred_pc := io.instr_bundle.bits.pred_pc
                 issue_task.recover_pc := io.instr_bundle.bits.recover_pc
@@ -310,106 +310,34 @@ class InstrDecoder(data_width: Int = 64, addr_width: Int = 64) extends Module {
                 operate_unit := 4.U
             }
             is(OP_SYSTEM) {
-                // TODO sfence.vma
+                val imm12 = instr(31, 20)
+                issue_task.misc_opcode.from_sys(imm12, funct3, rs1, rd)
                 when(funct3 =/= 0.U) {
                     val is_imm = funct3(2)
-
-                    // CSR addr.
-                    params.source2 := instr(31, 20)
-
-                    /*
-                        Register operand
-                        Instruction   rd=x0  rs1=x0  Reads CSR  Writes CSR
-                        CSRRW         Yes    -       No         Yes
-                        CSRRW         No     -       Yes        Yes
-                        CSRRS/CSRRC   -      Yes     Yes        No
-                        CSRRS/CSRRC   -      No      Yes        Yes
-
-                        Immediate operand
-                        Instruction   rd=x0  uimm=0  Reads CSR  Writes CSR
-                        CSRRWI        Yes    -       No         Yes
-                        CSRRWI        No     -       Yes        Yes
-                        CSRRSI/CSRRCI -      Yes     Yes        No
-                        CSRRSI/CSRRCI -      No      Yes        Yes
-                    */
-                    when(funct3(1,0) === "b01".U) {
-                        // CSRRW, CSRRWI
-                        when(rd === 0.U) {
-                            issue_task.misc_opcode := "b10000".U
-                        }.otherwise {
-                            issue_task.misc_opcode := "b11000".U
-                        }
-                    }.otherwise {
-                        // CSRRS, CSRRC, CSRRSI, CSRRCI
-                        when(rs1 === 0.U) {
-                            issue_task.misc_opcode := "b01000".U
-                        }.otherwise {
-                            issue_task.misc_opcode := "b11000".U
-                        }
-                    }
-
+                    params.source2 := imm12
                     when(is_imm) {
                         params.source1 := rs1.pad(64)
                     }.otherwise {
                         reg_source_requests.source1 := rs1
                     }
-                    params.immediate := funct3 & "b011".U
                     params.rd := rd
-
-                    valid_instr := true.B
-                    operate_unit := 2.U
-                }.elsewhen(instr === "h10500073".U) {
-                    // wfi
-                    issue_task.misc_opcode := "b00011".U
-                    valid_instr := true.B
-                    operate_unit := 2.U
-                }.elsewhen(instr === "h00000073".U) {
-                    // ecall
-                    issue_task.misc_opcode := "b01011".U
-                    valid_instr := true.B
-                    operate_unit := 2.U
-                }.elsewhen(instr === "h00100073".U) {
-                    // ebreak
-                    issue_task.misc_opcode := "b10011".U
-                    valid_instr := true.B
-                    operate_unit := 2.U
-                }.elsewhen(instr === "h30200073".U) {
-                    // mret
-                    issue_task.misc_opcode := "b11011".U
-                    valid_instr := true.B
-                    operate_unit := 2.U
                 }
+                valid_instr := true.B
+                operate_unit := 2.U
             }
             is(OP_MISC_MEM) {
-                when((instr & "hf00fffff".U) === "h0000000f".U) {
-                    // fence intenionally ignored due to strict TSO model.
-                    issue_task.misc_opcode := "b0100".U
-                    valid_instr := true.B
-                    operate_unit := 2.U
-                }
+                val imm12 = instr(31, 20)
+                issue_task.misc_opcode.from_miscmem(imm12, funct3, rs1, rd)
+                valid_instr := true.B
+                operate_unit := 2.U
             }
             is(OP_AMO) {
-                // aq rl intenionally ignored due to strict TSO model.
+                val amo_opcode = WireInit(new LoadStoreOpcodeAmo().zero)
+                amo_opcode.from_instr(funct3, funct7)
+                issue_task.lsu_opcode.from_amo(amo_opcode)
                 reg_source_requests.source1 := rs1
                 reg_source_requests.source2 := rs2
                 params.rd := rd
-
-                when(instr(31)) {
-                    // amo compare
-                    issue_task.lsu_opcode := Cat("b100".U,instr(30,29),funct3(0))
-                }.otherwise {
-                    when(instr(28,27) === 0.U) {
-                        // amo clac
-                        issue_task.lsu_opcode := Cat("b101".U,instr(30,29),funct3(0))
-                    }.elsewhen(instr(28,27) === 1.U) {
-                        // amo swap
-                        issue_task.lsu_opcode := Cat("b11000".U,funct3(0))
-                    }.otherwise {
-                        // lr sc
-                        issue_task.lsu_opcode := Cat("b111".U,instr(28,27),funct3(0))
-                    }
-                }
-
                 valid_instr := true.B
                 operate_unit := 1.U
             }
