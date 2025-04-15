@@ -6,8 +6,8 @@ import chisel3.util._
 import markorv.utils.ChiselUtils._
 import markorv.backend._
 import markorv.frontend.DecoderOutParams
-import markorv.bus.ReadReq
-import markorv.bus.WriteReq
+import markorv.bus._
+import markorv.config._
 
 object LSUOpcode extends ChiselEnum {
     val load = Value("b000000".U)
@@ -29,25 +29,21 @@ object LSUOpcode extends ChiselEnum {
     def needwb(op: LSUOpcode.Type): Bool = isamo(op) | isload(op)
 }
 
-class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
+class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val lsu_instr = Flipped(Decoupled(new Bundle {
             val lsu_opcode = new LoadStoreOpcode
-            val params = new DecoderOutParams(data_width)
+            val params = new DecoderOutParams(config.data_width)
         }))
 
-        val read_req = Decoupled(new ReadReq)
-        val read_data = Flipped(Decoupled((UInt(data_width.W))))
+        val interface = new IOInterface()(config.ls_io_config,true)
 
-        val write_req = Decoupled(new WriteReq)
-        val write_outfire = Input(Bool())
         val register_commit = Decoupled(new RegisterCommit)
-
-        val local_load_reserved = Decoupled(UInt(64.W))
         val invalidate_reserved = Input(Bool())
-
         val outfire = Output(Bool())
     })
+    private val read_channel = io.interface.read.get
+    private val write_channel = io.interface.write.get
     object State extends ChiselEnum {
         val stat_normal, stat_amo_cache, stat_amo_read, stat_amo_write = Value
     }
@@ -59,13 +55,12 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     val size = io.lsu_instr.bits.lsu_opcode.size(1,0)
     val sign = !io.lsu_instr.bits.lsu_opcode.size(2)
     val params = io.lsu_instr.bits.params
-    val read_req = io.read_req.bits
-    val write_req = io.write_req.bits
 
     val op_fired = Wire(Bool())
-    val load_data = Wire(UInt(data_width.W))
-    val amo_data_reg = Reg(UInt(data_width.W))
+    val load_data = Wire(UInt(config.data_width.W))
+    val amo_data_reg = Reg(UInt(config.data_width.W))
     val AMO_SC_FAILED = "h0000000000000001".U
+    val AMO_SC_SUCCED = "h0000000000000000".U
 
     def invalidate_reserved(write_addr: UInt) = {
         when(write_addr === local_load_reserved_addr) {
@@ -75,21 +70,19 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     }
 
     // default
-    io.lsu_instr.ready := false.B
-    io.write_req.valid := false.B
-    write_req := new WriteReq().zero
-    write_req.direct := false.B
-    io.read_req.valid := false.B
-    io.read_data.ready := false.B
-    read_req := new ReadReq().zero
+    read_channel.params.valid := false.B
+    read_channel.params.bits := new ReadParams()(config.ls_io_config).zero
+    read_channel.resp.ready := false.B
+
+    write_channel.params.valid := false.B
+    write_channel.params.bits := new WriteParams()(config.ls_io_config).zero
+    write_channel.resp.ready := false.B
 
     io.register_commit.valid := false.B
-    io.register_commit.bits.data := 0.U(data_width.W)
+    io.register_commit.bits.data := 0.U(config.data_width.W)
     io.register_commit.bits.reg := 0.U(5.W)
 
-    io.local_load_reserved.valid := local_load_reserved_valid
-    io.local_load_reserved.bits := local_load_reserved_addr
-
+    io.lsu_instr.ready := false.B
     io.outfire := false.B
     op_fired := false.B
     load_data := 0.U
@@ -103,15 +96,21 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
     when(state === State.stat_amo_read) {
         // Read data from memory
         val addr = params.source1.asUInt
-        io.read_req.valid := true.B
-        read_req.size := size
-        read_req.addr := addr
-        read_req.sign := sign
-        read_req.direct := true.B
-        io.read_data.ready := true.B
+        read_channel.params.valid := true.B
+        read_channel.params.bits.size := size
+        read_channel.params.bits.addr := addr
+        read_channel.params.bits.lock.get := true.B
+        read_channel.resp.ready := true.B
 
-        when(io.read_data.valid) {
-            amo_data_reg := io.read_data.bits
+        when(read_channel.resp.valid) {
+            val raw = read_channel.resp.bits.data
+            val extended = MuxLookup(size, raw)(Seq(
+                0.U -> Mux(sign, raw(7,0).asSInt.pad(64).asUInt, raw(7,0).zextu(64)),
+                1.U -> Mux(sign, raw(15,0).asSInt.pad(64).asUInt, raw(15,0).zextu(64)),
+                2.U -> Mux(sign, raw(31,0).asSInt.pad(64).asUInt, raw(31,0).zextu(64)),
+                3.U -> raw // full 64-bit load
+            ))
+            amo_data_reg := extended
             state := State.stat_amo_write
         }
     }
@@ -153,17 +152,17 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             state := State.stat_normal
         }.elsewhen(is_sc) {
             when(local_load_reserved_valid && local_load_reserved_addr === addr) {
-                io.write_req.valid := true.B
-                write_req.size := size
-                write_req.addr := addr
-                write_req.data := data
-                write_req.direct := true.B
-                when(io.write_outfire) {
+                write_channel.params.valid := true.B
+                write_channel.params.bits.size := size
+                write_channel.params.bits.addr := addr
+                write_channel.params.bits.data := data
+                write_channel.params.bits.lock.get := true.B
+                when(write_channel.resp.valid) {
                     op_fired := true.B
                     local_load_reserved_valid := false.B
                     local_load_reserved_addr := 0.U
                     io.register_commit.valid := true.B
-                    io.register_commit.bits.data := 0.U
+                    io.register_commit.bits.data := Mux(write_channel.resp.bits === AxiResp.exokay,AMO_SC_SUCCED, AMO_SC_FAILED)
                     io.register_commit.bits.reg := params.rd
                     state := State.stat_normal
                 }
@@ -176,12 +175,11 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             }
         }.otherwise {
             invalidate_reserved(addr)
-            io.write_req.valid := true.B
-            write_req.size := size
-            write_req.addr := addr
-            write_req.data := data
-            write_req.direct := true.B
-            when(io.write_outfire) {
+            write_channel.params.valid := true.B
+            write_channel.params.bits.size := size
+            write_channel.params.bits.addr := addr
+            write_channel.params.bits.data := data
+            when(write_channel.resp.valid) {
                 op_fired := true.B
                 io.register_commit.valid := true.B
                 io.register_commit.bits.data := amo_data_reg
@@ -203,24 +201,30 @@ class LoadStoreUnit(data_width: Int = 64, addr_width: Int = 64) extends Module {
             // Normal
             when(LSUOpcode.isload(opcode)) {
                 val addr = params.source1.asUInt
-                read_req.size := size
-                read_req.addr := addr
-                read_req.sign := sign
-                io.read_req.valid := true.B
-                io.read_data.ready := true.B
-                when(io.read_data.valid) {
+                read_channel.params.valid := true.B
+                read_channel.params.bits.size := size
+                read_channel.params.bits.addr := addr
+                read_channel.resp.ready := true.B
+                when(read_channel.resp.valid) {
                     op_fired := true.B
-                    load_data := io.read_data.bits
+                    val raw = read_channel.resp.bits.data
+                    val extended = MuxLookup(size, raw)(Seq(
+                        0.U -> Mux(sign, raw(7,0).asSInt.pad(64).asUInt, raw(7,0).zextu(64)),
+                        1.U -> Mux(sign, raw(15,0).asSInt.pad(64).asUInt, raw(15,0).zextu(64)),
+                        2.U -> Mux(sign, raw(31,0).asSInt.pad(64).asUInt, raw(31,0).zextu(64)),
+                        3.U -> raw // full 64-bit load
+                    ))
+                    load_data := extended
                 }
             }.otherwise {
-                val store_data = params.source2.asUInt
+                val data = params.source2.asUInt
                 val addr = params.source1.asUInt
                 invalidate_reserved(addr)
-                io.write_req.valid := true.B
-                write_req.size := size
-                write_req.addr := addr
-                write_req.data := store_data
-                when(io.write_outfire) {
+                write_channel.params.valid := true.B
+                write_channel.params.bits.size := size
+                write_channel.params.bits.addr := addr
+                write_channel.params.bits.data := data
+                when(write_channel.resp.valid) {
                     op_fired := true.B
                 }
             }

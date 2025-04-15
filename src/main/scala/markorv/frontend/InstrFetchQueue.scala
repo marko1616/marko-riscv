@@ -3,8 +3,10 @@ package markorv.frontend
 import chisel3._
 import chisel3.util._
 
+import markorv.utils.ChiselUtils._
 import markorv.frontend._
-import markorv.cache.CacheLine
+import markorv.bus._
+import markorv.config._
 
 class FetchQueueEntities extends Bundle {
     val instr = UInt(32.W)
@@ -14,61 +16,38 @@ class FetchQueueEntities extends Bundle {
     val recover_pc = UInt(64.W)
 }
 
-class InstrFetchQueue(
-    queue_size: Int = 4,
-    n_set: Int = 8,
-    n_way: Int = 4,
-    n_byte: Int = 16
-) extends Module {
+class InstrFetchQueue(implicit val config: CoreConfig) extends Module {
     val io = IO(new Bundle {
-        val read_req = Decoupled(new Bundle {
-            val addr = UInt(64.W)
-            val size = UInt(2.W)
-            val sign = Bool()
-            val direct = Bool()
-        })
-        val read_data = Flipped(Decoupled(UInt(64.W)))
-
+        val cacheline_read = Flipped(Decoupled(UInt((8 * config.icache_config.data_bytes).W)))
         val reg_read = Output(UInt(5.W))
         val reg_data = Input(UInt(64.W))
 
         val fetch_bundle = Decoupled(new FetchQueueEntities)
         val pc = Input(UInt(64.W))
         val flush = Input(Bool())
+
+        val fetch_pc = Output(UInt(64.W))
     })
+
     val bpu = Module(new BranchPredUnit)
     val instr_queue = Module(new Queue(
         new FetchQueueEntities,
-        queue_size,
+        config.ifq_size,
         flow = true,
         hasFlush = true
     ))
-    // Ensure the atomicity of read req while flush.
-    val flush_skip = RegInit(false.B)
-    when(io.flush) {
-        flush_skip := true.B
-    }
 
     val end_pc_reg = RegInit(0.U(64.W))
     val end_pc = Wire(UInt(64.W))
 
     io.fetch_bundle <> instr_queue.io.deq
-
     instr_queue.io.enq.valid := false.B
-    instr_queue.io.enq.bits := 0.U.asTypeOf(new FetchQueueEntities)
+    instr_queue.io.enq.bits := new FetchQueueEntities().zero
 
     bpu.io.bpu_instr.instr := 0.U
     bpu.io.bpu_instr.pc := 0.U
     bpu.io.reg_read <> io.reg_read
     bpu.io.reg_data <> io.reg_data
-
-    io.read_req.valid := false.B
-    io.read_req.bits.addr := 0.U
-    io.read_req.bits.size := 0.U
-    io.read_req.bits.sign := false.B
-    io.read_req.bits.direct := false.B// TODO:Cache
-
-    io.read_data.ready := false.B
 
     when(instr_queue.io.count === 0.U) {
         end_pc := io.pc
@@ -76,31 +55,27 @@ class InstrFetchQueue(
         end_pc := end_pc_reg
     }
 
-    instr_queue.io.flush.getOrElse(false.B) := io.flush
+    io.fetch_pc := end_pc
+    io.cacheline_read.ready := instr_queue.io.enq.ready && !io.flush
 
-    when(instr_queue.io.enq.ready && !io.flush) {
-        // Read from fetched cache line
-        io.read_data.ready := true.B
-        io.read_req.valid := true.B
-        io.read_req.bits.addr := end_pc
-        io.read_req.bits.size := 2.U
-        io.read_req.bits.sign := false.B
+    instr_queue.io.flush.get := io.flush
 
-        when(io.read_data.valid) {
-            when(flush_skip) {
-                flush_skip := false.B
-            }.otherwise {
-                bpu.io.bpu_instr.pc := end_pc
-                bpu.io.bpu_instr.instr := io.read_data.bits(31, 0)
-                instr_queue.io.enq.bits.instr := io.read_data.bits(31, 0)
-                instr_queue.io.enq.bits.is_branch := bpu.io.bpu_result.is_branch
-                instr_queue.io.enq.bits.pred_taken := bpu.io.bpu_result.pred_taken
-                instr_queue.io.enq.bits.pred_pc := bpu.io.bpu_result.pred_pc
-                instr_queue.io.enq.bits.recover_pc := bpu.io.bpu_result.recover_pc
-                instr_queue.io.enq.valid := true.B
+    val offset_bits = config.icache_config.offset_bits
+    val pc_index = (end_pc >> 2.U)(offset_bits - 3, 0)
+    val fetch_line = io.cacheline_read.bits
+    val instr = (fetch_line >> (pc_index << 5))(31, 0)
 
-                end_pc_reg := bpu.io.bpu_result.pred_pc
-            }
-        }
+    when(instr_queue.io.enq.ready && io.cacheline_read.valid && !io.flush) {
+        bpu.io.bpu_instr.pc := end_pc
+        bpu.io.bpu_instr.instr := instr
+
+        instr_queue.io.enq.bits.instr := instr
+        instr_queue.io.enq.bits.is_branch := bpu.io.bpu_result.is_branch
+        instr_queue.io.enq.bits.pred_taken := bpu.io.bpu_result.pred_taken
+        instr_queue.io.enq.bits.pred_pc := bpu.io.bpu_result.pred_pc
+        instr_queue.io.enq.bits.recover_pc := bpu.io.bpu_result.recover_pc
+        instr_queue.io.enq.valid := true.B
+
+        end_pc_reg := bpu.io.bpu_result.pred_pc
     }
 }
