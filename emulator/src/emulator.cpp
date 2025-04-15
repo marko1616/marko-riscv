@@ -13,8 +13,9 @@
 
 #define BUS_WIDTH 8
 #define DEFAULT_MAX_CLOCK 0x400
-#define ROM_SIZE (1024LL * 16)
+#define ROM_SIZE (1024LL * 32)
 #define RAM_SIZE (1024LL * 1024 * 8)
+#define MAX_RESERVED 2
 
 struct parsedArgs {
     std::string ram_path;
@@ -35,11 +36,20 @@ struct axiSignal {
     bool awvalid;                  // Master
     bool awready;                  // Slave
     uint64_t awaddr;               // Master
+    uint8_t awsize;                // Master (3 bits)
+    uint8_t awburst;               // Master (2 bits)
+    uint8_t awcache;               // Master (4 bits)
     uint8_t awprot;                // Master (3 bits)
+    uint16_t awid;                 // Master (axid_len bits)
+    uint8_t awlen;                 // Master (8 bits)
+    uint8_t awlock;                // Master (1 bit)
+    uint8_t awqos;                 // Master (4 bits)
+    uint8_t awregion;              // Master (4 bits)
 
     // Write data signals
     bool wvalid;                   // Master
     bool wready;                   // Slave
+    bool wlast;                    // Master
     uint64_t wdata;                // Master
     uint8_t wstrb;                 // Master (data_width / 8, assuming data_width = 32)
 
@@ -47,18 +57,29 @@ struct axiSignal {
     bool bvalid;                   // Slave
     bool bready;                   // Master
     uint8_t bresp;                 // Slave (2 bits)
+    uint16_t bid;                  // Slave (axid_len bits)
 
     // Read request signals
     bool arvalid;                  // Master
     bool arready;                  // Slave
     uint64_t araddr;               // Master
+    uint8_t arsize;                // Master (3 bits)
+    uint8_t arburst;               // Master (2 bits)
+    uint8_t arcache;               // Master (4 bits)
+    uint16_t arid;                 // Master (axid_len bits)
+    uint8_t arlen;                 // Master (8 bits)
+    uint8_t arlock;                // Master (1 bit)
+    uint8_t arqos;                 // Master (4 bits)
+    uint8_t arregion;              // Master (4 bits)
     uint8_t arprot;                // Master (3 bits)
 
     // Read data signals
     bool rvalid;                   // Slave
     bool rready;                   // Master
+    bool rlast;                    // Slave
     uint64_t rdata;                // Slave
     uint8_t rresp;                 // Slave (2 bits)
+    uint16_t rid;                  // Slave (axid_len bits)
 };
 
 class Slave {
@@ -67,8 +88,8 @@ public:
     std::ranges::iota_view<uint64_t, uint64_t> range;
     virtual ~Slave() = default;
 
-    virtual uint64_t read(uint64_t addr) = 0;
-    virtual void write(uint64_t addr, uint64_t data, uint8_t strb) = 0;
+    virtual uint64_t read(uint64_t addr, uint8_t size) = 0;
+    virtual void write(uint64_t addr, uint64_t data, uint8_t size, uint8_t strb) = 0;
 
     virtual void posedge_step() {
         return;
@@ -101,7 +122,7 @@ public:
         spr = 0x00;
     }
 
-    uint64_t read(uint64_t addr) override {
+    uint64_t read(uint64_t addr, uint8_t size) override {
         switch (addr) {
             case 0x0:
                 // TODO
@@ -125,7 +146,7 @@ public:
         }
     }
 
-    void write(uint64_t addr, uint64_t data, uint8_t strb) override {
+    void write(uint64_t addr, uint64_t data, uint8_t size, uint8_t strb) override {
         uint8_t value = static_cast<uint8_t>(data);
         switch (addr) {
             case 0x0:
@@ -169,6 +190,7 @@ public:
     explicit VirtualRAM(uint64_t base_addr, const std::string& file_path, uint64_t size) {
         this->base_addr = base_addr;
         this->size = size;
+        assert((size & 0x0fff) == 0 && "Virtual RAM size must be 4k aligned.");
         range = std::ranges::iota_view<uint64_t, uint64_t>(0x0, size);
 
         ram = static_cast<uint8_t*>(std::malloc(size));
@@ -187,16 +209,19 @@ public:
             std::free(ram);
     }
 
-    uint64_t read(uint64_t addr) override {
+    uint64_t read(uint64_t addr, uint8_t size) override {
+        assert((addr + (1 << size) - 1) < this->size && "Read address out of bounds");
+
         uint64_t data = 0;
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < (1 << size); i++) {
             data |= static_cast<uint64_t>(ram[addr + i]) << (8 * i);
         }
         return data;
     }
 
-    void write(uint64_t addr, uint64_t data, uint8_t strb) override {
-        for (int i = 0; i < 8; i++) {
+    void write(uint64_t addr, uint64_t data, uint8_t size, uint8_t strb) override {
+        assert((addr + 7) < this->size && "Write address out of bounds");
+        for (int i = 0; i < (1 << size); i++) {
             if (strb & (1 << i)) {
                 ram[addr + i] = static_cast<uint8_t>(data >> (8 * i));
             }
@@ -242,22 +267,81 @@ private:
 
 class VirtualAxiSlaves {
 public:
-    enum axi_read_state {
+    enum axi_resp_t {
+        RESP_OKAY,
+        RESP_EXOKAY,
+        RESP_SLVERR,
+        RESP_DECERR
+    };
+
+    enum axi_burst_t {
+        BURST_FIXED,
+        BURST_INCR,
+        BURST_WRAP,
+        BURST_RESERVED
+    };
+
+    enum axi_read_state_t {
         STAT_RIDLE,
         STAT_SEND
     };
-    enum axi_write_state {
+
+    enum axi_write_state_t {
         STAT_WIDLE,
-        STAT_ACCEPT_REQ,
-        STAT_OUTFIRE,
+        STAT_WRITE_DATA,
+        STAT_WRITE_RESP
     };
+
+    struct ReadTransaction {
+        axi_read_state_t state;
+        uint8_t beat;
+        std::optional<uint64_t> held_data;
+
+        uint64_t addr;
+        uint8_t size;
+        axi_burst_t burst;
+        uint16_t id;
+        uint8_t len;
+        bool lock;
+    };
+
+    struct WriteTransaction {
+        axi_write_state_t state;
+        uint8_t beat;
+
+        uint64_t addr;
+        uint8_t size;
+        axi_burst_t burst;
+        uint16_t id;
+        uint8_t len;
+        bool lock;
+
+        axi_resp_t resp;
+    };
+
+    struct ReservedItem {
+        bool valid = false;
+        uint64_t addr = 0;
+        uint8_t size = 0;
+        bool isConflict(uint64_t addr, uint8_t size) {
+            if (!valid) return false;
+            uint64_t this_bytes = 1ULL << this->size;
+            uint64_t target_bytes = 1ULL << size;
+
+            uint64_t this_start = this->addr;
+            uint64_t this_end = this->addr + this_bytes;
+
+            uint64_t target_start = addr;
+            uint64_t target_end = addr + target_bytes;
+
+            return (this_end > target_start) && (this_start < target_end);
+        }
+    };
+
     explicit VirtualAxiSlaves() {
-        read_state = STAT_RIDLE;
-        write_state = STAT_WIDLE;
-        read_addr = 0;
-        write_addr = 0;
-        write_data = 0;
-        write_mask = 0;
+        empty_read_transaction();
+        empty_write_transaction();
+        reserved_items.resize(MAX_RESERVED);
     }
 
     ~VirtualAxiSlaves() = default;
@@ -275,81 +359,193 @@ public:
         handle_read(axi);
         handle_write(axi);
     }
-
 private:
     std::vector<std::shared_ptr<Slave>> slaves;
-    axi_read_state read_state;
-    axi_write_state write_state;
-    uint64_t read_addr;
-    uint64_t write_addr;
-    uint64_t write_data;
-    uint8_t write_mask;
+    ReadTransaction current_read;
+    WriteTransaction current_write;
+    std::vector<ReservedItem> reserved_items;
+
+    void empty_read_transaction() {
+        current_read.state = STAT_RIDLE;
+        current_read.beat = 0;
+        current_read.held_data = std::nullopt;
+        current_read.addr = 0;
+        current_read.size = 0;
+        current_read.burst = BURST_RESERVED;
+        current_read.id = 0;
+        current_read.len = 0;
+        current_read.lock = false;
+    }
+
+    void empty_write_transaction() {
+        current_write.state = STAT_WIDLE;
+        current_write.beat = 0;
+        current_write.addr = 0;
+        current_write.size = 0;
+        current_write.burst = BURST_RESERVED;
+        current_write.id = 0;
+        current_write.len = 0;
+        current_write.lock = false;
+        current_write.resp = RESP_OKAY;
+    }
+
+    uint64_t calculate_next_addr(uint64_t base_addr, uint8_t size, axi_burst_t burst, uint8_t beat) {
+        const uint64_t bytes_per_beat = 1 << size;
+        switch (burst) {
+            case BURST_FIXED:
+                return base_addr;
+            case BURST_INCR:
+                return base_addr + beat*bytes_per_beat;
+            case BURST_WRAP: {
+                const uint64_t num_beats = current_read.len + 1;
+                const uint64_t wrap_boundary = num_beats * bytes_per_beat;
+                const uint64_t aligned_base = base_addr & ~(wrap_boundary - 1);
+                const uint64_t offset = beat * bytes_per_beat;
+                return aligned_base + (offset % wrap_boundary);
+            }
+            default:
+                std::cerr << "Not valid burst mode";
+                return base_addr;
+        }
+    }
 
     void handle_read(axiSignal &axi) {
-        switch (read_state) {
+        switch (current_read.state) {
             case STAT_RIDLE:
                 axi.arready = true;
                 if (axi.arvalid) {
-                    read_addr = axi.araddr;
-                    read_state = STAT_SEND;
+                    current_read.addr = axi.araddr;
+                    current_read.size = axi.arsize;
+                    current_read.burst = static_cast<axi_burst_t>(axi.arburst);
+                    current_read.id = axi.arid;
+                    current_read.len = axi.arlen;
+                    current_read.lock = axi.arlock;
+                    current_read.state = STAT_SEND;
+                    current_read.beat = 0;
                 }
                 break;
-
             case STAT_SEND:
                 axi.rvalid = true;
+                axi.rid = current_read.id;
+                uint64_t current_addr = calculate_next_addr(
+                    current_read.addr, 
+                    current_read.size,
+                    current_read.burst,
+                    current_read.beat
+                );
                 auto slave = std::ranges::find_if(slaves,
-                                    [this](const std::shared_ptr<Slave> &slave) -> bool {
-                                        return std::ranges::contains(slave->range, this->read_addr-slave->base_addr);
+                                    [current_addr](const std::shared_ptr<Slave> &s) -> bool {
+                                        return std::ranges::contains(s->range, current_addr-s->base_addr);
                                     });
-                if (slave != slaves.end()) {
-                    axi.rdata = (*slave)->read(read_addr-(*slave)->base_addr);
-                    axi.rresp = 0b00; // OKAY
+                // Found and not cross 4k boundary.
+                bool addr_valid = (slave != slaves.end()) && ((current_addr & 0xfffff000) == (current_read.addr & 0xfffff000));
+                if (addr_valid) {
+                    if(current_read.held_data) {
+                        // Prevent multiple read side effects
+                        axi.rdata = *current_read.held_data;
+                        axi.rresp = current_read.lock ? RESP_EXOKAY : RESP_OKAY;
+                    } else {
+                        uint64_t data = (*slave)->read(current_addr - (*slave)->base_addr, current_read.size);
+                        current_read.held_data = data;
+                        axi.rdata = data;
+                        axi.rresp = current_read.lock ? RESP_EXOKAY : RESP_OKAY;
+                    }
+                    axi.rlast = (current_read.beat == current_read.len);
                 } else {
                     axi.rdata = 0;
-                    axi.rresp = 0b11; // DECERR
+                    axi.rlast = true;
+                    axi.rresp = RESP_DECERR;
                 }
 
                 if (axi.rready) {
-                    read_state = STAT_RIDLE;
+                    // Load reserved
+                    current_read.held_data = std::nullopt;
+                    if (current_read.lock) {
+                        bool reserved = false;
+                        for (auto &item : reserved_items) {
+                            if (!item.valid) {
+                                item.valid = true;
+                                item.addr = current_read.addr;
+                                item.size = current_read.size;
+                                reserved = true;
+                                break;
+                            }
+                        }
+                        if (!reserved) {
+                            static size_t replace_ptr = 0;
+                            reserved_items[replace_ptr] = {true, current_read.addr, current_read.size};
+                            replace_ptr = (replace_ptr + 1) % MAX_RESERVED;
+                        }
+                    }
+                    if(axi.rresp == RESP_DECERR | current_read.beat == current_read.len) {
+                        empty_read_transaction();
+                        break;
+                    }
+                    current_read.beat++;
                 }
                 break;
         }
     }
 
     void handle_write(axiSignal &axi) {
-        switch (write_state) {
+        switch (current_write.state) {
             case STAT_WIDLE:
                 axi.awready = true;
                 if (axi.awvalid) {
-                    write_addr = axi.awaddr;
-                    write_state = STAT_ACCEPT_REQ;
+                    current_write.addr = axi.awaddr;
+                    current_write.size = axi.awsize;
+                    current_write.burst = static_cast<axi_burst_t>(axi.awburst);
+                    current_write.id = axi.awid;
+                    current_write.len = axi.awlen;
+                    current_write.lock = axi.awlock;
+                    current_write.beat = 0;
+                    current_write.state = STAT_WRITE_DATA;
                 }
                 break;
-
-            case STAT_ACCEPT_REQ:
+            case STAT_WRITE_DATA:
                 axi.wready = true;
                 if (axi.wvalid) {
-                    write_data = axi.wdata;
-                    write_mask = axi.wstrb;
-                    write_state = STAT_OUTFIRE;
+                    uint64_t current_addr = calculate_next_addr(
+                        current_write.addr, 
+                        current_write.size,
+                        current_write.burst,
+                        current_write.beat
+                    );
+                    auto slave = std::ranges::find_if(slaves,
+                        [current_addr](const auto& s) {
+                            return std::ranges::contains(s->range, current_addr-s->base_addr);
+                        });
+                    bool addr_valid = (slave != slaves.end()) && ((current_addr & 0xfffff000) == (current_write.addr & 0xfffff000));
+                    if (addr_valid) {
+                        bool reserved_hit = false;
+                        for (auto &item : reserved_items) {
+                            if (item.valid && item.addr == current_addr) {
+                                reserved_hit = true;
+                            }
+                            if (item.valid && item.isConflict(current_addr, current_write.size)) {
+                                item.valid = false;
+                            }
+                        }
+                        if(!current_write.lock || (current_write.lock && reserved_hit)) {
+                            (*slave)->write(current_addr-(*slave)->base_addr,axi.wdata,current_write.size,axi.wstrb);
+                        }
+                        current_write.resp = current_write.lock && reserved_hit ? RESP_EXOKAY : RESP_OKAY;
+                    } else {
+                        current_write.resp = RESP_DECERR;
+                        current_write.state = STAT_WRITE_RESP;
+                    }
+                    if (axi.wlast) {
+                        current_write.state = STAT_WRITE_RESP;
+                    }
+                    current_write.beat++;
                 }
                 break;
-
-            case STAT_OUTFIRE:
+            case STAT_WRITE_RESP:
                 axi.bvalid = true;
-                auto slave = std::ranges::find_if(slaves,
-                                    [this](const std::shared_ptr<Slave> &slave) -> bool {
-                                        return std::ranges::contains(slave->range, this->write_addr-slave->base_addr);
-                                    });
-                if (slave != slaves.end()) {
-                    (*slave)->write(write_addr-(*slave)->base_addr, write_data, write_mask);
-                    axi.bresp = 0b00; // OKAY
-                } else {
-                    axi.bresp = 0b11; // DECERR
-                }
-
+                axi.bresp = current_write.resp;
+                axi.bid = current_write.id;
                 if (axi.bready) {
-                    write_state = STAT_WIDLE;
+                    empty_write_transaction();
                 }
                 break;
         }
@@ -359,66 +555,82 @@ private:
 csh capstone_handle;
 
 void read_axi(const std::unique_ptr<VMarkoRvCore> &top, axiSignal &axi) {
-    // Write request signals
-    axi.awvalid = top->io_axi_awvalid;
-    axi.awaddr = top->io_axi_awaddr;
-    axi.awprot = top->io_axi_awprot;
+    // Write request signals (Master->Slave)
+    axi.awvalid = top->io_axi_aw_valid;
+    axi.awaddr  = top->io_axi_aw_bits_addr;
+    axi.awsize  = top->io_axi_aw_bits_size;
+    axi.awburst = top->io_axi_aw_bits_burst;
+    axi.awcache = top->io_axi_aw_bits_cache;
+    axi.awprot  = top->io_axi_aw_bits_prot;
+    axi.awid    = top->io_axi_aw_bits_id;
+    axi.awlen   = top->io_axi_aw_bits_len;
+    axi.awlock  = top->io_axi_aw_bits_lock;
+    axi.awqos   = top->io_axi_aw_bits_qos;
+    axi.awregion= top->io_axi_aw_bits_region;
 
-    // Write data signals
-    axi.wvalid = top->io_axi_wvalid;
-    axi.wdata = top->io_axi_wdata;
-    axi.wstrb = top->io_axi_wstrb;
+    // Write data signals (Master->Slave)
+    axi.wvalid  = top->io_axi_w_valid;
+    axi.wlast   = top->io_axi_w_bits_last;
+    axi.wdata   = top->io_axi_w_bits_data;
+    axi.wstrb   = top->io_axi_w_bits_strb;
 
-    // Write response signals
-    axi.bready = top->io_axi_bready;
+    // Write response signals (Slave->Master)
+    axi.bready  = top->io_axi_b_ready;
 
-    // Read request signals
-    axi.arvalid = top->io_axi_arvalid;
-    axi.araddr = top->io_axi_araddr;
-    axi.arprot = top->io_axi_arprot;
+    // Read request signals (Master->Slave)
+    axi.arvalid = top->io_axi_ar_valid;
+    axi.araddr  = top->io_axi_ar_bits_addr;
+    axi.arsize  = top->io_axi_ar_bits_size;
+    axi.arburst = top->io_axi_ar_bits_burst;
+    axi.arcache = top->io_axi_ar_bits_cache;
+    axi.arid    = top->io_axi_ar_bits_id;
+    axi.arlen   = top->io_axi_ar_bits_len;
+    axi.arlock  = top->io_axi_ar_bits_lock;
+    axi.arqos   = top->io_axi_ar_bits_qos;
+    axi.arregion= top->io_axi_ar_bits_region;
+    axi.arprot  = top->io_axi_ar_bits_prot;
 
-    // Read data signals
-    axi.rready = top->io_axi_rready;
+    // Read data signals (Slave->Master)
+    axi.rready  = top->io_axi_r_ready;
 }
 
+
 void set_axi(const std::unique_ptr<VMarkoRvCore> &top, const axiSignal &axi) {
-    // Write response signals
-    top->io_axi_bvalid = axi.bvalid;
-    top->io_axi_bresp = axi.bresp;
-
-    // Read request signals
-    top->io_axi_arready = axi.arready;
-
-    // Read data signals
-    top->io_axi_rvalid = axi.rvalid;
-    top->io_axi_rdata = axi.rdata;
-    top->io_axi_rresp = axi.rresp;
-
-    // Write request signals
-    top->io_axi_awready = axi.awready;
-
-    // Write data signals
-    top->io_axi_wready = axi.wready;
+    // Write response
+    top->io_axi_b_valid      = axi.bvalid;
+    top->io_axi_b_bits_resp  = axi.bresp;
+    top->io_axi_b_bits_id    = axi.bid;
+    
+    // Read response
+    top->io_axi_r_valid      = axi.rvalid;
+    top->io_axi_r_bits_data  = axi.rdata;
+    top->io_axi_r_bits_resp  = axi.rresp;
+    top->io_axi_r_bits_id    = axi.rid;
+    top->io_axi_r_bits_last  = axi.rlast;
+    
+    // Flow control
+    top->io_axi_aw_ready     = axi.awready;
+    top->io_axi_w_ready      = axi.wready;
+    top->io_axi_ar_ready     = axi.arready;
 }
 
 void clear_axi(const std::unique_ptr<VMarkoRvCore> &top) {
-    // Write response signals
-    top->io_axi_bvalid = false;
-    top->io_axi_bresp = 0;
+    // Write response
+    top->io_axi_b_valid      = false;
+    top->io_axi_b_bits_resp  = 0;
+    top->io_axi_b_bits_id    = 0;
 
-    // Read request signals
-    top->io_axi_arready = false;
+    // Read response
+    top->io_axi_r_valid      = false;
+    top->io_axi_r_bits_data  = 0;
+    top->io_axi_r_bits_resp  = 0;
+    top->io_axi_r_bits_id    = 0;
+    top->io_axi_r_bits_last  = false;
 
-    // Read data signals
-    top->io_axi_rvalid = false;
-    top->io_axi_rdata = 0;
-    top->io_axi_rresp = 0;
-
-    // Write request signals
-    top->io_axi_awready = false;
-
-    // Write data signals
-    top->io_axi_wready = false;
+    // Flow control
+    top->io_axi_aw_ready     = false;
+    top->io_axi_w_ready      = false;
+    top->io_axi_ar_ready     = false;
 }
 
 void axi_debug(const axiSignal& axi) {
@@ -462,9 +674,9 @@ void set_time(const std::unique_ptr<VMarkoRvCore> &top) {
     top->io_time = std::time(nullptr);
 }
 
-void cycle_verbose(uint64_t cycle, uint64_t pc, uint64_t raw_instr, uint64_t peek) {
+void cycle_verbose(uint64_t cycle, uint64_t pc, uint64_t raw_instr) {
     uint8_t raw_code[4] = {0};
-    std::cout << std::format("Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Peek: 0x{:04x} Asm: ",cycle, pc, raw_instr, peek);
+    std::cout << std::format("Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Asm: ",cycle, pc, raw_instr);
     for(int i=0;i<4;i++) {
         raw_code[i] = static_cast<uint8_t>(raw_instr >> 8*i);
     }
@@ -588,13 +800,13 @@ int main(int argc, char **argv, char **env)
 
         // Debug out
         if(args.verbose)
-            cycle_verbose(clock_cnt, top->io_pc, top->io_instr_now, top->io_peek);
+            cycle_verbose(clock_cnt, top->io_pc, top->io_instr_now);
         // Posedge clk
         context->timeInc(1);
         top->clock = 1;
         top->eval();
-        init_stimulus(top);
         // Handle axi
+        init_stimulus(top);
         if (!top->reset) {
             std::memset(&axi, 0, sizeof(axiSignal));
             read_axi(top, axi);

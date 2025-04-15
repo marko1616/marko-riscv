@@ -5,8 +5,8 @@ import chisel3.util._
 
 class RegFile(data_width: Int = 64) extends Module {
     val io = IO(new Bundle {
-        val read_addrs = Vec(4, Input(UInt(5.W)))
-        val read_datas = Vec(4, Output(UInt(data_width.W)))
+        val read_addrs = Vec(3, Input(UInt(5.W)))
+        val read_datas = Vec(3, Output(UInt(data_width.W)))
 
         val write_addr = Input(UInt(5.W))
         val write_data = Input(UInt(data_width.W))

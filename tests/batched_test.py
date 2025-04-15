@@ -112,7 +112,7 @@ for case in TEST_CASES:
         str(EMULATOR_PATH),
         "--rom-path", str(ROM_PATH),
         "--ram-path", str(TESTS_PATH / case),
-        "--max-clock", "8000",
+        "--max-clock", "10000",
         "--ram-dump", str(RAM_DUMP_PATH)
     ]
     result = subprocess.run(command, capture_output=True, text=True)
