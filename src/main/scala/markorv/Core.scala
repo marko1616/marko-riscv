@@ -13,164 +13,168 @@ import markorv.cache._
 class MarkoRvCore extends Module {
     implicit val config: CoreConfig = new CoreConfig
     val io = IO(new Bundle {
-        val axi = new AxiInterface(config.axi_config)
-        val time = Input(UInt(config.data_width.W))
-        val pc = Output(UInt(config.data_width.W))
-        val instr_now = Output(UInt(config.data_width.W))
+        val axi = new AxiInterface(config.axiConfig)
+        val time = Input(UInt(config.dataWidth.W))
+        val pc = Output(UInt(config.dataWidth.W))
+        val instrNow = Output(UInt(config.dataWidth.W))
     })
 
     // Submodule Instantiations
     // ========================
     // Bus Controllers
-    val axi_ctrl = Module(new AxiCtrl)
+    val axiCtrl = Module(new AxiCtrl)
+
+    // Cache
+    val instrCache = Module(new InstrCache()(config.icacheConfig))
 
     // Frontend Pipeline
-    val instr_cache = Module(new InstrCache()(config.icache_config))
-    val instr_prefetch = Module(new InstrPrefetchUnit)
-    val instr_fetch_queue = Module(new InstrFetchQueue)
-    val instr_fetch_unit = Module(new InstrFetchUnit)
-    val instr_decoder = Module(new InstrDecoder)
-    val instr_issuer = Module(new InstrIssueUnit)
+    val instrPrefetchUnit = Module(new InstrPrefetchUnit)
+    val instrFetchQueue = Module(new InstrFetchQueue)
+    val instrFetchUnit = Module(new InstrFetchUnit)
+    val instrDecoder = Module(new InstrDecoder)
+    val instrIssuer = Module(new InstrIssueUnit)
 
     // Execution Units
-    val arithmetic_logic_unit = Module(new ArithmeticLogicUnit)
-    val load_store_unit = Module(new LoadStoreUnit)
-    val branch_unit = Module(new BranchUnit)
-    val misc_unit = Module(new MiscUnit)
-    val multiply_unit = Module(new MultiplyUnit)
+    val arithmeticLogicUnit = Module(new ArithmeticLogicUnit)
+    val loadStoreUnit = Module(new LoadStoreUnit)
+    val branchUnit = Module(new BranchUnit)
+    val miscUnit = Module(new MiscUnit)
+    val multiplyUnit = Module(new MultiplyUnit)
 
     // Register Files and State
-    val register_file = Module(new RegFile)
-    val csr_file = Module(new ControlStatusRegisters)
-    val trap_ctrl = Module(new TrapController)
+    val registerFile = Module(new RegFile)
+    val csrFile = Module(new ControlStatusRegisters)
+    val trapCtrl = Module(new TrapController)
 
     // Commit and Control
-    val commit_unit = Module(new CommitUnit)
+    val commitUnit = Module(new CommitUnit)
 
     // Module Connections
     // ==================
     // AXI Bus Interface
-    axi_ctrl.io.instr_fetch.read.get.params.bits.size := (log2Ceil(config.axi_config.addr_width)-3).U
-    axi_ctrl.io.instr_fetch.read.get.params.valid     <> instr_cache.io.out_read_req.valid
-    axi_ctrl.io.instr_fetch.read.get.params.ready     <> instr_cache.io.out_read_req.ready
-    axi_ctrl.io.instr_fetch.read.get.params.bits.addr <> instr_cache.io.out_read_req.bits
-    axi_ctrl.io.instr_fetch.read.get.resp.valid       <> instr_cache.io.out_read_data.valid
-    axi_ctrl.io.instr_fetch.read.get.resp.ready       <> instr_cache.io.out_read_data.ready
-    axi_ctrl.io.instr_fetch.read.get.resp.bits.data   <> instr_cache.io.out_read_data.bits
+    axiCtrl.io.instrFetch.read.get.params.bits.size := (log2Ceil(config.axiConfig.addrWidth)-3).U
+    axiCtrl.io.instrFetch.read.get.params.valid     <> instrCache.io.outReadReq.valid
+    axiCtrl.io.instrFetch.read.get.params.ready     <> instrCache.io.outReadReq.ready
+    axiCtrl.io.instrFetch.read.get.params.bits.addr <> instrCache.io.outReadReq.bits
+    axiCtrl.io.instrFetch.read.get.resp.valid       <> instrCache.io.outReadData.valid
+    axiCtrl.io.instrFetch.read.get.resp.ready       <> instrCache.io.outReadData.ready
+    axiCtrl.io.instrFetch.read.get.resp.bits.data   <> instrCache.io.outReadData.bits
 
-    load_store_unit.io.interface <> axi_ctrl.io.load_store
-    io.axi <> axi_ctrl.io.axi
+    loadStoreUnit.io.interface <> axiCtrl.io.loadStore
+    io.axi <> axiCtrl.io.axi
 
     // Cache
-    instr_cache.io.invalidate := false.B
+    instrCache.io.invalidate <> miscUnit.io.icacheInvalidate
+    instrCache.io.invalidateOutfire <> miscUnit.io.icacheInvalidateOutfire
 
     // Exception & Flush Control
-    val flush = trap_ctrl.io.flush | branch_unit.io.flush
-    trap_ctrl.io.outer_int := false.B
-    
-    trap_ctrl.io.pc <> instr_fetch_unit.io.get_pc
-    trap_ctrl.io.privilege <> misc_unit.io.get_privilege
-    trap_ctrl.io.fetched <> instr_fetch_unit.io.get_fetched
-    trap_ctrl.io.set_trap <> csr_file.io.set_trap
-    trap_ctrl.io.trap_ret_info <> csr_file.io.trap_ret_info
-    trap_ctrl.io.mstatus <> csr_file.io.mstatus
-    trap_ctrl.io.mie <> csr_file.io.mie
+    val flush = trapCtrl.io.flush | branchUnit.io.flush | miscUnit.io.flush
+    trapCtrl.io.outerInt := false.B
 
-    misc_unit.io.trap_ret <> csr_file.io.trap_ret
+    trapCtrl.io.pc <> instrFetchUnit.io.getPc
+    trapCtrl.io.privilege <> miscUnit.io.getPrivilege
+    trapCtrl.io.fetched <> instrFetchUnit.io.getFetched
+    trapCtrl.io.setTrap <> csrFile.io.setTrap
+    trapCtrl.io.trapRetInfo <> csrFile.io.trapRetInfo
+    trapCtrl.io.mstatus <> csrFile.io.mstatus
+    trapCtrl.io.mie <> csrFile.io.mie
+
+    miscUnit.io.trapRet <> csrFile.io.trapRet
 
     // Frontend Pipeline Connections
-    instr_prefetch.io.flush := flush
-    instr_prefetch.io.read_addr <> instr_cache.io.in_read_req
-    instr_prefetch.io.read_data <> instr_cache.io.in_read_data
-    instr_prefetch.io.transaction_addr <> instr_cache.io.transaction_addr
+    instrPrefetchUnit.io.flush := flush
+    instrPrefetchUnit.io.readAddr <> instrCache.io.inReadReq
+    instrPrefetchUnit.io.readData <> instrCache.io.inReadData
+    instrPrefetchUnit.io.transactionAddr <> instrCache.io.transactionAddr
 
-    instr_fetch_queue.io.flush := flush
-    instr_fetch_queue.io.fetch_pc <> instr_prefetch.io.fetch_pc
-    instr_fetch_queue.io.cacheline_read <> instr_prefetch.io.fetched
-    instr_fetch_queue.io.pc <> instr_fetch_unit.io.get_pc
-    instr_fetch_queue.io.reg_read <> register_file.io.read_addrs(2)
-    instr_fetch_queue.io.reg_data <> register_file.io.read_datas(2)
+    instrFetchQueue.io.flush := flush
+    instrFetchQueue.io.fetchPc <> instrPrefetchUnit.io.fetchPc
+    instrFetchQueue.io.cachelineRead <> instrPrefetchUnit.io.fetched
+    instrFetchQueue.io.pc <> instrFetchUnit.io.getPc
+    instrFetchQueue.io.regRead <> registerFile.io.readAddrs(2)
+    instrFetchQueue.io.regData <> registerFile.io.readDatas(2)
 
-    instr_fetch_unit.io.flush := flush
-    instr_fetch_unit.io.invalid_drop <> instr_decoder.io.invalid_drop
-    instr_fetch_unit.io.fetch_bundle <> instr_fetch_queue.io.fetch_bundle
-    instr_fetch_unit.io.fetch_hlt <> trap_ctrl.io.fetch_hlt
-    instr_fetch_unit.io.set_pc := MuxCase(0.U, Seq(
-        trap_ctrl.io.flush -> trap_ctrl.io.set_pc,
-        branch_unit.io.flush -> branch_unit.io.set_pc
+    instrFetchUnit.io.flush := flush
+    instrFetchUnit.io.invalidDrop <> instrDecoder.io.invalidDrop
+    instrFetchUnit.io.fetchBundle <> instrFetchQueue.io.fetchBundle
+    instrFetchUnit.io.fetchHlt <> trapCtrl.io.fetchHlt
+    instrFetchUnit.io.setPc := MuxCase(0.U, Seq(
+        trapCtrl.io.flush -> trapCtrl.io.setPc,
+        branchUnit.io.flush -> branchUnit.io.setPc,
+        miscUnit.io.flush -> miscUnit.io.setPc
     ))
 
     // Register File Interface
-    instr_issuer.io.reg_read1 <> register_file.io.read_addrs(0)
-    instr_issuer.io.reg_read2 <> register_file.io.read_addrs(1)
-    instr_issuer.io.reg_data1 <> register_file.io.read_datas(0)
-    instr_issuer.io.reg_data2 <> register_file.io.read_datas(1)
-    instr_issuer.io.occupied_regs <> register_file.io.get_occupied
-    instr_issuer.io.acquire_reg <> register_file.io.acquire_reg
-    instr_issuer.io.acquired <> register_file.io.acquired
-    register_file.io.flush := flush
+    instrIssuer.io.regRead1 <> registerFile.io.readAddrs(0)
+    instrIssuer.io.regRead2 <> registerFile.io.readAddrs(1)
+    instrIssuer.io.regData1 <> registerFile.io.readDatas(0)
+    instrIssuer.io.regData2 <> registerFile.io.readDatas(1)
+    instrIssuer.io.occupiedRegs <> registerFile.io.getOccupied
+    instrIssuer.io.acquireReg <> registerFile.io.acquireReg
+    instrIssuer.io.acquired <> registerFile.io.acquired
+    registerFile.io.flush := flush
 
     // Main Pipeline Stages
     PipelineConnect(
-        instr_fetch_unit.io.instr_bundle,
-        instr_decoder.io.instr_bundle,
-        instr_decoder.io.outfire,
+        instrFetchUnit.io.instrBundle,
+        instrDecoder.io.instrBundle,
+        instrDecoder.io.outfire,
         flush
     )
     PipelineConnect(
-        instr_decoder.io.issue_task,
-        instr_issuer.io.issue_task,
-        instr_issuer.io.outfire,
+        instrDecoder.io.issueTask,
+        instrIssuer.io.issueTask,
+        instrIssuer.io.outfire,
         flush
     )
 
     // Execution Unit Dispatch
-    PipelineConnect(instr_issuer.io.alu_out, arithmetic_logic_unit.io.alu_instr, arithmetic_logic_unit.io.outfire, flush)
-    PipelineConnect(instr_issuer.io.lsu_out, load_store_unit.io.lsu_instr, load_store_unit.io.outfire, flush)
-    PipelineConnect(instr_issuer.io.misc_out, misc_unit.io.misc_instr, misc_unit.io.outfire, flush)
-    PipelineConnect(instr_issuer.io.mu_out, multiply_unit.io.mu_instr, multiply_unit.io.outfire, flush)
-    PipelineConnect(instr_issuer.io.branch_out, branch_unit.io.branch_instr, branch_unit.io.outfire, flush)
+    PipelineConnect(instrIssuer.io.aluOut, arithmeticLogicUnit.io.aluInstr, arithmeticLogicUnit.io.outfire, flush)
+    PipelineConnect(instrIssuer.io.lsuOut, loadStoreUnit.io.lsuInstr, loadStoreUnit.io.outfire, flush)
+    PipelineConnect(instrIssuer.io.miscOut, miscUnit.io.miscInstr, miscUnit.io.outfire, flush)
+    PipelineConnect(instrIssuer.io.muOut, multiplyUnit.io.muInstr, multiplyUnit.io.outfire, flush)
+    PipelineConnect(instrIssuer.io.branchOut, branchUnit.io.branchInstr, branchUnit.io.outfire, flush)
 
     // Execution Unit Status
-    instr_fetch_unit.io.exu_outfires := VecInit(Seq(
-        arithmetic_logic_unit.io.outfire,
-        load_store_unit.io.outfire,
-        misc_unit.io.outfire,
-        multiply_unit.io.outfire,
-        branch_unit.io.outfire
+    instrFetchUnit.io.exuOutfires := VecInit(Seq(
+        arithmeticLogicUnit.io.outfire,
+        loadStoreUnit.io.outfire,
+        miscUnit.io.outfire,
+        multiplyUnit.io.outfire,
+        branchUnit.io.outfire
     ))
 
     // Commit Stage
     Seq(
-        (load_store_unit.io.register_commit, 0),
-        (arithmetic_logic_unit.io.register_commit, 1),
-        (misc_unit.io.register_commit, 2),
-        (multiply_unit.io.register_commit, 3),
-        (branch_unit.io.register_commit, 4)
+        (loadStoreUnit.io.commit, 0),
+        (arithmeticLogicUnit.io.commit, 1),
+        (miscUnit.io.commit, 2),
+        (multiplyUnit.io.commit, 3),
+        (branchUnit.io.commit, 4)
     ).foreach { case (unit, idx) =>
         // No flush here, as flushing would corrupt the `jalr`.
-        PipelineConnect(unit, commit_unit.io.register_commits(idx), true.B, false.B)
+        PipelineConnect(unit, commitUnit.io.registerCommits(idx), true.B, false.B)
     }
 
-    commit_unit.io.reg_write <> register_file.io.write_addr
-    commit_unit.io.write_data <> register_file.io.write_data
+    commitUnit.io.regWrite <> registerFile.io.writeAddr
+    commitUnit.io.writeData <> registerFile.io.writeData
 
     // CSR and Privilege
-    csr_file.io.instret <> commit_unit.io.instret
-    csr_file.io.time <> io.time
-    csr_file.io.csrio <> misc_unit.io.csrio
-    csr_file.io.privilege <> misc_unit.io.get_privilege
+    csrFile.io.instret <> commitUnit.io.instret
+    csrFile.io.time <> io.time
+    csrFile.io.csrio <> miscUnit.io.csrio
+    csrFile.io.privilege <> miscUnit.io.getPrivilege
 
-    misc_unit.io.set_privilege <> trap_ctrl.io.set_privilege
-    misc_unit.io.trap_ret <> trap_ctrl.io.trap_ret
-    misc_unit.io.exception <> trap_ctrl.io.exceptions(0)
+    miscUnit.io.setPrivilege <> trapCtrl.io.setPrivilege
+    miscUnit.io.trapRet <> trapCtrl.io.trapRet
+    miscUnit.io.exception <> trapCtrl.io.exceptions(0)
 
     // AMO
-    load_store_unit.io.invalidate_reserved := misc_unit.io.trap_ret
+    loadStoreUnit.io.invalidateReserved := miscUnit.io.trapRet
 
     // Debug Outputs
-    io.pc := instr_fetch_unit.io.instr_bundle.bits.pc
-    io.instr_now := Mux(instr_fetch_unit.io.instr_bundle.valid,instr_fetch_unit.io.instr_bundle.bits.instr,0.U)
+    io.pc := instrFetchUnit.io.instrBundle.bits.pc
+    io.instrNow := Mux(instrFetchUnit.io.instrBundle.valid,instrFetchUnit.io.instrBundle.bits.instr.rawBits,0.U)
 }
 
 object MarkoRvCore extends App {

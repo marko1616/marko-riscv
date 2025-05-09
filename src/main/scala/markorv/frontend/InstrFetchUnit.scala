@@ -4,69 +4,62 @@ import chisel3._
 import chisel3.util._
 
 import markorv.frontend._
-
-class InstrIPBundle extends Bundle {
-    val instr = Output(UInt(32.W))
-    val pred_taken = Output(Bool())
-    val pred_pc = Output(UInt(64.W))
-    val recover_pc = Output(UInt(64.W))
-    val pc = Output(UInt(64.W))
-}
+import markorv.utils.ChiselUtils._
 
 class InstrFetchUnit extends Module {
     val io = IO(new Bundle {
-        val fetch_bundle = Flipped(Decoupled(new FetchQueueEntities))
-        val instr_bundle = Decoupled(new InstrIPBundle)
+        val fetchBundle = Flipped(Decoupled(new FetchQueueEntities))
+        val instrBundle = Decoupled(new InstrDecodeBundle)
 
-        val exu_outfires = Input(Vec(5, Bool()))
-        val invalid_drop = Input(Bool())
+        val exuOutfires = Input(Vec(5, Bool()))
+        val invalidDrop = Input(Bool())
 
-        val get_pc = Output(UInt(64.W))
-        val set_pc = Input(UInt(64.W))
+        val getPc = Output(UInt(64.W))
+        val setPc = Input(UInt(64.W))
         val flush = Input(Bool())
-        val fetch_hlt = Input(Bool())
+        val fetchHlt = Input(Bool())
 
-        val get_fetched = Output(UInt(4.W))
+        val getFetched = Output(UInt(4.W))
     })
 
-    val fetched_count = RegInit(0.U(4.W))
-    val next_fetched_count = Wire(UInt(4.W))
+    val fetchedCount = RegInit(0.U(4.W))
+    val nextFetchedCount = Wire(UInt(4.W))
     val pc = RegInit("h10000000".U(64.W))
-    val next_pc = Wire(UInt(64.W))
+    val nextPc = Wire(UInt(64.W))
 
     // init default values
-    io.instr_bundle.valid := false.B
-    io.instr_bundle.bits.instr := 0.U(32.W)
-    io.instr_bundle.bits.pred_taken := false.B
-    io.instr_bundle.bits.recover_pc := pc
-    io.instr_bundle.bits.pred_pc := pc
-    io.instr_bundle.bits.pc := pc
+    io.instrBundle.valid := false.B
+    io.instrBundle.bits.instr := new Instruction().zero
+    io.instrBundle.bits.predTaken := false.B
+    io.instrBundle.bits.recoverPc := pc
+    io.instrBundle.bits.predPc := pc
+    io.instrBundle.bits.pc := pc
 
-    io.fetch_bundle.ready := io.instr_bundle.ready && !io.fetch_hlt
-    io.get_pc := pc
-    io.get_fetched := fetched_count
+    io.fetchBundle.ready := io.instrBundle.ready && !io.fetchHlt
+    io.getPc := pc
+    io.getFetched := fetchedCount
 
-    val outfire_instr = io.exu_outfires.reduce(_ | _).asTypeOf(UInt(2.W)) + io.invalid_drop.asTypeOf(UInt(2.W))
-    when(io.fetch_bundle.valid && io.instr_bundle.ready && !io.fetch_hlt) {
-        io.instr_bundle.valid := true.B
-        io.instr_bundle.bits.instr := io.fetch_bundle.bits.instr
-        io.instr_bundle.bits.pred_taken := io.fetch_bundle.bits.pred_taken
-        io.instr_bundle.bits.pred_pc := io.fetch_bundle.bits.pred_pc
-        io.instr_bundle.bits.recover_pc := io.fetch_bundle.bits.recover_pc
-        io.instr_bundle.bits.pc := pc
+    val outfireInstr = io.exuOutfires.reduce(_ | _).asTypeOf(UInt(2.W)) + io.invalidDrop.asTypeOf(UInt(2.W))
+    when(io.fetchBundle.valid && io.instrBundle.ready && !io.fetchHlt) {
+        io.instrBundle.valid := true.B
+        io.instrBundle.bits.instr.rawBits := io.fetchBundle.bits.instr
+        io.instrBundle.bits.predTaken := io.fetchBundle.bits.predTaken
+        io.instrBundle.bits.predPc := io.fetchBundle.bits.predPc
+        io.instrBundle.bits.recoverPc := io.fetchBundle.bits.recoverPc
+        io.instrBundle.bits.pc := pc
 
-        next_pc := io.fetch_bundle.bits.pred_pc
-        next_fetched_count := fetched_count + 1.U - outfire_instr
+        nextPc := io.fetchBundle.bits.predPc
+        nextFetchedCount := fetchedCount + 1.U - outfireInstr
     }.otherwise {
-        next_pc := pc
-        next_fetched_count := fetched_count - outfire_instr
+        nextPc := pc
+        nextFetchedCount := fetchedCount - outfireInstr
     }
 
     when(io.flush) {
-        pc := io.set_pc
-        fetched_count := 0.U
+        pc := io.setPc
+        fetchedCount := 0.U
     }.otherwise {
-        pc := next_pc
-        fetched_count := next_fetched_count
+        pc := nextPc
+        fetchedCount := nextFetchedCount
     }
 }

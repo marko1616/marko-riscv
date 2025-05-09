@@ -3,69 +3,8 @@ package markorv.backend
 import chisel3._
 import chisel3.util._
 
-class RegisterCommit extends Bundle {
-    val reg = UInt(5.W)
-    val data = UInt(64.W)
-}
-
-class ALUOpcode extends Bundle {
-    val op32 = Bool()
-    val sra_sub = Bool()
-    val funct3 = UInt(3.W)
-}
-
-class BranchOpcodeBranch extends Bundle {
-    val funct3 = UInt(3.W)
-}
-
-class BranchOpcodeJal extends Bundle {
-    val jalr = Bool()
-}
-
-class BranchOpcode extends Bundle {
-    val funct = UInt(4.W)
-    def from_branch(case_op: BranchOpcodeBranch) = {
-        this.funct := case_op.funct3
-    }
-    def from_jal(case_op: BranchOpcodeJal) = {
-        this.funct := 1.U ## 0.U(2.W) ## case_op.jalr.asUInt
-    }
-}
-
-class LoadStoreOpcodeNorm extends Bundle {
-    val funct1 = UInt(1.W)
-    val size = UInt(3.W)
-    def from_load(funct3: UInt) = {
-        this.size := funct3
-    }
-    def from_store(funct3: UInt) = {
-        this.funct1 := 1.U
-        this.size := funct3
-    }
-}
-
-class LoadStoreOpcodeAmo extends Bundle {
-   // No need for `aq` or `rl` since all load/store operations use sequential consistency
-    val funct5 = UInt(5.W)
-    val size = UInt(3.W)
-    def from_instr(funct3: UInt, funct7: UInt) = {
-        this.funct5 := funct7(6,2)
-        this.size := funct3
-    }
-}
-
-class LoadStoreOpcode extends Bundle {
-    val funct = UInt(6.W)
-    val size = UInt(3.W)
-    def from_amo(case_op: LoadStoreOpcodeAmo) = {
-        this.funct := case_op.funct5 ## 1.U(1.W)
-        this.size := case_op.size
-    }
-    def fromnorm(case_op: LoadStoreOpcodeNorm) = {
-        this.funct := case_op.funct1 ## 0.U(1.W)
-        this.size := case_op.size
-    }
-}
+import markorv.utils.ChiselUtils._
+import markorv.frontend._
 
 object SystemOpMap extends ChiselEnum {
     val ecall = Value("h000000".U)
@@ -74,38 +13,268 @@ object SystemOpMap extends ChiselEnum {
     val mret = Value("h604000".U)
 }
 
+class CommitBundle extends Bundle {
+    val reg = UInt(5.W)
+    val data = UInt(64.W)
+}
+
+class MUOpcode extends Bundle {
+    val op32 = Bool()
+    val funct3 = UInt(3.W)
+
+    def fromReg(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new RTypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.op32 := false.B
+        this.funct3 := instr.funct3
+
+        regReq.source1 := instr.rs1
+        regReq.source2 := instr.rs2
+        params.rd := instr.rd
+        valid
+    }
+
+    def fromReg32(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new RTypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.op32 := true.B
+        this.funct3 := instr.funct3
+
+        regReq.source1 := instr.rs1
+        regReq.source2 := instr.rs2
+        params.rd := instr.rd
+        valid
+    }
+}
+
+class ALUOpcode extends Bundle {
+    val op32 = Bool()
+    val sraSub = Bool()
+    val funct3 = UInt(3.W)
+
+    def fromLui(rawInstr: Instruction, _regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new UTypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.op32 := false.B
+        this.sraSub := false.B
+        this.funct3 := "b000".U
+
+        params.source1 := (instr.imm20 << 12).sextu(64)
+        params.source2 := 0.U
+        params.rd := instr.rd
+
+        valid
+    }
+
+    def fromAuipc(rawInstr: Instruction, _regReq: RegisterRequests, params: DecoderOutParams, pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new UTypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.op32 := false.B
+        this.sraSub := false.B
+        this.funct3 := "b000".U
+
+        params.source1 := (instr.imm20 << 12).sextu(64)
+        params.source2 := pc
+        params.rd := instr.rd
+
+        valid
+    }
+
+    def fromImm(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new ITypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.op32 := false.B
+        this.funct3 := instr.funct3
+        this.sraSub := instr.funct3 === "b101".U && instr.imm12(10)
+
+        // slli/srli/srai use shamt, others use full imm12
+        params.source2 := Mux(
+            instr.funct3 === "b001".U || instr.funct3 === "b101".U,
+            instr.imm12(5,0).sextu(64), // shamt6
+            instr.imm12.sextu(64)
+        )
+        regReq.source1 := instr.rs1
+        params.rd := instr.rd
+        valid
+    }
+
+    def fromImm32(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new ITypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.op32 := true.B
+        this.funct3 := instr.funct3
+        this.sraSub := instr.funct3 === "b101".U && instr.imm12(10)
+
+        params.source2 := Mux(
+            instr.funct3 === "b001".U || instr.funct3 === "b101".U,
+            instr.imm12(4,0).sextu(64), // shamt5
+            instr.imm12.sextu(64)
+        )
+        regReq.source1 := instr.rs1
+        params.rd := instr.rd
+        valid
+    }
+
+    def fromReg(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new RTypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.op32 := false.B
+        this.funct3 := instr.funct3
+        this.sraSub := (instr.funct3 === "b101".U || instr.funct3 === "b000".U) && instr.funct7(5)
+
+        regReq.source1 := instr.rs1
+        regReq.source2 := instr.rs2
+        params.rd := instr.rd
+        valid
+    }
+
+    def fromReg32(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new RTypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.op32 := true.B
+        this.funct3 := instr.funct3
+        this.sraSub := (instr.funct3 === "b101".U || instr.funct3 === "b000".U) && instr.funct7(5)
+
+        regReq.source1 := instr.rs1
+        regReq.source2 := instr.rs2
+        params.rd := instr.rd
+        valid
+    }
+}
+
+class BranchOpcode extends Bundle {
+    val funct = UInt(4.W)
+
+    def fromBranch(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt) = {
+        val instr = rawInstr.asTypeOf(new BTypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.funct := instr.funct3
+        regReq.source1 := instr.rs1
+        regReq.source2 := instr.rs2
+        valid
+    }
+
+    def fromJal(rawInstr: Instruction, _regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt) = {
+        val instr = rawInstr.asTypeOf(new JTypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.funct := "b1000".U
+        params.rd := instr.rd
+        valid
+    }
+
+    def fromJalr(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt) = {
+        val instr = rawInstr.asTypeOf(new ITypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.funct := "b1001".U
+        regReq.source1 := instr.rs1
+        params.source2 := instr.imm12.sextu(64)
+        params.rd := instr.rd
+        valid
+    }
+}
+
+class LoadStoreOpcode extends Bundle {
+    val funct = UInt(6.W)
+    val size = UInt(3.W)
+
+    def fromAmo(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new RTypeInstruction)
+        val valid = WireInit(true.B)
+
+        // Always with .aq.rl order
+        this.funct := instr.funct7(6,2) ## 1.U(1.W)
+        this.size := instr.funct3
+        regReq.source1 := instr.rs1
+        regReq.source2 := instr.rs2
+        params.rd := instr.rd
+        valid
+    }
+
+    def fromLoad(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt) = {
+        val instr = rawInstr.asTypeOf(new ITypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.funct := 0.U(1.W) ## 0.U(1.W)
+        this.size := instr.funct3
+        // Issuer will sum up register request values from this instruction
+        regReq.source1 := instr.rs1
+        params.source1 := instr.imm12.sextu(64)
+        params.rd := instr.rd
+        valid
+    }
+
+    def fromStore(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt) = {
+        val instr = rawInstr.asTypeOf(new STypeInstruction)
+        val valid = WireInit(true.B)
+
+        this.funct := 1.U(1.W) ## 0.U(1.W)
+        this.size := instr.funct3
+        regReq.source1 := instr.rs1
+        regReq.source2 := instr.rs2
+        // Issuer will sum up register request values from this instruction
+        params.source1 := instr.imm12.sextu(64)
+        valid
+    }
+}
+
 class MiscOpcode extends Bundle {
-    val misc_csr_funct = UInt(4.W) 
-    val misc_sys_funct = UInt(3.W)
-    val misc_mem_funct = UInt(1.W)
-    def from_sys(imm12: UInt, funct3: UInt, rs1: UInt, rd: UInt): Bool = {
+    val miscCsrFunct = UInt(4.W)
+    val miscSysFunct = UInt(3.W)
+    val miscMemFunct = UInt(1.W)
+
+    def fromSys(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
-        val csr_type = funct3(1,0)
-        when(csr_type =/= 0.U) {
-            val is_csrrw = csr_type === 1.U
-            val read_en = Mux(is_csrrw, rd =/= 0.U, true.B)
-            val write_en = Mux(is_csrrw, true.B, rs1 =/= 0.U)
-            this.misc_csr_funct := read_en ## write_en ## funct3(1,0)
+
+        val csrType = instr.funct3(1,0)
+        when(csrType =/= 0.U) {
+            val isImm = instr.funct3(2)
+            val isCsrrw = csrType === 1.U
+            val readEn = Mux(isCsrrw, instr.rd =/= 0.U, true.B)
+            val writeEn = Mux(isCsrrw, true.B, instr.rs1 =/= 0.U)
+            this.miscCsrFunct := readEn ## writeEn ## csrType
+            params.source2 := instr.imm12
+            when(isImm) {
+                params.source1 := instr.rs1.zextu(64)
+            } otherwise {
+                regReq.source1 := instr.rs1
+            }
+            params.rd := instr.rd
             valid := true.B
         }.otherwise {
-            val (sys_funct, sys_valid) = SystemOpMap.safe((imm12 ## rs1 ## funct3 ## rd)(22,0))
-            valid := sys_valid
-            this.misc_sys_funct := Mux(sys_valid, MuxLookup(sys_funct, 0.U)(Seq(
+            val (sysFunct, sysValid) = SystemOpMap.safe((instr.imm12 ## instr.rs1 ## instr.funct3 ## instr.rd)(22,0))
+            valid := sysValid
+            this.miscSysFunct := Mux(sysValid, MuxLookup(sysFunct, 0.U)(Seq(
                 SystemOpMap.ecall -> 1.U,
                 SystemOpMap.ebreak -> 2.U,
                 SystemOpMap.wfi -> 3.U,
                 SystemOpMap.mret -> 4.U
             )),0.U)
         }
-        return valid
+        valid
     }
-    def from_miscmem(imm12: UInt, funct3: UInt, rs1: UInt, rd: UInt): Bool = {
+
+    def fromMiscMem(rawInstr: Instruction, _regReq: RegisterRequests, params: DecoderOutParams, pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
-        val instr = imm12 ## rs1 ## funct3 ## rd
-        when((instr & "h1e01fff".U) === 0.U) {
+
+        when(instr.imm12 ## instr.rs1 ## instr.funct3 ## instr.rd === "h20".U) {
+            // fence.i
             valid := true.B
-            this.misc_mem_funct := 1.U
+            params.source1 := pc + 4.U
+            this.miscMemFunct := 2.U
         }
-        return valid
+        valid
     }
 }

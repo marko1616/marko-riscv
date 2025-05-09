@@ -10,120 +10,120 @@ import markorv.cache._
 
 class InstrCache(implicit val config: CacheConfig) extends Module {
     val io = IO(new Bundle {
-        val in_read_req = Flipped(Decoupled(UInt(64.W)))
-        val in_read_data = Decoupled(UInt((8 * config.data_bytes).W))
-        val out_read_req = Decoupled(UInt(64.W))
-        val out_read_data = Flipped(Decoupled(UInt((8 * config.data_bytes).W)))
-        val transaction_addr = Output(UInt(64.W))
+        val inReadReq = Flipped(Decoupled(UInt(64.W)))
+        val inReadData = Decoupled(UInt((8 * config.dataBytes).W))
+        val outReadReq = Decoupled(UInt(64.W))
+        val outReadData = Flipped(Decoupled(UInt((8 * config.dataBytes).W)))
+        val transactionAddr = Output(UInt(64.W))
         val invalidate = Input(Bool())
-        val invalidate_outfire = Output(Bool())
+        val invalidateOutfire = Output(Bool())
     })
     object State extends ChiselEnum {
-        val stat_idle, stat_read, stat_replace, stat_invalidate = Value
+        val statIdle, statRead, statReplace, statInvalidate = Value
     }
 
-    val read_addr = Reg(UInt(64.W))
+    val readAddr = Reg(UInt(64.W))
 
-    val state = RegInit(State.stat_idle)
-    val invalidate_state = Reg(UInt(config.set_bits.W))
-    val replace_ptr = Reg(UInt(log2Ceil(config.way_num).W))
+    val state = RegInit(State.statIdle)
+    val invalidateState = Reg(UInt(config.setBits.W))
+    val replacePtr = Reg(UInt(log2Ceil(config.wayNum).W))
 
-    val tagv_array = SyncReadMem(config.set_num, Vec(config.way_num,new CacheTagValid))
-    val data_array = SyncReadMem(config.set_num, Vec(config.way_num,new CacheData))
+    val tagVArray = SyncReadMem(config.setNum, Vec(config.wayNum,new CacheTagValid))
+    val dataArray = SyncReadMem(config.setNum, Vec(config.wayNum,new CacheData))
 
-    val tagv_read = Wire(Vec(config.way_num,new CacheTagValid))
-    val data_read = Wire(Vec(config.way_num,new CacheData))
-    val lookup_index = Mux(state === State.stat_replace,read_addr(config.set_end,config.set_start),io.in_read_req.bits(config.set_end,config.set_start))
-    val lookup_valid = io.in_read_req.valid && (state === State.stat_idle || state === State.stat_read || state === State.stat_replace)
+    val tagvRead = Wire(Vec(config.wayNum,new CacheTagValid))
+    val dataRead = Wire(Vec(config.wayNum,new CacheData))
+    val lookupIndex = Mux(state === State.statReplace,readAddr(config.setEnd,config.setStart),io.inReadReq.bits(config.setEnd,config.setStart))
+    val lookupValid = io.inReadReq.valid && (state === State.statIdle || state === State.statRead || state === State.statReplace)
 
-    io.in_read_req.ready := (state === State.stat_idle || state === State.stat_read)
-    io.out_read_data.ready := state === State.stat_replace
+    io.inReadReq.ready := (state === State.statIdle || state === State.statRead)
+    io.outReadData.ready := state === State.statReplace
 
-    io.in_read_data.valid := false.B
-    io.out_read_req.valid := false.B
-    io.in_read_data.bits := 0.U
-    io.out_read_req.bits := 0.U
-    io.transaction_addr := read_addr
+    io.inReadData.valid := false.B
+    io.outReadReq.valid := false.B
+    io.inReadData.bits := 0.U
+    io.outReadReq.bits := 0.U
+    io.transactionAddr := readAddr
 
-    io.invalidate_outfire := false.B
+    io.invalidateOutfire := false.B
 
-    tagv_read := tagv_array.read(lookup_index,lookup_valid)
-    data_read := data_array.read(lookup_index,lookup_valid)
+    tagvRead := tagVArray.read(lookupIndex,lookupValid)
+    dataRead := dataArray.read(lookupIndex,lookupValid)
 
     switch(state) {
-        is(State.stat_idle) {
-            when(io.in_read_req.valid) {
-                read_addr := io.in_read_req.bits
-                state := State.stat_read
+        is(State.statIdle) {
+            when(io.inReadReq.valid) {
+                readAddr := io.inReadReq.bits
+                state := State.statRead
             }
             when(io.invalidate) {
-                invalidate_state := 0.U
-                state := State.stat_invalidate
+                invalidateState := 0.U
+                state := State.statInvalidate
             }
         }
-        is(State.stat_read) {
-            val read_tag = read_addr(config.tag_end,config.tag_start)
-            val read_valid = WireInit(false.B)
-            for(i <- 0 until config.way_num) {
-                val tagv = tagv_read(i)
-                when(tagv.valid && tagv.tag === read_tag) {
-                    read_valid := true.B
-                    io.in_read_data.valid := true.B
-                    io.in_read_data.bits := data_read(i).data
-                    when(io.in_read_req.valid) {
-                        read_addr := io.in_read_req.bits
-                        state := State.stat_read
+        is(State.statRead) {
+            val readTag = readAddr(config.tagEnd,config.tagStart)
+            val readValid = WireInit(false.B)
+            for(i <- 0 until config.wayNum) {
+                val tagv = tagvRead(i)
+                when(tagv.valid && tagv.tag === readTag) {
+                    readValid := true.B
+                    io.inReadData.valid := true.B
+                    io.inReadData.bits := dataRead(i).data
+                    when(io.inReadReq.valid) {
+                        readAddr := io.inReadReq.bits
+                        state := State.statRead
                     }.otherwise {
-                        state := State.stat_idle
+                        state := State.statIdle
                     }
                 }
             }
-            when(!read_valid) {
-                state := State.stat_replace
+            when(!readValid) {
+                state := State.statReplace
             }
             when(io.invalidate) {
-                invalidate_state := 0.U
-                state := State.stat_invalidate
+                invalidateState := 0.U
+                state := State.statInvalidate
             }
         }
-        is(State.stat_replace) {
-            io.out_read_req.valid := true.B
-            io.out_read_req.bits := read_addr
-            when(io.out_read_data.valid) {
-                val index = read_addr(config.set_end, config.set_start)
-                val tag = read_addr(config.tag_end, config.tag_start)
-                val way = replace_ptr
+        is(State.statReplace) {
+            io.outReadReq.valid := true.B
+            io.outReadReq.bits := readAddr
+            when(io.outReadData.valid) {
+                val index = readAddr(config.setEnd, config.setStart)
+                val tag = readAddr(config.tagEnd, config.tagStart)
+                val way = replacePtr
 
-                val new_tagv = Wire(Vec(config.way_num, new CacheTagValid))
-                val new_data = Wire(Vec(config.way_num, new CacheData))
+                val newTagV = Wire(Vec(config.wayNum, new CacheTagValid))
+                val newData = Wire(Vec(config.wayNum, new CacheData))
 
-                for (i <- 0 until config.way_num) {
-                    new_tagv(i) := tagv_read(i)
-                    new_data(i) := data_read(i)
+                for (i <- 0 until config.wayNum) {
+                    newTagV(i) := tagvRead(i)
+                    newData(i) := dataRead(i)
                     when(i.U === way) {
-                        new_tagv(i).tag := tag
-                        new_tagv(i).valid := true.B
-                        new_data(i).data := io.out_read_data.bits
+                        newTagV(i).tag := tag
+                        newTagV(i).valid := true.B
+                        newData(i).data := io.outReadData.bits
                     }
                 }
 
-                tagv_array.write(index, new_tagv)
-                data_array.write(index, new_data)
+                tagVArray.write(index, newTagV)
+                dataArray.write(index, newData)
 
-                replace_ptr := replace_ptr + 1.U
-                io.in_read_data.valid := true.B
-                io.in_read_data.bits := io.out_read_data.bits
-                state := State.stat_idle
+                replacePtr := replacePtr + 1.U
+                io.inReadData.valid := true.B
+                io.inReadData.bits := io.outReadData.bits
+                state := State.statIdle
             }
         }
-        is(State.stat_invalidate) {
-            val current_set = invalidate_state
-            val invalidate_tagv = Vec(config.way_num, new CacheTagValid()).zero
-            tagv_array.write(current_set, invalidate_tagv)
-            invalidate_state := current_set + 1.U
-            when(current_set === (config.set_num - 1).U) {
-                state := State.stat_idle
-                io.invalidate_outfire := true.B
+        is(State.statInvalidate) {
+            val currentSet = invalidateState
+            val invalidateTagV = Vec(config.wayNum, new CacheTagValid()).zero
+            tagVArray.write(currentSet, invalidateTagV)
+            invalidateState := currentSet + 1.U
+            when(currentSet === (config.setNum - 1).U) {
+                state := State.statIdle
+                io.invalidateOutfire := true.B
             }
         }
     }

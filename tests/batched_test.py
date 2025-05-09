@@ -1,6 +1,8 @@
 import os
 import pathlib
+import argparse
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from rich import print
 from elftools.elf.elffile import ELFFile
@@ -67,7 +69,7 @@ TEST_CASES = [
             "rv64ui-p-xor",
             "rv64ui-p-xori",
 # Zifencei Extension
-#           "rv64ui-p-fence_i",
+            "rv64ui-p-fence_i",
 # A Extension
             "rv64ua-p-amoadd_d",
             "rv64ua-p-amoadd_w",
@@ -104,39 +106,63 @@ TEST_CASES = [
             "rv64um-p-remw",
 ]
 
+parser = argparse.ArgumentParser()
+parser.add_argument("-j", "--jobs", type=int, default=1, help="Number of parallel jobs")
+args = parser.parse_args()
+jobs = args.jobs
+
 passed_count = 0
 failed_count = 0
 
-for case in TEST_CASES:
+def run_test(case_name):
+    ram_dump_path = BASE_PATH / "tests" / f"{case_name}.ram_dump.bin"
     command = [
         str(EMULATOR_PATH),
         "--rom-path", str(ROM_PATH),
-        "--ram-path", str(TESTS_PATH / case),
+        "--ram-path", str(TESTS_PATH / case_name),
         "--max-clock", "10000",
-        "--ram-dump", str(RAM_DUMP_PATH)
+        "--ram-dump", str(ram_dump_path)
     ]
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"[ERROR] while testing {case}")
-        failed_count += 1
-        continue
+        return (False, case_name, None)
+
     tohost_offset = None
-    with open(TESTS_PATH / case, 'rb') as file:
+    with open(TESTS_PATH / case_name, 'rb') as file:
         elf = ELFFile(file)
         for section in elf.iter_sections():
             if section.name == ".tohost":
                 tohost_offset = section['sh_addr'] - 0x80000000
-    assert tohost_offset is not None
-    with open(RAM_DUMP_PATH, "rb") as file:
+                break
+
+    if tohost_offset is None:
+        return (False, case_name, None)
+
+    with open(ram_dump_path, "rb") as file:
         file.seek(tohost_offset)
-        result = int.from_bytes(file.read(2), byteorder="little")
-        if result == 1:
-            print(f"[green][PASSED][/green] {case}")
+        result_value = int.from_bytes(file.read(2), byteorder="little")
+
+    os.remove(ram_dump_path)
+
+    if result_value == 1:
+        return (True, case_name, None)
+    else:
+        return (False, case_name, result_value >> 1)
+
+with ThreadPoolExecutor(max_workers=jobs) as executor:
+    future_to_case = {executor.submit(run_test, case): case for case in TEST_CASES}
+
+    for future in as_completed(future_to_case):
+        passed, case_name, fail_at = future.result()
+        if passed:
+            print(f"[green][PASSED][/green] {case_name}")
             passed_count += 1
         else:
-            print(f"[red][FAILED][/red] {case} at {result >> 1}")
+            if fail_at is not None:
+                print(f"[red][FAILED][/red] {case_name} at {fail_at}")
+            else:
+                print(f"[ERROR] while testing {case_name}")
             failed_count += 1
-    os.remove(RAM_DUMP_PATH)
 
 total_cases = len(TEST_CASES)
 pass_rate = (passed_count / total_cases) * 100 if total_cases > 0 else 0
