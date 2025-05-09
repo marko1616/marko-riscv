@@ -24,71 +24,71 @@ object ALUFunct3SubSra extends ChiselEnum {
 }
 
 class ALUInstr extends Bundle {
-    val alu_opcode = new ALUOpcode
-    val params = new DecoderOutParams(64)
+    val aluOpcode = new ALUOpcode
+    val params = new DecoderOutParams
 }
 
 class ALUIO extends Bundle {
-    val alu_instr = Flipped(Decoupled(new ALUInstr))
-    val register_commit = Decoupled(new RegisterCommit)
+    val aluInstr = Flipped(Decoupled(new ALUInstr))
+    val commit = Decoupled(new CommitBundle)
     val outfire = Output(Bool())
 }
 
 class ArithmeticLogicUnit extends Module {
     val io = IO(new ALUIO)
     val result = WireInit(0.U(64.W))
-    io.alu_instr.ready := true.B
+    io.aluInstr.ready := true.B
 
-    io.register_commit.bits.data := 0.U
-    io.register_commit.bits.reg := 0.U
-    io.register_commit.valid := false.B
+    io.commit.bits.data := 0.U
+    io.commit.bits.reg := 0.U
+    io.commit.valid := false.B
     io.outfire := false.B
 
-    val opcode = io.alu_instr.bits.alu_opcode
-    val params = io.alu_instr.bits.params
+    val opcode = io.aluInstr.bits.aluOpcode
+    val params = io.aluInstr.bits.params
     val source1 = params.source1
     val source2 = params.source2
     val op32 = opcode.op32
 
-    val sra_shift = Mux(op32,
+    val sraShift = Mux(op32,
         (source1(31,0).asSInt >> source2(4,0)).asUInt,
         (source1.asSInt >> source2(5,0)).asUInt
     )
 
-    val sll_shift = Mux(op32,
+    val sllShift = Mux(op32,
         source1 << source2(4,0),
         source1 << source2(5,0)
     )
 
-    val srl_shift = Mux(op32,
+    val srlShift = Mux(op32,
         source1(31,0) >> source2(4,0),
         source1 >> source2(5,0)
     )
 
-    val funct3_norm = ALUFunct3Norm(opcode.funct3)
-    val (funct3_sub_sra, valid_funct3_sub_sra) = ALUFunct3SubSra.safe(opcode.funct3)
-    val valid_funct3 = Mux(opcode.sra_sub, valid_funct3_sub_sra, true.B)
+    val funct3Norm = ALUFunct3Norm(opcode.funct3)
+    val (funct3SubSra, validFunct3SubSra) = ALUFunct3SubSra.safe(opcode.funct3)
+    val valid_funct3 = Mux(opcode.sraSub, validFunct3SubSra, true.B)
 
-    result := Mux(opcode.sra_sub,
-        MuxLookup(funct3_sub_sra, 0.U)(Seq(
+    result := Mux(opcode.sraSub,
+        MuxLookup(funct3SubSra, 0.U)(Seq(
             ALUFunct3SubSra.sub -> (source1 - source2),
-            ALUFunct3SubSra.sra -> sra_shift
+            ALUFunct3SubSra.sra -> sraShift
         )),
-        MuxLookup(funct3_norm, 0.U)(Seq(
+        MuxLookup(funct3Norm, 0.U)(Seq(
             ALUFunct3Norm.add -> (source1 + source2),
             ALUFunct3Norm.slt -> (source1.asSInt < source2.asSInt).asUInt,
             ALUFunct3Norm.sltu -> (source1 < source2).asUInt,
             ALUFunct3Norm.xor -> (source1 ^ source2),
             ALUFunct3Norm.or -> (source1 | source2),
             ALUFunct3Norm.and -> (source1 & source2),
-            ALUFunct3Norm.sll -> sll_shift,
-            ALUFunct3Norm.srl -> srl_shift
+            ALUFunct3Norm.sll -> sllShift,
+            ALUFunct3Norm.srl -> srlShift
         ))
     )
     when(valid_funct3) {
-        io.register_commit.valid := io.alu_instr.valid
-        io.register_commit.bits.reg := params.rd
-        io.register_commit.bits.data := Mux(opcode.op32, result(31, 0).sextu(64), result)
-        io.outfire := io.alu_instr.valid
+        io.commit.valid := io.aluInstr.valid
+        io.commit.bits.reg := params.rd
+        io.commit.bits.data := Mux(opcode.op32, result(31, 0).sextu(64), result)
+        io.outfire := io.aluInstr.valid
     }
 }

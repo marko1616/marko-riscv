@@ -9,131 +9,131 @@ import markorv.backend._
 
 class InstrIssueUnit extends Module {
     val io = IO(new Bundle {
-        val issue_task = Flipped(Decoupled(new IssueTask))
+        val issueTask = Flipped(Decoupled(new IssueTask))
 
-        val lsu_out = Decoupled(new Bundle {
-            val lsu_opcode = new LoadStoreOpcode
-            val params = new DecoderOutParams(64)
+        val lsuOut = Decoupled(new Bundle {
+            val lsuOpcode = new LoadStoreOpcode
+            val params = new DecoderOutParams
         })
 
-        val alu_out = Decoupled(new Bundle {
-            val alu_opcode = new ALUOpcode
-            val params = new DecoderOutParams(64)
+        val aluOut = Decoupled(new Bundle {
+            val aluOpcode = new ALUOpcode
+            val params = new DecoderOutParams
         })
 
-        val misc_out = Decoupled(new Bundle {
-            val misc_opcode = new MiscOpcode
-            val params = new DecoderOutParams(64)
+        val miscOut = Decoupled(new Bundle {
+            val miscOpcode = new MiscOpcode
+            val params = new DecoderOutParams
         })
 
-        val mu_out = Decoupled(new Bundle {
-            val mu_opcode = new MUOpcode
-            val params = new DecoderOutParams(64)
+        val muOut = Decoupled(new Bundle {
+            val muOpcode = new MUOpcode
+            val params = new DecoderOutParams
         })
 
-        val branch_out = Decoupled(new Bundle {
-            val branch_opcode = new BranchOpcode
-            val pred_taken = Bool()
-            val pred_pc = UInt(64.W)
-            val recover_pc = UInt(64.W)
-            val params = new DecoderOutParams(64)
+        val branchOut = Decoupled(new Bundle {
+            val branchOpcode = new BranchOpcode
+            val predTaken = Bool()
+            val predPc = UInt(64.W)
+            val recoverPc = UInt(64.W)
+            val params = new DecoderOutParams
         })
 
-        val acquire_reg = Output(UInt(5.W))
+        val acquireReg = Output(UInt(5.W))
         val acquired = Input(Bool())
 
-        val reg_read1 = Output(UInt(5.W))
-        val reg_read2 = Output(UInt(5.W))
-        val reg_data1 = Input(UInt(64.W))
-        val reg_data2 = Input(UInt(64.W))
+        val regRead1 = Output(UInt(5.W))
+        val regRead2 = Output(UInt(5.W))
+        val regData1 = Input(UInt(64.W))
+        val regData2 = Input(UInt(64.W))
 
-        val occupied_regs = Input(UInt(32.W))
+        val occupiedRegs = Input(UInt(32.W))
         val outfire = Output(Bool())
     })
-    val final_params = Wire(new DecoderOutParams(64))
-    val params = io.issue_task.bits.params
-    final_params := params
+    val finalParams = Wire(new DecoderOutParams)
+    val params = io.issueTask.bits.params
+    finalParams := params
 
-    val occupied_reg = Wire(Bool())
-    val exec_unit_ready = Wire(Bool())
-    occupied_reg := false.B
+    val occupiedReg = Wire(Bool())
+    val execUnitReady = Wire(Bool())
+    occupiedReg := false.B
     // Force exec order.
-    exec_unit_ready := io.lsu_out.ready && io.alu_out.ready && io.misc_out.ready && io.mu_out.ready && io.branch_out.ready
+    execUnitReady := io.lsuOut.ready && io.aluOut.ready && io.miscOut.ready && io.muOut.ready && io.branchOut.ready
 
-    io.lsu_out.valid := false.B
-    io.alu_out.valid := false.B
-    io.misc_out.valid := false.B
-    io.mu_out.valid := false.B
-    io.branch_out.valid := false.B
+    io.lsuOut.valid := false.B
+    io.aluOut.valid := false.B
+    io.miscOut.valid := false.B
+    io.muOut.valid := false.B
+    io.branchOut.valid := false.B
 
-    io.lsu_out.bits.lsu_opcode := new LoadStoreOpcode().zero
-    io.lsu_out.bits.params := new DecoderOutParams(64).zero
-    io.alu_out.bits.alu_opcode := new ALUOpcode().zero
-    io.alu_out.bits.params := new DecoderOutParams(64).zero
-    io.misc_out.bits.misc_opcode := new MiscOpcode().zero
-    io.misc_out.bits.params := new DecoderOutParams(64).zero
-    io.mu_out.bits.mu_opcode := new MUOpcode().zero
-    io.mu_out.bits.params := new DecoderOutParams(64).zero
-    io.branch_out.bits.branch_opcode := new BranchOpcode().zero
-    io.branch_out.bits.pred_taken := false.B
-    io.branch_out.bits.pred_pc := 0.U
-    io.branch_out.bits.recover_pc := 0.U
-    io.branch_out.bits.params := new DecoderOutParams(64).zero
+    io.lsuOut.bits.lsuOpcode := new LoadStoreOpcode().zero
+    io.lsuOut.bits.params := new DecoderOutParams().zero
+    io.aluOut.bits.aluOpcode := new ALUOpcode().zero
+    io.aluOut.bits.params := new DecoderOutParams().zero
+    io.miscOut.bits.miscOpcode := new MiscOpcode().zero
+    io.miscOut.bits.params := new DecoderOutParams().zero
+    io.muOut.bits.muOpcode := new MUOpcode().zero
+    io.muOut.bits.params := new DecoderOutParams().zero
+    io.branchOut.bits.branchOpcode := new BranchOpcode().zero
+    io.branchOut.bits.predTaken := false.B
+    io.branchOut.bits.predPc := 0.U
+    io.branchOut.bits.recoverPc := 0.U
+    io.branchOut.bits.params := new DecoderOutParams().zero
 
-    io.acquire_reg := 0.U
-    io.issue_task.ready := false.B
+    io.acquireReg := 0.U
+    io.issueTask.ready := false.B
     io.outfire := false.B
 
-    val reg_data1 = Wire(UInt(64.W))
-    val reg_data2 = Wire(UInt(64.W))
-    io.reg_read1 := io.issue_task.bits.reg_source_requests.source1
-    io.reg_read2 := io.issue_task.bits.reg_source_requests.source2
-    reg_data1 := io.reg_data1
-    reg_data2 := io.reg_data2
-    when(io.issue_task.bits.reg_source_requests.source1 =/= 0.U) {
-        final_params.source1 := params.source1 + reg_data1
+    val regData1 = Wire(UInt(64.W))
+    val regData2 = Wire(UInt(64.W))
+    io.regRead1 := io.issueTask.bits.regRequests.source1
+    io.regRead2 := io.issueTask.bits.regRequests.source2
+    regData1 := io.regData1
+    regData2 := io.regData2
+    when(io.issueTask.bits.regRequests.source1 =/= 0.U) {
+        finalParams.source1 := params.source1 + regData1
     }
-    when(io.issue_task.bits.reg_source_requests.source2 =/= 0.U) {
-        final_params.source2 := params.source2 + reg_data2
+    when(io.issueTask.bits.regRequests.source2 =/= 0.U) {
+        finalParams.source2 := params.source2 + regData2
     }
-    occupied_reg := io.occupied_regs(
-      io.issue_task.bits.reg_source_requests.source1
-    ) || io.occupied_regs(io.issue_task.bits.reg_source_requests.source2)
+    occupiedReg := io.occupiedRegs(
+      io.issueTask.bits.regRequests.source1
+    ) || io.occupiedRegs(io.issueTask.bits.regRequests.source2)
 
-    when(io.issue_task.valid && exec_unit_ready && ~occupied_reg) {
+    when(io.issueTask.valid && execUnitReady && ~occupiedReg) {
         // Only try to acquire register when all other are prepared.
-        io.acquire_reg := final_params.rd
-        when(io.issue_task.bits.operate_unit === 0.U && io.acquired) {
+        io.acquireReg := finalParams.rd
+        when(io.issueTask.bits.operateUnit === 0.U && io.acquired) {
             io.outfire := true.B
-            io.alu_out.valid := true.B
-            io.alu_out.bits.alu_opcode := io.issue_task.bits.alu_opcode
-            io.alu_out.bits.params := final_params
-        }.elsewhen(io.issue_task.bits.operate_unit === 1.U && io.acquired) {
+            io.aluOut.valid := true.B
+            io.aluOut.bits.aluOpcode := io.issueTask.bits.aluOpcode
+            io.aluOut.bits.params := finalParams
+        }.elsewhen(io.issueTask.bits.operateUnit === 1.U && io.acquired) {
             io.outfire := true.B
-            io.lsu_out.valid := true.B
-            io.lsu_out.bits.lsu_opcode := io.issue_task.bits.lsu_opcode
-            io.lsu_out.bits.params := final_params
-        }.elsewhen(io.issue_task.bits.operate_unit === 2.U && io.acquired) {
+            io.lsuOut.valid := true.B
+            io.lsuOut.bits.lsuOpcode := io.issueTask.bits.lsuOpcode
+            io.lsuOut.bits.params := finalParams
+        }.elsewhen(io.issueTask.bits.operateUnit === 2.U && io.acquired) {
             io.outfire := true.B
-            io.misc_out.valid := true.B
-            io.misc_out.bits.misc_opcode := io.issue_task.bits.misc_opcode
-            io.misc_out.bits.params := final_params
-        }.elsewhen(io.issue_task.bits.operate_unit === 3.U && io.acquired) {
+            io.miscOut.valid := true.B
+            io.miscOut.bits.miscOpcode := io.issueTask.bits.miscOpcode
+            io.miscOut.bits.params := finalParams
+        }.elsewhen(io.issueTask.bits.operateUnit === 3.U && io.acquired) {
             io.outfire := true.B
-            io.mu_out.valid := true.B
-            io.mu_out.bits.mu_opcode := io.issue_task.bits.mu_opcode
-            io.mu_out.bits.params := final_params
-        }.elsewhen(io.issue_task.bits.operate_unit === 4.U && io.acquired) {
+            io.muOut.valid := true.B
+            io.muOut.bits.muOpcode := io.issueTask.bits.muOpcode
+            io.muOut.bits.params := finalParams
+        }.elsewhen(io.issueTask.bits.operateUnit === 4.U && io.acquired) {
             io.outfire := true.B
-            io.branch_out.valid := true.B
-            io.branch_out.bits.branch_opcode := io.issue_task.bits.branch_opcode
-            io.branch_out.bits.pred_taken := io.issue_task.bits.pred_taken
-            io.branch_out.bits.pred_pc := io.issue_task.bits.pred_pc
-            io.branch_out.bits.recover_pc := io.issue_task.bits.recover_pc
-            io.branch_out.bits.params := final_params
+            io.branchOut.valid := true.B
+            io.branchOut.bits.branchOpcode := io.issueTask.bits.branchOpcode
+            io.branchOut.bits.predTaken := io.issueTask.bits.predTaken
+            io.branchOut.bits.predPc := io.issueTask.bits.predPc
+            io.branchOut.bits.recoverPc := io.issueTask.bits.recoverPc
+            io.branchOut.bits.params := finalParams
         }
     }
 
     // Ready when dispatch is available.
-    io.issue_task.ready := exec_unit_ready && ~occupied_reg && io.acquired
+    io.issueTask.ready := execUnitReady && ~occupiedReg && io.acquired
 }

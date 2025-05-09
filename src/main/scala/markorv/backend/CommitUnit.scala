@@ -5,28 +5,28 @@ import chisel3.util._
 
 class CommitUnit extends Module {
     val io = IO(new Bundle {
-        val register_commits = Vec(5, Flipped(Decoupled(new RegisterCommit))
+        val registerCommits = Vec(5, Flipped(Decoupled(new CommitBundle))
         )
 
-        val reg_write = Output(UInt(5.W))
-        val write_data = Output(UInt(64.W))
+        val regWrite = Output(UInt(5.W))
+        val writeData = Output(UInt(64.W))
         val instret = Output(UInt(1.W))
     })
 
-    for (i <- 0 until io.register_commits.length) {
-        io.register_commits(i).ready := true.B
+    for (i <- 0 until io.registerCommits.length) {
+        io.registerCommits(i).ready := true.B
     }
 
-    io.reg_write := 0.U
-    io.write_data := 0.U
+    io.regWrite := 0.U
+    io.writeData := 0.U
     io.instret := 0.U
 
     // Impossible to write back multiple times in one cycle.
-    for (i <- 0 until io.register_commits.length) {
-        when(io.register_commits(i).valid) {
+    for (i <- 0 until io.registerCommits.length) {
+        when(io.registerCommits(i).valid) {
             io.instret := 1.U
-            io.reg_write := io.register_commits(i).bits.reg
-            io.write_data := io.register_commits(i).bits.data
+            io.regWrite := io.registerCommits(i).bits.reg
+            io.writeData := io.registerCommits(i).bits.data
         }
     }
 }

@@ -71,7 +71,7 @@ class alignas(VL_CACHE_LINE_BYTES) VMarkoRvCore VL_NOT_FINAL : public VerilatedM
     VL_IN64(&io_axi_r_bits_data,63,0);
     VL_IN64(&io_time,63,0);
     VL_OUT64(&io_pc,63,0);
-    VL_OUT64(&io_instr_now,63,0);
+    VL_OUT64(&io_instrNow,63,0);
 
     // CELLS
     // Public to allow access to /* verilator public */ items.

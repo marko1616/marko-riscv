@@ -800,7 +800,7 @@ int main(int argc, char **argv, char **env)
 
         // Debug out
         if(args.verbose)
-            cycle_verbose(clock_cnt, top->io_pc, top->io_instr_now);
+            cycle_verbose(clock_cnt, top->io_pc, top->io_instrNow);
         // Posedge clk
         context->timeInc(1);
         top->clock = 1;

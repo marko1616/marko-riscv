@@ -14,84 +14,84 @@ object FetchTarget extends ChiselEnum {
 class CacheLine(implicit val config: CoreConfig) extends Bundle {
     val valid = Bool()
     val addr = UInt(64.W)
-    val data = UInt((8 * config.icache_config.data_bytes).W)
+    val data = UInt((8 * config.icacheConfig.dataBytes).W)
 }
 
 class InstrPrefetchUnit(implicit val config: CoreConfig) extends Module {
     val io = IO(new Bundle {
-        val fetch_pc = Input(UInt(64.W))
-        val fetched = Decoupled(UInt((8 * config.icache_config.data_bytes).W))
+        val fetchPc = Input(UInt(64.W))
+        val fetched = Decoupled(UInt((8 * config.icacheConfig.dataBytes).W))
 
-        val read_addr = Decoupled(UInt(64.W))
-        val read_data = Flipped(Decoupled(UInt((8 * config.icache_config.data_bytes).W)))
-        val transaction_addr = Input(UInt(64.W))
+        val readAddr = Decoupled(UInt(64.W))
+        val readData = Flipped(Decoupled(UInt((8 * config.icacheConfig.dataBytes).W)))
+        val transactionAddr = Input(UInt(64.W))
 
         val flush = Input(Bool())
     })
-    val curr_cacheline = RegInit(new CacheLine().zero)
-    val pref_cacheline = RegInit(new CacheLine().zero)
+    val currCacheline = RegInit(new CacheLine().zero)
+    val prefCacheline = RegInit(new CacheLine().zero)
 
-    val masked_pc = io.fetch_pc & config.icache_config.offset_mask
+    val maskedPc = io.fetchPc & config.icacheConfig.offsetMask
 
-    val curr_valid = curr_cacheline.valid && curr_cacheline.addr === masked_pc
-    val pref_valid = pref_cacheline.valid && pref_cacheline.addr === masked_pc
+    val currValid = currCacheline.valid && currCacheline.addr === maskedPc
+    val prefValid = prefCacheline.valid && prefCacheline.addr === maskedPc
 
-    val fetch_target = Mux(curr_valid, FetchTarget.pref, FetchTarget.curr)
+    val fetchTarget = Mux(currValid, FetchTarget.pref, FetchTarget.curr)
 
     io.fetched.valid := false.B
     io.fetched.bits := 0.U
-    io.read_addr.valid := false.B
-    io.read_addr.bits := 0.U
-    io.read_data.ready := false.B
-    
-    switch(fetch_target) {
+    io.readAddr.valid := false.B
+    io.readAddr.bits := 0.U
+    io.readData.ready := false.B
+
+    switch(fetchTarget) {
         is(FetchTarget.curr) {
-            when(pref_valid) {
+            when(prefValid) {
                 // Swap current and prefetch lines, and use prefetched data
-                curr_cacheline := pref_cacheline
-                pref_cacheline.valid := false.B
+                currCacheline := prefCacheline
+                prefCacheline.valid := false.B
 
                 io.fetched.valid := true.B
-                io.fetched.bits := pref_cacheline.data
+                io.fetched.bits := prefCacheline.data
             }.otherwise {
                 // Prefetch not valid, request from upstream
-                io.read_addr.valid := true.B
-                io.read_addr.bits := masked_pc
+                io.readAddr.valid := true.B
+                io.readAddr.bits := maskedPc
                 // Prevent flush
-                val read_valid = io.read_data.valid && io.transaction_addr === masked_pc
-                when(read_valid) {
+                val readValid = io.readData.valid && io.transactionAddr === maskedPc
+                when(readValid) {
                     io.fetched.valid := true.B
-                    io.fetched.bits := io.read_data.bits
+                    io.fetched.bits := io.readData.bits
 
-                    curr_cacheline.valid := true.B
-                    curr_cacheline.addr := masked_pc
-                    curr_cacheline.data := io.read_data.bits
+                    currCacheline.valid := true.B
+                    currCacheline.addr := maskedPc
+                    currCacheline.data := io.readData.bits
                 }
             }
         }
         is(FetchTarget.pref) {
             io.fetched.valid := true.B
-            io.fetched.bits := curr_cacheline.data
+            io.fetched.bits := currCacheline.data
 
-            val next_pc = masked_pc + (1.U << config.icache_config.offset_bits)
-            val need_prefetch = !pref_cacheline.valid || pref_cacheline.addr =/= next_pc
+            val nextPc = maskedPc + (1.U << config.icacheConfig.offsetBits)
+            val needPrefetch = !prefCacheline.valid || prefCacheline.addr =/= nextPc
 
-            when(need_prefetch) {
-                io.read_addr.valid := true.B
-                io.read_addr.bits := next_pc
+            when(needPrefetch) {
+                io.readAddr.valid := true.B
+                io.readAddr.bits := nextPc
                 // Prevent flush
-                val read_valid = io.read_data.valid && io.transaction_addr === next_pc
-                when(read_valid) {
-                    pref_cacheline.valid := true.B
-                    pref_cacheline.addr := next_pc
-                    pref_cacheline.data := io.read_data.bits
+                val readValid = io.readData.valid && io.transactionAddr === nextPc
+                when(readValid) {
+                    prefCacheline.valid := true.B
+                    prefCacheline.addr := nextPc
+                    prefCacheline.data := io.readData.bits
                 }
             }
         }
     }
 
     when(io.flush) {
-        curr_cacheline.valid := false.B
-        pref_cacheline.valid := false.B
+        currCacheline.valid := false.B
+        prefCacheline.valid := false.B
     }
 }

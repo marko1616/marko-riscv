@@ -31,91 +31,91 @@ object LSUOpcode extends ChiselEnum {
 
 class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
     val io = IO(new Bundle {
-        val lsu_instr = Flipped(Decoupled(new Bundle {
-            val lsu_opcode = new LoadStoreOpcode
-            val params = new DecoderOutParams(config.data_width)
+        val lsuInstr = Flipped(Decoupled(new Bundle {
+            val lsuOpcode = new LoadStoreOpcode
+            val params = new DecoderOutParams
         }))
 
-        val interface = new IOInterface()(config.ls_io_config,true)
+        val interface = new IOInterface()(config.loadStoreIoConfig,true)
 
-        val register_commit = Decoupled(new RegisterCommit)
-        val invalidate_reserved = Input(Bool())
+        val commit = Decoupled(new CommitBundle)
+        val invalidateReserved = Input(Bool())
         val outfire = Output(Bool())
     })
-    private val read_channel = io.interface.read.get
-    private val write_channel = io.interface.write.get
+    private val readChannel = io.interface.read.get
+    private val writeChannel = io.interface.write.get
     object State extends ChiselEnum {
-        val stat_normal, stat_amo_cache, stat_amo_read, stat_amo_write = Value
+        val statNormal, statAmoCache, statAmoRead, statAmoWrite = Value
     }
-    val state = RegInit(State.stat_normal)
-    val local_load_reserved_valid = RegInit(false.B)
-    val local_load_reserved_addr = RegInit(0.U(64.W))
+    val state = RegInit(State.statNormal)
+    val localLoadReservedValid = RegInit(false.B)
+    val localLoadReservedAddr = RegInit(0.U(64.W))
 
-    val (opcode, valid_funct) = LSUOpcode.safe(io.lsu_instr.bits.lsu_opcode.funct)
-    val size = io.lsu_instr.bits.lsu_opcode.size(1,0)
-    val sign = !io.lsu_instr.bits.lsu_opcode.size(2)
-    val params = io.lsu_instr.bits.params
+    val (opcode, validFunct) = LSUOpcode.safe(io.lsuInstr.bits.lsuOpcode.funct)
+    val size = io.lsuInstr.bits.lsuOpcode.size(1,0)
+    val sign = !io.lsuInstr.bits.lsuOpcode.size(2)
+    val params = io.lsuInstr.bits.params
 
-    val op_fired = Wire(Bool())
-    val load_data = Wire(UInt(config.data_width.W))
-    val amo_data_reg = Reg(UInt(config.data_width.W))
+    val opFired = Wire(Bool())
+    val loadData = Wire(UInt(config.dataWidth.W))
+    val amoDataReg = Reg(UInt(config.dataWidth.W))
     val AMO_SC_FAILED = "h0000000000000001".U
     val AMO_SC_SUCCED = "h0000000000000000".U
 
-    def invalidate_reserved(write_addr: UInt) = {
-        when(write_addr === local_load_reserved_addr) {
-            local_load_reserved_valid := false.B
-            local_load_reserved_addr := 0.U
+    def invalidateReserved(writeAddr: UInt) = {
+        when(writeAddr === localLoadReservedAddr) {
+            localLoadReservedValid := false.B
+            localLoadReservedAddr := 0.U
         }
     }
 
     // default
-    read_channel.params.valid := false.B
-    read_channel.params.bits := new ReadParams()(config.ls_io_config).zero
-    read_channel.resp.ready := false.B
+    readChannel.params.valid := false.B
+    readChannel.params.bits := new ReadParams()(config.loadStoreIoConfig).zero
+    readChannel.resp.ready := false.B
 
-    write_channel.params.valid := false.B
-    write_channel.params.bits := new WriteParams()(config.ls_io_config).zero
-    write_channel.resp.ready := false.B
+    writeChannel.params.valid := false.B
+    writeChannel.params.bits := new WriteParams()(config.loadStoreIoConfig).zero
+    writeChannel.resp.ready := false.B
 
-    io.register_commit.valid := false.B
-    io.register_commit.bits.data := 0.U(config.data_width.W)
-    io.register_commit.bits.reg := 0.U(5.W)
+    io.commit.valid := false.B
+    io.commit.bits.data := 0.U(config.dataWidth.W)
+    io.commit.bits.reg := 0.U(5.W)
 
-    io.lsu_instr.ready := false.B
+    io.lsuInstr.ready := false.B
     io.outfire := false.B
-    op_fired := false.B
-    load_data := 0.U
+    opFired := false.B
+    loadData := 0.U
 
-    when(state === State.stat_amo_cache) {
+    when(state === State.statAmoCache) {
         // TODO: Cache
         // Clear cache
-        state := State.stat_amo_read
+        state := State.statAmoRead
     }
 
-    when(state === State.stat_amo_read) {
+    when(state === State.statAmoRead) {
         // Read data from memory
         val addr = params.source1.asUInt
-        read_channel.params.valid := true.B
-        read_channel.params.bits.size := size
-        read_channel.params.bits.addr := addr
-        read_channel.params.bits.lock.get := true.B
-        read_channel.resp.ready := true.B
+        readChannel.params.valid := true.B
+        readChannel.params.bits.size := size
+        readChannel.params.bits.addr := addr
+        readChannel.params.bits.lock.get := true.B
+        readChannel.resp.ready := true.B
 
-        when(read_channel.resp.valid) {
-            val raw = read_channel.resp.bits.data
+        when(readChannel.resp.valid) {
+            val raw = readChannel.resp.bits.data
             val extended = MuxLookup(size, raw)(Seq(
-                0.U -> Mux(sign, raw(7,0).asSInt.pad(64).asUInt, raw(7,0).zextu(64)),
-                1.U -> Mux(sign, raw(15,0).asSInt.pad(64).asUInt, raw(15,0).zextu(64)),
-                2.U -> Mux(sign, raw(31,0).asSInt.pad(64).asUInt, raw(31,0).zextu(64)),
+                0.U -> Mux(sign, raw(7,0).sextu(64), raw(7,0).zextu(64)),
+                1.U -> Mux(sign, raw(15,0).sextu(64), raw(15,0).zextu(64)),
+                2.U -> Mux(sign, raw(31,0).sextu(64), raw(31,0).zextu(64)),
                 3.U -> raw // full 64-bit load
             ))
-            amo_data_reg := extended
-            state := State.stat_amo_write
+            amoDataReg := extended
+            state := State.statAmoWrite
         }
     }
 
-    when(state === State.stat_amo_write) {
+    when(state === State.statAmoWrite) {
         val addr = params.source1.asUInt
         val data = Wire(UInt(64.W))
         val source2 = Wire(UInt(64.W))
@@ -125,119 +125,119 @@ class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
             1.U -> params.source2(15,0).sextu(64),
             2.U -> params.source2(31,0).sextu(64)
         ))
-        val is_lr = opcode === LSUOpcode.lr
-        val is_sc = opcode === LSUOpcode.sc
+        val isLr = opcode === LSUOpcode.lr
+        val isSc = opcode === LSUOpcode.sc
 
         data := MuxLookup(opcode, 0.U)(Seq(
             LSUOpcode.sc      -> source2,
             LSUOpcode.amoswap -> source2,
-            LSUOpcode.amoadd  -> (amo_data_reg + source2),
-            LSUOpcode.amoxor  -> (amo_data_reg ^ source2),
-            LSUOpcode.amoor   -> (amo_data_reg | source2),
-            LSUOpcode.amoand  -> (amo_data_reg & source2),
-            LSUOpcode.amomin  -> Mux(amo_data_reg.asSInt < source2.asSInt, amo_data_reg, source2),
-            LSUOpcode.amomax  -> Mux(amo_data_reg.asSInt > source2.asSInt, amo_data_reg, source2),
-            LSUOpcode.amominu -> Mux(amo_data_reg < source2, amo_data_reg, source2),
-            LSUOpcode.amomaxu -> Mux(amo_data_reg > source2, amo_data_reg, source2)
+            LSUOpcode.amoadd  -> (amoDataReg + source2),
+            LSUOpcode.amoxor  -> (amoDataReg ^ source2),
+            LSUOpcode.amoor   -> (amoDataReg | source2),
+            LSUOpcode.amoand  -> (amoDataReg & source2),
+            LSUOpcode.amomin  -> Mux(amoDataReg.asSInt < source2.asSInt, amoDataReg, source2),
+            LSUOpcode.amomax  -> Mux(amoDataReg.asSInt > source2.asSInt, amoDataReg, source2),
+            LSUOpcode.amominu -> Mux(amoDataReg < source2, amoDataReg, source2),
+            LSUOpcode.amomaxu -> Mux(amoDataReg > source2, amoDataReg, source2)
         ))
 
-        when(is_lr) {
-            op_fired := true.B
-            local_load_reserved_valid := true.B
-            local_load_reserved_addr := addr
+        when(isLr) {
+            opFired := true.B
+            localLoadReservedValid := true.B
+            localLoadReservedAddr := addr
 
-            io.register_commit.valid := true.B
-            io.register_commit.bits.data := amo_data_reg
-            io.register_commit.bits.reg := params.rd
-            state := State.stat_normal
-        }.elsewhen(is_sc) {
-            when(local_load_reserved_valid && local_load_reserved_addr === addr) {
-                write_channel.params.valid := true.B
-                write_channel.params.bits.size := size
-                write_channel.params.bits.addr := addr
-                write_channel.params.bits.data := data
-                write_channel.params.bits.lock.get := true.B
-                when(write_channel.resp.valid) {
-                    op_fired := true.B
-                    local_load_reserved_valid := false.B
-                    local_load_reserved_addr := 0.U
-                    io.register_commit.valid := true.B
-                    io.register_commit.bits.data := Mux(write_channel.resp.bits === AxiResp.exokay,AMO_SC_SUCCED, AMO_SC_FAILED)
-                    io.register_commit.bits.reg := params.rd
-                    state := State.stat_normal
+            io.commit.valid := true.B
+            io.commit.bits.data := amoDataReg
+            io.commit.bits.reg := params.rd
+            state := State.statNormal
+        }.elsewhen(isSc) {
+            when(localLoadReservedValid && localLoadReservedAddr === addr) {
+                writeChannel.params.valid := true.B
+                writeChannel.params.bits.size := size
+                writeChannel.params.bits.addr := addr
+                writeChannel.params.bits.data := data
+                writeChannel.params.bits.lock.get := true.B
+                when(writeChannel.resp.valid) {
+                    opFired := true.B
+                    localLoadReservedValid := false.B
+                    localLoadReservedAddr := 0.U
+                    io.commit.valid := true.B
+                    io.commit.bits.data := Mux(writeChannel.resp.bits === AxiResp.exokay,AMO_SC_SUCCED, AMO_SC_FAILED)
+                    io.commit.bits.reg := params.rd
+                    state := State.statNormal
                 }
             }.otherwise {
-                op_fired := true.B
-                io.register_commit.valid := true.B
-                io.register_commit.bits.data := AMO_SC_FAILED
-                io.register_commit.bits.reg := params.rd
-                state := State.stat_normal
+                opFired := true.B
+                io.commit.valid := true.B
+                io.commit.bits.data := AMO_SC_FAILED
+                io.commit.bits.reg := params.rd
+                state := State.statNormal
             }
         }.otherwise {
-            invalidate_reserved(addr)
-            write_channel.params.valid := true.B
-            write_channel.params.bits.size := size
-            write_channel.params.bits.addr := addr
-            write_channel.params.bits.data := data
-            when(write_channel.resp.valid) {
-                op_fired := true.B
-                io.register_commit.valid := true.B
-                io.register_commit.bits.data := amo_data_reg
-                io.register_commit.bits.reg := params.rd
-                state := State.stat_normal
+            invalidateReserved(addr)
+            writeChannel.params.valid := true.B
+            writeChannel.params.bits.size := size
+            writeChannel.params.bits.addr := addr
+            writeChannel.params.bits.data := data
+            when(writeChannel.resp.valid) {
+                opFired := true.B
+                io.commit.valid := true.B
+                io.commit.bits.data := amoDataReg
+                io.commit.bits.reg := params.rd
+                state := State.statNormal
             }
         }
     }
 
-    when(!io.lsu_instr.valid) {
-        io.lsu_instr.ready := io.register_commit.ready && state === State.stat_normal
+    when(!io.lsuInstr.valid) {
+        io.lsuInstr.ready := io.commit.ready && state === State.statNormal
     }
 
-    when(io.lsu_instr.valid && valid_funct && io.register_commit.ready && state === State.stat_normal) {
+    when(io.lsuInstr.valid && validFunct && io.commit.ready && state === State.statNormal) {
         when(LSUOpcode.isamo(opcode)) {
             // AMO
-            state := State.stat_amo_cache
+            state := State.statAmoCache
         }.otherwise {
             // Normal
             when(LSUOpcode.isload(opcode)) {
                 val addr = params.source1.asUInt
-                read_channel.params.valid := true.B
-                read_channel.params.bits.size := size
-                read_channel.params.bits.addr := addr
-                read_channel.resp.ready := true.B
-                when(read_channel.resp.valid) {
-                    op_fired := true.B
-                    val raw = read_channel.resp.bits.data
+                readChannel.params.valid := true.B
+                readChannel.params.bits.size := size
+                readChannel.params.bits.addr := addr
+                readChannel.resp.ready := true.B
+                when(readChannel.resp.valid) {
+                    opFired := true.B
+                    val raw = readChannel.resp.bits.data
                     val extended = MuxLookup(size, raw)(Seq(
-                        0.U -> Mux(sign, raw(7,0).asSInt.pad(64).asUInt, raw(7,0).zextu(64)),
-                        1.U -> Mux(sign, raw(15,0).asSInt.pad(64).asUInt, raw(15,0).zextu(64)),
-                        2.U -> Mux(sign, raw(31,0).asSInt.pad(64).asUInt, raw(31,0).zextu(64)),
+                        0.U -> Mux(sign, raw(7,0).sextu(64), raw(7,0).zextu(64)),
+                        1.U -> Mux(sign, raw(15,0).sextu(64), raw(15,0).zextu(64)),
+                        2.U -> Mux(sign, raw(31,0).sextu(64), raw(31,0).zextu(64)),
                         3.U -> raw // full 64-bit load
                     ))
-                    load_data := extended
+                    loadData := extended
                 }
             }.otherwise {
                 val data = params.source2.asUInt
                 val addr = params.source1.asUInt
-                invalidate_reserved(addr)
-                write_channel.params.valid := true.B
-                write_channel.params.bits.size := size
-                write_channel.params.bits.addr := addr
-                write_channel.params.bits.data := data
-                when(write_channel.resp.valid) {
-                    op_fired := true.B
+                invalidateReserved(addr)
+                writeChannel.params.valid := true.B
+                writeChannel.params.bits.size := size
+                writeChannel.params.bits.addr := addr
+                writeChannel.params.bits.data := data
+                when(writeChannel.resp.valid) {
+                    opFired := true.B
                 }
             }
         }
     }
 
-    when(op_fired) {
+    when(opFired) {
         io.outfire := true.B
-        io.lsu_instr.ready := true.B
-        when(state === State.stat_normal && LSUOpcode.needwb(opcode)) {
-            io.register_commit.valid := true.B
-            io.register_commit.bits.data := load_data
-            io.register_commit.bits.reg := params.rd
+        io.lsuInstr.ready := true.B
+        when(state === State.statNormal && LSUOpcode.needwb(opcode)) {
+            io.commit.valid := true.B
+            io.commit.bits.data := loadData
+            io.commit.bits.reg := params.rd
         }
     }
 }
