@@ -16,7 +16,7 @@ loop:
     j loop
 
 print:
-    li t1, 0x20000000
+    li t1, 0x10000000
 output_loop:
     li t0,0
     lb t0, 0(a0)

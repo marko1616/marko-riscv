@@ -24,7 +24,7 @@ class InstrFetchUnit extends Module {
 
     val fetchedCount = RegInit(0.U(4.W))
     val nextFetchedCount = Wire(UInt(4.W))
-    val pc = RegInit("h10000000".U(64.W))
+    val pc = RegInit("h00001000".U(64.W))
     val nextPc = Wire(UInt(64.W))
 
     // init default values
