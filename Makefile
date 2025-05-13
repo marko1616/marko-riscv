@@ -12,7 +12,7 @@ OBJS         = $(ASM_SRCS:.S=.o)
 ELFS         = $(OBJS:.o=.elf)
 
 LD_SCRIPT = tests/asmtst/general.ld
-CFLAGS = -march=rv64ia_zicsr -mabi=lp64 -nostartfiles -mcmodel=medany
+CFLAGS = -march=rv64ima_zicsr -mabi=lp64 -nostartfiles -mcmodel=medany
 LDFLAGS = -T $(LD_SCRIPT)
 
 # Targets
@@ -24,8 +24,11 @@ init:
 
 compile:
 	mill -i markorv.runMain markorv.MarkoRvCore
-	verilator -j $(NPROC) --cc generated/MarkoRvCore.sv --exe emulator/src/*.cpp --build \
-		-CFLAGS  "-g -I$(CAPSTONE_DIR)/include -I$(CXXOPTS_DIR)/include -std=c++23" \
+	verilator -j $(NPROC) --cc generated/MarkoRvCore.sv --exe \
+		$(wildcard emulator/src/*.cpp) \
+		$(wildcard emulator/src/slaves/*.cpp) \
+		--build \
+		-CFLAGS  "-g -I$(CAPSTONE_DIR)/include -I$(CXXOPTS_DIR)/include -Iinclude -std=c++23" \
 		-LDFLAGS "-L$(CAPSTONE_DIR) -lcapstone"
 
 gen-tests: $(ELFS)

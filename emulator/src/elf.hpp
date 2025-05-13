@@ -1,6 +1,4 @@
-#ifndef ELF_HPP
-#define ELF_HPP
-
+#pragma once
 #include <bit>
 #include <cstdint>
 #include <cstring>
@@ -512,5 +510,3 @@ class ELF {
     void parse_section_headers();
     void load_section_names_string_table();
 };
-
-#endif  // ELF_HPP

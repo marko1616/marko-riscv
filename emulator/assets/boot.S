@@ -6,5 +6,5 @@ _start:
     li a2, 0x80000000
     csrr a0, mhartid
     /* device tree */
-    li a1, 0x10000400
+    li a1, 0x00001400
     jalr ra, 0(a2)
