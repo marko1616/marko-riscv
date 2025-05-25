@@ -1,5 +1,5 @@
-.section .text
-.global _start
+    .section .text
+    .global _start
 _start:
     rdcycle a0
     rdtime a0

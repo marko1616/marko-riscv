@@ -9,7 +9,7 @@ SECTIONS
         *(.text)
     }
 
-    .data 0x80001000 : {
+    .data 0x80010000 : {
         *(.data)
     }
 }

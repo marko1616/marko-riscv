@@ -31,7 +31,6 @@ class InstrFetchUnit extends Module {
     io.instrBundle.valid := false.B
     io.instrBundle.bits.instr := new Instruction().zero
     io.instrBundle.bits.predTaken := false.B
-    io.instrBundle.bits.recoverPc := pc
     io.instrBundle.bits.predPc := pc
     io.instrBundle.bits.pc := pc
 
@@ -45,7 +44,6 @@ class InstrFetchUnit extends Module {
         io.instrBundle.bits.instr.rawBits := io.fetchBundle.bits.instr
         io.instrBundle.bits.predTaken := io.fetchBundle.bits.predTaken
         io.instrBundle.bits.predPc := io.fetchBundle.bits.predPc
-        io.instrBundle.bits.recoverPc := io.fetchBundle.bits.recoverPc
         io.instrBundle.bits.pc := pc
 
         nextPc := io.fetchBundle.bits.predPc

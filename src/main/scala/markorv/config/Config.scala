@@ -55,9 +55,14 @@ case class CacheConfig(
     def offsetMask = (~(0.U(addrWidth.W))) << this.offsetBits
 }
 
+case class ReorderBufferConfig(
+    entries: Int
+) {
+    require(entries > 0 && (entries & (entries - 1)) == 0, "ROB Entries must be a positive power of 2")
+}
+
 case class CoreConfig(
     simulate: Boolean = true,
-    dataWidth: Int = 64,
     ifqSize: Int = 4,
     axiConfig: AxiConfig = new AxiConfig,
     icacheConfig: CacheConfig = new CacheConfig,

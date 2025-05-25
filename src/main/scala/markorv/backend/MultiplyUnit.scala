@@ -6,25 +6,6 @@ import chisel3.util._
 import markorv.utils.ChiselUtils._
 import markorv.frontend.DecoderOutParams
 
-object MultiplyUnitFunct3Op64 extends ChiselEnum {
-    val mul    = Value("b000".U)
-    val mulh   = Value("b001".U)
-    val mulhsu = Value("b010".U)
-    val mulhu  = Value("b011".U)
-    val div    = Value("b100".U)
-    val divu   = Value("b101".U)
-    val rem    = Value("b110".U)
-    val remu   = Value("b111".U)
-}
-
-object MultiplyUnitFunct3Op32 extends ChiselEnum {
-    val mulw   = Value("b000".U)
-    val divw   = Value("b100".U)
-    val divuw  = Value("b101".U)
-    val remw   = Value("b110".U)
-    val remuw  = Value("b111".U)
-}
-
 class MultiplyParams extends Bundle {
     val src1 = UInt(64.W)
     val src2 = UInt(64.W)
@@ -230,16 +211,25 @@ class MultiplyUnit extends Module {
         val commit = Decoupled(new CommitBundle)
         val outfire = Output(Bool())
     })
+
+    def cacheHit(cacheSrc1: UInt, cacheSrc2: UInt, cacheSign: Data, cacheOp32: Bool,
+                reqSrc1: UInt, reqSrc2: UInt, reqSign: Data, reqOp32: Bool): Bool = {
+        cacheSrc1 === reqSrc1 &&
+        cacheSrc2 === reqSrc2 &&
+        cacheSign === reqSign &&
+        cacheOp32 === reqOp32
+    }
+
+    val opcode = io.muInstr.bits.muOpcode
     val booth4 = Module(new Booth4)
     val divider = Module(new NonRestoringDivider)
     val mulCache = RegInit((new MultiplyCache).zero)
     val divCache = RegInit((new DivideCache).zero)
-    val isDiv = io.muInstr.bits.muOpcode.funct3(2)
-    val op32 = io.muInstr.bits.muOpcode.op32
-    val funct3 = io.muInstr.bits.muOpcode.funct3
-    val (op64Funct3, op64Funct3Valid) = MultiplyUnitFunct3Op64.safe(funct3)
-    val (op32Funct3, op32Funct3Valid) = MultiplyUnitFunct3Op32.safe(funct3)
-    val funct3Valid = Mux(op32, op32Funct3Valid, op64Funct3Valid)
+    val isDiv = opcode.funct3(2)
+    val op32 = opcode.op32
+
+    val op64Funct3 = opcode.getFunct3Op64()
+    val op32Funct3 = opcode.getFunct3Op32()
 
     io.outfire := false.B
     io.muInstr.ready := io.commit.ready && booth4.io.idle && divider.io.idle
@@ -254,7 +244,7 @@ class MultiplyUnit extends Module {
     divider.io.src.bits := new DivideParams().zero
     divider.io.result.ready := true.B
 
-    when(isDiv && funct3Valid) {
+    when(isDiv) {
         val sign = Mux(op32,
         MuxLookup(op32Funct3, false.B)(Seq(
             MultiplyUnitFunct3Op32.divw     -> true.B,
@@ -264,18 +254,17 @@ class MultiplyUnit extends Module {
             MultiplyUnitFunct3Op64.div      -> true.B,
             MultiplyUnitFunct3Op64.rem      -> true.B,
         )))
-        val divCacheAvailable = divCache.params.src1 === io.muInstr.bits.params.source1 &&
-                            divCache.params.src2 === io.muInstr.bits.params.source2 &&
-                            divCache.params.sign === sign &&
-                            divCache.params.op32 === op32 &&
-                            divCache.valid
+        val divCacheAvailable = cacheHit(
+            divCache.params.src1, divCache.params.src2, divCache.params.sign, divCache.params.op32,
+            io.muInstr.bits.params.source1, io.muInstr.bits.params.source2, sign, op32
+        )
 
         when(io.muInstr.valid) {
             when(!divCacheAvailable) {
                 val src1 = Wire(UInt(64.W))
                 val src2 = Wire(UInt(64.W))
 
-                when(io.muInstr.bits.muOpcode.op32) {
+                when(opcode.op32) {
                     src1 := Mux(sign,io.muInstr.bits.params.source1(31, 0).sextu(64),io.muInstr.bits.params.source1(31, 0).zextu(64))
                     src2 := Mux(sign,io.muInstr.bits.params.source2(31, 0).sextu(64),io.muInstr.bits.params.source2(31, 0).zextu(64))
                 }.otherwise {
@@ -314,7 +303,7 @@ class MultiplyUnit extends Module {
                 divCache.valid := true.B
             }
         }
-    }.elsewhen(funct3Valid) {
+    }.otherwise {
         val sign = Mux(op32,
         MuxLookup(op32Funct3, "b00".U)(Seq(
             MultiplyUnitFunct3Op32.mulw     -> "b11".U
@@ -325,11 +314,10 @@ class MultiplyUnit extends Module {
             MultiplyUnitFunct3Op64.mulhsu   -> "b01".U,
             MultiplyUnitFunct3Op64.mulhu    -> "b00".U
         )))
-        val mulCacheAvailable = mulCache.params.src1 === io.muInstr.bits.params.source1 &&
-                            mulCache.params.src2 === io.muInstr.bits.params.source2 &&
-                            mulCache.params.sign === sign &&
-                            mulCache.params.op32 === op32
-
+        val mulCacheAvailable = cacheHit(
+            mulCache.params.src1, mulCache.params.src2, mulCache.params.sign, mulCache.params.op32,
+            io.muInstr.bits.params.source1, io.muInstr.bits.params.source2, sign, op32
+        )
         when(io.muInstr.valid) {
             when(!mulCacheAvailable) {
                 booth4.io.src.valid := true.B
@@ -337,7 +325,7 @@ class MultiplyUnit extends Module {
                 val src1 = Wire(UInt(64.W))
                 val src2 = Wire(UInt(64.W))
 
-                when(io.muInstr.bits.muOpcode.op32) {
+                when(opcode.op32) {
                     src1 := io.muInstr.bits.params.source1(31, 0).sextu(64)
                     src2 := io.muInstr.bits.params.source2(31, 0).sextu(64)
                 }.otherwise {

@@ -9,26 +9,6 @@ import markorv.frontend.DecoderOutParams
 import markorv.bus._
 import markorv.config._
 
-object LSUOpcode extends ChiselEnum {
-    val load = Value("b000000".U)
-    val amoadd = Value("b000001".U)
-    val store = Value("b000010".U)
-    val amoswap = Value("b000011".U)
-    val lr = Value("b000101".U)
-    val sc = Value("b000111".U)
-    val amoxor = Value("b001001".U)
-    val amoor = Value("b010001".U)
-    val amoand = Value("b011001".U)
-    val amomin = Value("b100001".U)
-    val amomax = Value("b101001".U)
-    val amominu = Value("b110001".U)
-    val amomaxu = Value("b111001".U)
-    def isamo(op: LSUOpcode.Type): Bool = op.asUInt(0) === 1.U
-    def isload(op: LSUOpcode.Type): Bool = op === LSUOpcode.load
-    def isstore(op: LSUOpcode.Type): Bool = op === LSUOpcode.store
-    def needwb(op: LSUOpcode.Type): Bool = isamo(op) | isload(op)
-}
-
 class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val lsuInstr = Flipped(Decoupled(new Bundle {
@@ -57,8 +37,8 @@ class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
     val params = io.lsuInstr.bits.params
 
     val opFired = Wire(Bool())
-    val loadData = Wire(UInt(config.dataWidth.W))
-    val amoDataReg = Reg(UInt(config.dataWidth.W))
+    val loadData = Wire(UInt(64.W))
+    val amoDataReg = Reg(UInt(64.W))
     val AMO_SC_FAILED = "h0000000000000001".U
     val AMO_SC_SUCCED = "h0000000000000000".U
 
@@ -79,7 +59,7 @@ class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
     writeChannel.resp.ready := false.B
 
     io.commit.valid := false.B
-    io.commit.bits.data := 0.U(config.dataWidth.W)
+    io.commit.bits.data := 0.U(64.W)
     io.commit.bits.reg := 0.U(5.W)
 
     io.lsuInstr.ready := false.B

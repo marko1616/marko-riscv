@@ -3,7 +3,7 @@ GCC = riscv64-unknown-elf-gcc
 OBJDUMP = riscv64-unknown-elf-objdump
 
 # Directories and Files
-ASM_TEST_DIR = tests/asmtst/src
+ASM_TEST_DIR = tests/asmtests/src
 NPROC = $(shell nproc)
 CAPSTONE_DIR = $(shell realpath libs/capstone)
 CXXOPTS_DIR = $(shell realpath libs/cxxopts)
@@ -11,8 +11,8 @@ ASM_SRCS     = $(shell find $(ASM_TEST_DIR) -name '*.S')
 OBJS         = $(ASM_SRCS:.S=.o)
 ELFS         = $(OBJS:.o=.elf)
 
-LD_SCRIPT = tests/asmtst/general.ld
-CFLAGS = -march=rv64ima_zicsr -mabi=lp64 -nostartfiles -mcmodel=medany
+LD_SCRIPT = tests/asmtests/general.ld
+CFLAGS = -march=rv64g -mabi=lp64 -static -mcmodel=medany -fvisibility=hidden -nostdlib -nostartfiles 
 LDFLAGS = -T $(LD_SCRIPT)
 
 # Targets
@@ -36,12 +36,8 @@ gen-tests: $(ELFS)
 gen-rom:
 	$(MAKE) -C emulator/assets
 
-# Rules
-%.o: %.S
-	$(GCC) $(CFLAGS) -c -o $@ $<
-
-%.elf: %.o
-	$(GCC) $(CFLAGS) $(LDFLAGS) -o $@ $<
+%.elf: %.S
+	$(GCC) $(CFLAGS) $(LDFLAGS) $< -o $@
 
 clean:
 	rm -f $(OBJS) $(ELFS)

@@ -12,8 +12,10 @@ class InstrCache(implicit val config: CacheConfig) extends Module {
     val io = IO(new Bundle {
         val inReadReq = Flipped(Decoupled(UInt(64.W)))
         val inReadData = Decoupled(UInt((8 * config.dataBytes).W))
+
         val outReadReq = Decoupled(UInt(64.W))
         val outReadData = Flipped(Decoupled(UInt((8 * config.dataBytes).W)))
+
         val transactionAddr = Output(UInt(64.W))
         val invalidate = Input(Bool())
         val invalidateOutfire = Output(Bool())

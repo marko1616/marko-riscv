@@ -7,7 +7,7 @@ import markorv.utils.ChiselUtils._
 import markorv.frontend._
 import markorv.backend._
 
-class InstrDecoder(dataWidth: Int = 64, addrWidth: Int = 64) extends Module {
+class InstrDecoder extends Module {
     val io = IO(new Bundle {
         val instrBundle = Flipped(Decoupled(new InstrDecodeBundle))
         val issueTask = Decoupled(new IssueTask)
@@ -42,7 +42,6 @@ class InstrDecoder(dataWidth: Int = 64, addrWidth: Int = 64) extends Module {
     // Pred info (used only by branch-like instructions)
     val predTaken = io.instrBundle.bits.predTaken
     val predPc = io.instrBundle.bits.predPc
-    val recoverPc = io.instrBundle.bits.recoverPc
 
     // === OPCODE CONSTANTS ===
     val OP_LUI      = "b0110111".U
@@ -89,7 +88,6 @@ class InstrDecoder(dataWidth: Int = 64, addrWidth: Int = 64) extends Module {
             when(entry.unit === 4.U) {
                 issueTask.predTaken := predTaken
                 issueTask.predPc := predPc
-                issueTask.recoverPc := recoverPc
             }
         }
     }

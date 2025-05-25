@@ -3,13 +3,13 @@ package markorv
 import chisel3._
 import chisel3.util._
 
-class RegFile(dataWidth: Int = 64) extends Module {
+class RegFile extends Module {
     val io = IO(new Bundle {
         val readAddrs = Vec(3, Input(UInt(5.W)))
-        val readDatas = Vec(3, Output(UInt(dataWidth.W)))
+        val readDatas = Vec(3, Output(UInt(64.W)))
 
         val writeAddr = Input(UInt(5.W))
-        val writeData = Input(UInt(dataWidth.W))
+        val writeData = Input(UInt(64.W))
 
         val acquireReg = Input(UInt(5.W))
         val acquired = Output(Bool())
@@ -21,7 +21,7 @@ class RegFile(dataWidth: Int = 64) extends Module {
     val regAcquireFlags = RegInit(0.U(32.W))
     val regAcquireFlagsNext = Wire(UInt(32.W))
 
-    val regs = RegInit(VecInit(Seq.fill(32)(0.U(dataWidth.W))))
+    val regs = RegInit(VecInit(Seq.fill(32)(0.U(64.W))))
 
     io.acquired := false.B
 

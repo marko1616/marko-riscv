@@ -7,22 +7,6 @@ import markorv.utils.ChiselUtils._
 import markorv.frontend.DecoderOutParams
 import markorv.backend._
 
-object ALUFunct3Norm extends ChiselEnum {
-    val add  = Value("b000".U)
-    val sll  = Value("b001".U)
-    val slt  = Value("b010".U)
-    val sltu = Value("b011".U)
-    val xor  = Value("b100".U)
-    val srl  = Value("b101".U)
-    val or   = Value("b110".U)
-    val and  = Value("b111".U)
-}
-
-object ALUFunct3SubSra extends ChiselEnum {
-    val sub  = Value("b000".U)
-    val sra  = Value("b101".U)
-}
-
 class ALUInstr extends Bundle {
     val aluOpcode = new ALUOpcode
     val params = new DecoderOutParams
@@ -65,9 +49,8 @@ class ArithmeticLogicUnit extends Module {
         source1 >> source2(5,0)
     )
 
-    val funct3Norm = ALUFunct3Norm(opcode.funct3)
-    val (funct3SubSra, validFunct3SubSra) = ALUFunct3SubSra.safe(opcode.funct3)
-    val valid_funct3 = Mux(opcode.sraSub, validFunct3SubSra, true.B)
+    val funct3Norm = opcode.getFunct3Norm()
+    val funct3SubSra = opcode.getFunct3SubSra()
 
     result := Mux(opcode.sraSub,
         MuxLookup(funct3SubSra, 0.U)(Seq(
@@ -85,10 +68,9 @@ class ArithmeticLogicUnit extends Module {
             ALUFunct3Norm.srl -> srlShift
         ))
     )
-    when(valid_funct3) {
-        io.commit.valid := io.aluInstr.valid
-        io.commit.bits.reg := params.rd
-        io.commit.bits.data := Mux(opcode.op32, result(31, 0).sextu(64), result)
-        io.outfire := io.aluInstr.valid
-    }
+
+    io.commit.valid := io.aluInstr.valid
+    io.commit.bits.reg := params.rd
+    io.commit.bits.data := Mux(opcode.op32, result(31, 0).sextu(64), result)
+    io.outfire := io.aluInstr.valid
 }

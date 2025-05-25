@@ -17,7 +17,6 @@ class BranchPredUnit extends Module {
             val isBranch = Bool()
             val predTaken = Bool()
             val predPc = UInt(64.W)
-            val recoverPc = UInt(64.W)
         })
 
         val regRead = Output(UInt(5.W))
@@ -29,7 +28,6 @@ class BranchPredUnit extends Module {
     io.bpuResult.isBranch := false.B
     io.bpuResult.predTaken := false.B
     io.bpuResult.predPc := io.bpuInstr.pc + 4.U
-    io.bpuResult.recoverPc := io.bpuInstr.pc + 4.U
 
     switch(io.bpuInstr.instr(6, 0)) {
         is("b1101111".U) {
@@ -43,7 +41,6 @@ class BranchPredUnit extends Module {
               io.bpuInstr.instr(30, 21),
               0.U(1.W)
             ).sextu(64)
-            io.bpuResult.recoverPc := io.bpuInstr.pc + 4.U
         }
         is("b1100111".U) {
             // jalr
@@ -52,7 +49,6 @@ class BranchPredUnit extends Module {
             io.bpuResult.isBranch := true.B
             io.bpuResult.predTaken := true.B
             io.bpuResult.predPc := (io.regData + io.bpuInstr.instr(31, 20).sextu(64)) & ~(1.U(64.W))
-            io.bpuResult.recoverPc := io.bpuInstr.pc + 4.U
         }
         is("b1100011".U) {
             // branch
@@ -71,11 +67,9 @@ class BranchPredUnit extends Module {
             when(imm < 0.S) {
                 io.bpuResult.predTaken := true.B
                 io.bpuResult.predPc := io.bpuInstr.pc + imm.asUInt
-                io.bpuResult.recoverPc := io.bpuInstr.pc + 4.U
             }.otherwise {
                 io.bpuResult.predTaken := false.B
                 io.bpuResult.predPc := io.bpuInstr.pc + 4.U
-                io.bpuResult.recoverPc := io.bpuInstr.pc + imm.asUInt
             }
         }
     }
