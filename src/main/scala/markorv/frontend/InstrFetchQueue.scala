@@ -65,7 +65,6 @@ class InstrFetchQueue(implicit val config: CoreConfig) extends Module {
         instrQueue.io.enq.bits.isBranch := bpu.io.bpuResult.isBranch
         instrQueue.io.enq.bits.predTaken := bpu.io.bpuResult.predTaken
         instrQueue.io.enq.bits.predPc := bpu.io.bpuResult.predPc
-        instrQueue.io.enq.bits.recoverPc := bpu.io.bpuResult.recoverPc
         instrQueue.io.enq.valid := true.B
 
         endPcReg := bpu.io.bpuResult.predPc

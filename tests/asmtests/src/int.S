@@ -1,5 +1,5 @@
-.section .text
-.global _start
+    .section .text
+    .global _start
 _start:
     j main
 trap_handler:
@@ -8,7 +8,7 @@ trap_handler:
 
 main:
     auipc t0, 0
-    addi t0, t0, -0x8
+    la t0, trap_handler
     csrw mtvec, t0
     li t0, 0x8
     csrs mstatus, t0

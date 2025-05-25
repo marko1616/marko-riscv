@@ -14,9 +14,9 @@ class MarkoRvCore extends Module {
     implicit val config: CoreConfig = new CoreConfig
     val io = IO(new Bundle {
         val axi = new AxiInterface(config.axiConfig)
-        val time = Input(UInt(config.dataWidth.W))
-        val pc = Output(UInt(config.dataWidth.W))
-        val instrNow = Output(UInt(config.dataWidth.W))
+        val time = Input(UInt(64.W))
+        val pc = Output(UInt(64.W))
+        val instrNow = Output(UInt(64.W))
     })
 
     // Submodule Instantiations

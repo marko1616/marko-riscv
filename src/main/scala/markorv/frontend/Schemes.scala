@@ -85,7 +85,6 @@ class IssueTask extends Bundle {
     val muOpcode = new MUOpcode
     val predTaken = Bool()
     val predPc = UInt(64.W)
-    val recoverPc = UInt(64.W)
     val params = new DecoderOutParams
     val regRequests = new RegisterRequests
 }
@@ -94,7 +93,6 @@ class InstrDecodeBundle extends Bundle {
     val instr = new Instruction
     val predTaken = Bool()
     val predPc = UInt(64.W)
-    val recoverPc = UInt(64.W)
     val pc = UInt(64.W)
 }
 
@@ -103,5 +101,4 @@ class FetchQueueEntities extends Bundle {
     val isBranch = Bool()
     val predTaken = Bool()
     val predPc = UInt(64.W)
-    val recoverPc = UInt(64.W)
 }

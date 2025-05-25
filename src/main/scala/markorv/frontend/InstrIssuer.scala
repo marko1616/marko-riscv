@@ -35,7 +35,6 @@ class InstrIssueUnit extends Module {
             val branchOpcode = new BranchOpcode
             val predTaken = Bool()
             val predPc = UInt(64.W)
-            val recoverPc = UInt(64.W)
             val params = new DecoderOutParams
         })
 
@@ -77,7 +76,6 @@ class InstrIssueUnit extends Module {
     io.branchOut.bits.branchOpcode := new BranchOpcode().zero
     io.branchOut.bits.predTaken := false.B
     io.branchOut.bits.predPc := 0.U
-    io.branchOut.bits.recoverPc := 0.U
     io.branchOut.bits.params := new DecoderOutParams().zero
 
     io.acquireReg := 0.U
@@ -129,7 +127,6 @@ class InstrIssueUnit extends Module {
             io.branchOut.bits.branchOpcode := io.issueTask.bits.branchOpcode
             io.branchOut.bits.predTaken := io.issueTask.bits.predTaken
             io.branchOut.bits.predPc := io.issueTask.bits.predPc
-            io.branchOut.bits.recoverPc := io.issueTask.bits.recoverPc
             io.branchOut.bits.params := finalParams
         }
     }

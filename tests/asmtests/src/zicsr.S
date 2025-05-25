@@ -1,5 +1,5 @@
-.section .text
-.global _start
+    .section .text
+    .global _start
 _start:
     li t0, 0x55
     csrrw a0, mscratch, t0
