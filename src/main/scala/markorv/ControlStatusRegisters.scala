@@ -2,7 +2,10 @@ package markorv
 
 import chisel3._
 import chisel3.util._
-import markorv.trap._
+
+import markorv.config._
+import markorv.exception._
+import markorv.manage.RetireEvent
 
 class ControlStatusRegistersIO extends Bundle {
     val readAddr = Input(UInt(12.W))
@@ -16,20 +19,20 @@ class ControlStatusRegistersIO extends Bundle {
     val illegal = Output(Bool())
 }
 
-class ControlStatusRegisters extends Module {
+class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val csrio = new ControlStatusRegistersIO
-        val setTrap = new TrapHandleInterface
+        val setException = new ExceptionHandleInterface
 
         val privilege = Input(UInt(2.W))
 
-        val trapRet = Input(Bool())
-        val trapRetInfo = Output(new TrapState)
+        val exceptionRet = Input(Bool())
+        val exceptionRetInfo = Output(new ExceptionState)
 
         val mstatus = Output(UInt(64.W))
         val mie = Output(UInt(64.W))
 
-        val instret = Input(UInt(1.W))
+        val retireEvent = Flipped(Valid(new RetireEvent))
         val time = Input(UInt(64.W))
     })
     // While read write simultaneously shuould return old value.
@@ -80,7 +83,7 @@ class ControlStatusRegisters extends Module {
 
     val cycle = RegInit(0.U(64.W))
     val time = WireInit(0.U(64.W))
-    val instret = RegInit(0.U(64.W))
+    val instRetire = RegInit(0.U(64.W))
 
     val mstatus = RegInit(0.U(64.W))
     val misa = RegInit("h8000000000000100".U(64.W))
@@ -104,7 +107,9 @@ class ControlStatusRegisters extends Module {
 
     cycle := cycle + 1.U
     time := io.time
-    instret := instret + io.instret
+    when(io.retireEvent.valid && ~io.retireEvent.bits.isTrap) {
+        instRetire := instRetire + 1.U
+    }
 
     when(io.csrio.readEn) {
         when(io.csrio.readAddr === CYCLE_ADDR){
@@ -115,7 +120,7 @@ class ControlStatusRegisters extends Module {
             readCsr(time, Mux(mcounteren(1), "b00".U, "b11".U))
         }.elsewhen(io.csrio.readAddr === INSTRET_ADDR) {
             // TODO S mode
-            readCsr(instret, Mux(mcounteren(2), "b00".U, "b11".U))
+            readCsr(instRetire, Mux(mcounteren(2), "b00".U, "b11".U))
         }.elsewhen(io.csrio.readAddr === MVENDORID_ADDR) {
             // In development.
             readCsr("h0000000000000000".U, "b11".U)
@@ -194,17 +199,17 @@ class ControlStatusRegisters extends Module {
         }
     }
 
-    val setTrap = io.setTrap
-    val trapInfo = setTrap.trapInfo
-    val set = setTrap.set
-    setTrap.trapHandler := 0.U
-    setTrap.privilege := 0.U
+    val setException = io.setException
+    val exceptionInfo = setException.exceptionInfo
+    val set = setException.set
+    setException.exceptionHandler := 0.U
+    setException.privilege := 0.U
 
     when(set) {
-        val privilege = trapInfo.state.privilege
-        val exceptionPc = trapInfo.state.exceptionPc
-        val interruption = trapInfo.interruption
-        val causeCode = trapInfo.causeCode
+        val privilege = exceptionInfo.state.privilege
+        val exceptionPc = exceptionInfo.state.exceptionPc
+        val interruption = exceptionInfo.interruption
+        val causeCode = exceptionInfo.causeCode
 
         val intDisable = "hfffffffffffffff5".U
         val sie = mstatus(1)
@@ -217,17 +222,17 @@ class ControlStatusRegisters extends Module {
         mcauseCode := causeCode
 
         when(mtvec(1,0) === 0.U) {
-            setTrap.trapHandler := Cat(mtvec(63,2),0.U(2.W))
+            setException.exceptionHandler := Cat(mtvec(63,2),0.U(2.W))
         }.elsewhen(mtvec(1,0) === 1.U) {
-            setTrap.trapHandler := Cat(mtvec(63,2),0.U(2.W)) + 4.U*causeCode
+            setException.exceptionHandler := Cat(mtvec(63,2),0.U(2.W)) + 4.U*causeCode
         }
         // TODO trap delegate
-        setTrap.privilege := 3.U
+        setException.privilege := 3.U
     }
 
-    val retException = io.trapRetInfo
-    val ret = io.trapRet
-    retException := 0.U.asTypeOf(new TrapState)
+    val retException = io.exceptionRetInfo
+    val ret = io.exceptionRet
+    retException := 0.U.asTypeOf(new ExceptionState)
 
     when(ret) {
         val privilege = mstatus(12, 11)

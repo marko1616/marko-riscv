@@ -30,9 +30,9 @@ class DataCache(implicit val config: CacheConfig) extends Module {
         val invalidate = Input(Bool())
         val invalidateOutfire = Output(Bool())
     })
-    
+
     object State extends ChiselEnum {
-        val statIdle, statRead, statWrite, statReadReplace, statWriteReplace, 
+        val statIdle, statRead, statWrite, statReadReplace, statWriteReplace,
             statWriteBack, statInvalidate = Value
     }
 
@@ -50,14 +50,18 @@ class DataCache(implicit val config: CacheConfig) extends Module {
     val dataRead = Wire(Vec(config.wayNum, new CacheData))
     val dirtyRead = Wire(Vec(config.wayNum, new CacheDirty))
 
-    val lookupIndex = state match {
-        case State.statReadReplace | State.statWriteReplace | State.statWriteBack => reqAddr(config.setEnd, config.setStart)
-        case _ => Mux(io.inReadReq.valid, io.inReadReq.bits(config.setEnd, config.setStart), 
-                      io.inWriteReq.bits.addr(config.setEnd, config.setStart))
-    }
-    
-    val lookupValid = (io.inReadReq.valid || io.inWriteReq.valid) && 
-                      (state === State.statIdle || state === State.statRead || state === State.statWrite || 
+    val defaultIndex = Mux(io.inReadReq.valid,
+                        io.inReadReq.bits(config.setEnd, config.setStart),
+                        io.inWriteReq.bits.addr(config.setEnd, config.setStart))
+
+    val lookupIndex = MuxLookup(state, defaultIndex)(Seq(
+        State.statReadReplace -> reqAddr(config.setEnd, config.setStart),
+        State.statWriteReplace -> reqAddr(config.setEnd, config.setStart),
+        State.statWriteBack -> reqAddr(config.setEnd, config.setStart)
+    ))
+
+    val lookupValid = (io.inReadReq.valid || io.inWriteReq.valid) &&
+                      (state === State.statIdle || state === State.statRead || state === State.statWrite ||
                        state === State.statReadReplace || state === State.statWriteReplace || state === State.statWriteBack)
 
     io.inReadReq.ready := (state === State.statIdle || state === State.statRead)
@@ -69,13 +73,13 @@ class DataCache(implicit val config: CacheConfig) extends Module {
     io.outReadReq.valid := false.B
     io.inWriteResp.valid := false.B
     io.outWriteReq.valid := false.B
-    
+
     io.inReadData.bits := 0.U
     io.outReadReq.bits := 0.U
     io.inWriteResp.bits := false.B
     io.outWriteReq.bits.addr := 0.U
     io.outWriteReq.bits.data := 0.U
-    
+
     io.transactionAddr := reqAddr
     io.invalidateOutfire := false.B
 
@@ -97,12 +101,12 @@ class DataCache(implicit val config: CacheConfig) extends Module {
                 state := State.statInvalidate
             }
         }
-        
+
         is(State.statRead) {
             val readTag = reqAddr(config.tagEnd, config.tagStart)
             val readValid = WireInit(false.B)
             val hitWay = WireInit(0.U(log2Ceil(config.wayNum).W))
-            
+
             for(i <- 0 until config.wayNum) {
                 val tagv = tagvRead(i)
                 when(tagv.valid && tagv.tag === readTag) {
@@ -110,11 +114,11 @@ class DataCache(implicit val config: CacheConfig) extends Module {
                     hitWay := i.U
                 }
             }
-            
+
             when(readValid) {
                 io.inReadData.valid := true.B
                 io.inReadData.bits := dataRead(hitWay).data
-                
+
                 when(io.inReadReq.valid) {
                     reqAddr := io.inReadReq.bits
                     state := State.statRead
@@ -128,19 +132,14 @@ class DataCache(implicit val config: CacheConfig) extends Module {
             }.otherwise {
                 state := State.statReadReplace
             }
-            
-            when(io.invalidate) {
-                invalidateState := 0.U
-                state := State.statInvalidate
-            }
         }
-        
+
         is(State.statWrite) {
             val writeTag = reqAddr(config.tagEnd, config.tagStart)
             val writeIndex = reqAddr(config.setEnd, config.setStart)
             val writeValid = WireInit(false.B)
             val hitWay = WireInit(0.U(log2Ceil(config.wayNum).W))
-            
+
             for(i <- 0 until config.wayNum) {
                 val tagv = tagvRead(i)
                 when(tagv.valid && tagv.tag === writeTag) {
@@ -148,30 +147,30 @@ class DataCache(implicit val config: CacheConfig) extends Module {
                     hitWay := i.U
                 }
             }
-            
+
             when(writeValid) {
                 val newTagV = Wire(Vec(config.wayNum, new CacheTagValid))
                 val newData = Wire(Vec(config.wayNum, new CacheData))
                 val newDirty = Wire(Vec(config.wayNum, new CacheDirty))
-                
+
                 for (i <- 0 until config.wayNum) {
                     newTagV(i) := tagvRead(i)
                     newData(i) := dataRead(i)
                     newDirty(i) := dirtyRead(i)
-                    
+
                     when(i.U === hitWay) {
                         newData(i).data := writeData
                         newDirty(i).dirty := true.B
                     }
                 }
-                
+
                 tagVArray.write(writeIndex, newTagV)
                 dataArray.write(writeIndex, newData)
                 dirtyArray.write(writeIndex, newDirty)
-                
+
                 io.inWriteResp.valid := true.B
                 io.inWriteResp.bits := true.B
-                
+
                 when(io.inReadReq.valid) {
                     reqAddr := io.inReadReq.bits
                     state := State.statRead
@@ -190,17 +189,12 @@ class DataCache(implicit val config: CacheConfig) extends Module {
                     state := State.statWriteReplace
                 }
             }
-            
-            when(io.invalidate) {
-                invalidateState := 0.U
-                state := State.statInvalidate
-            }
         }
-        
+
         is(State.statReadReplace) {
             io.outReadReq.valid := true.B
             io.outReadReq.bits := reqAddr
-            
+
             when(io.outReadData.valid) {
                 val index = reqAddr(config.setEnd, config.setStart)
                 val tag = reqAddr(config.tagEnd, config.tagStart)
@@ -214,7 +208,7 @@ class DataCache(implicit val config: CacheConfig) extends Module {
                     newTagV(i) := tagvRead(i)
                     newData(i) := dataRead(i)
                     newDirty(i) := dirtyRead(i)
-                    
+
                     when(i.U === way) {
                         newTagV(i).tag := tag
                         newTagV(i).valid := true.B
@@ -233,22 +227,22 @@ class DataCache(implicit val config: CacheConfig) extends Module {
                 state := State.statIdle
             }
         }
-        
+
         is(State.statWriteBack) {
             val index = reqAddr(config.setEnd, config.setStart)
             val way = replacePtr
             val dirtyTag = tagvRead(way).tag
             val dirtyAddr = Cat(dirtyTag, index, 0.U(config.offsetBits.W))
-            
+
             io.outWriteReq.valid := true.B
             io.outWriteReq.bits.addr := dirtyAddr
             io.outWriteReq.bits.data := dataRead(way).data
-            
+
             when(io.outWriteResp.valid) {
                 state := State.statWriteReplace
             }
         }
-        
+
         is(State.statWriteReplace) {
             val index = reqAddr(config.setEnd, config.setStart)
             val tag = reqAddr(config.tagEnd, config.tagStart)
@@ -262,7 +256,7 @@ class DataCache(implicit val config: CacheConfig) extends Module {
                 newTagV(i) := tagvRead(i)
                 newData(i) := dataRead(i)
                 newDirty(i) := dirtyRead(i)
-                
+
                 when(i.U === way) {
                     newTagV(i).tag := tag
                     newTagV(i).valid := true.B
@@ -280,15 +274,15 @@ class DataCache(implicit val config: CacheConfig) extends Module {
             io.inWriteResp.bits := true.B
             state := State.statIdle
         }
-        
+
         is(State.statInvalidate) {
             val currentSet = invalidateState
             val invalidateTagV = Vec(config.wayNum, new CacheTagValid()).zero
             val invalidateDirty = Vec(config.wayNum, new CacheDirty()).zero
-            
+
             tagVArray.write(currentSet, invalidateTagV)
             dirtyArray.write(currentSet, invalidateDirty)
-            
+
             invalidateState := currentSet + 1.U
             when(currentSet === (config.setNum - 1).U) {
                 state := State.statIdle

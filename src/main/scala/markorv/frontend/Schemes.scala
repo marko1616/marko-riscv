@@ -3,11 +3,12 @@ package markorv.frontend
 import chisel3._
 import chisel3.util._
 
+import markorv.backend.EXUEnum
 import markorv.backend.ALUOpcode
-import markorv.backend.MUOpcode
+import markorv.backend.MDUOpcode
 import markorv.backend.LoadStoreOpcode
 import markorv.backend.BranchOpcode
-import markorv.backend.MiscOpcode
+import markorv.backend.MISCOpcode
 
 class Instruction extends Bundle {
     val rawBits = UInt(32.W)
@@ -64,7 +65,7 @@ class JTypeInstruction extends Instruction {
     def imm      = Cat(imm20, imm19_12, imm11, imm10_1, 0.U(1.W))
 }
 
-class DecoderOutParams extends Bundle {
+class DecodedParams extends Bundle {
     val source1 = UInt(64.W)
     val source2 = UInt(64.W)
     val rd = UInt(5.W)
@@ -77,15 +78,15 @@ class RegisterRequests extends Bundle {
 }
 
 class IssueTask extends Bundle {
-    val operateUnit = UInt(3.W)
+    val operateUnit = new EXUEnum.Type
     val aluOpcode = new ALUOpcode()
     val lsuOpcode = new LoadStoreOpcode
-    val miscOpcode = new MiscOpcode
+    val miscOpcode = new MISCOpcode
     val branchOpcode = new BranchOpcode
-    val muOpcode = new MUOpcode
+    val mduOpcode = new MDUOpcode
     val predTaken = Bool()
     val predPc = UInt(64.W)
-    val params = new DecoderOutParams
+    val params = new DecodedParams
     val regRequests = new RegisterRequests
 }
 
