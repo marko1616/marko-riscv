@@ -4,16 +4,18 @@ import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 
+import markorv.utils.ChiselUtils._
 import markorv.config._
 import markorv.frontend._
 import markorv.backend._
 import markorv.bus._
 import markorv.cache._
+import markorv.manage._
 
 class MarkoRvCore extends Module {
-    implicit val config: CoreConfig = new CoreConfig
+    implicit val c: CoreConfig = new CoreConfig
     val io = IO(new Bundle {
-        val axi = new AxiInterface(config.axiConfig)
+        val axi = new AxiInterface(c.axiConfig)
         val time = Input(UInt(64.W))
         val pc = Output(UInt(64.W))
         val instrNow = Output(UInt(64.W))
@@ -25,156 +27,170 @@ class MarkoRvCore extends Module {
     val axiCtrl = Module(new AxiCtrl)
 
     // Cache
-    val instrCache = Module(new InstrCache()(config.icacheConfig))
+    val iCache = Module(new InstrCache()(c.icacheConfig))
 
     // Frontend Pipeline
-    val instrPrefetchUnit = Module(new InstrPrefetchUnit)
-    val instrFetchQueue = Module(new InstrFetchQueue)
-    val instrFetchUnit = Module(new InstrFetchUnit)
-    val instrDecoder = Module(new InstrDecoder)
-    val instrIssuer = Module(new InstrIssueUnit)
+    val ipu = Module(new InstrPrefetchUnit)
+    val ifq = Module(new InstrFetchQueue)
+    val ifu = Module(new InstrFetchUnit)
+    val decoder = Module(new InstrDecoder)
+
+    // Dataflow schedule pipeline & Register file
+    val regFile = Module(new RegFile)
+    val issuer = Module(new Issuer)
+    val commitUnit = Module(new CommitUnit)
+    val renameTable = Module(new RenameTable)
+    val rob = Module(new ReorderBuffer)
+    val regStateCtrl = Module(new RegStateController)
 
     // Execution Units
-    val arithmeticLogicUnit = Module(new ArithmeticLogicUnit)
-    val loadStoreUnit = Module(new LoadStoreUnit)
-    val branchUnit = Module(new BranchUnit)
-    val miscUnit = Module(new MiscUnit)
-    val multiplyUnit = Module(new MultiplyUnit)
+    val alu = Module(new ArithmeticLogicUnit)
+    val lsu = Module(new LoadStoreUnit)
+    val bru = Module(new BranchUnit)
+    val misc = Module(new MISCUnit)
+    val mdu = Module(new MultiplyDivisionUnit)
 
-    // Register Files and State
-    val registerFile = Module(new RegFile)
+    // CSR & Trap controller.
     val csrFile = Module(new ControlStatusRegisters)
-    val trapCtrl = Module(new TrapController)
-
-    // Commit and Control
-    val commitUnit = Module(new CommitUnit)
+    val exceptionUnit = Module(new ExceptionUnit)
 
     // Module Connections
     // ==================
     // AXI Bus Interface
-    axiCtrl.io.instrFetch.read.get.params.bits.size := (log2Ceil(config.axiConfig.addrWidth)-3).U
-    axiCtrl.io.instrFetch.read.get.params.valid     <> instrCache.io.outReadReq.valid
-    axiCtrl.io.instrFetch.read.get.params.ready     <> instrCache.io.outReadReq.ready
-    axiCtrl.io.instrFetch.read.get.params.bits.addr <> instrCache.io.outReadReq.bits
-    axiCtrl.io.instrFetch.read.get.resp.valid       <> instrCache.io.outReadData.valid
-    axiCtrl.io.instrFetch.read.get.resp.ready       <> instrCache.io.outReadData.ready
-    axiCtrl.io.instrFetch.read.get.resp.bits.data   <> instrCache.io.outReadData.bits
+    axiCtrl.io.instrFetch.read.get.params.bits.size := (log2Ceil(c.axiConfig.addrWidth)-3).U
+    axiCtrl.io.instrFetch.read.get.params.valid     <> iCache.io.outReadReq.valid
+    axiCtrl.io.instrFetch.read.get.params.ready     <> iCache.io.outReadReq.ready
+    axiCtrl.io.instrFetch.read.get.params.bits.addr <> iCache.io.outReadReq.bits
+    axiCtrl.io.instrFetch.read.get.resp.valid       <> iCache.io.outReadData.valid
+    axiCtrl.io.instrFetch.read.get.resp.ready       <> iCache.io.outReadData.ready
+    axiCtrl.io.instrFetch.read.get.resp.bits.data   <> iCache.io.outReadData.bits
 
-    loadStoreUnit.io.interface <> axiCtrl.io.loadStore
+    lsu.io.interface <> axiCtrl.io.loadStore
     io.axi <> axiCtrl.io.axi
 
     // Cache
-    instrCache.io.invalidate <> miscUnit.io.icacheInvalidate
-    instrCache.io.invalidateOutfire <> miscUnit.io.icacheInvalidateOutfire
+    iCache.io.invalidate <> misc.io.icacheInvalidate
+    iCache.io.invalidateOutfire <> misc.io.icacheInvalidateOutfire
 
     // Exception & Flush Control
-    val flush = trapCtrl.io.flush | branchUnit.io.flush | miscUnit.io.flush
-    trapCtrl.io.outerInt := false.B
+    val flush = exceptionUnit.io.flush | rob.io.flush
+    exceptionUnit.io.outerInt := false.B
 
-    trapCtrl.io.pc <> instrFetchUnit.io.getPc
-    trapCtrl.io.privilege <> miscUnit.io.getPrivilege
-    trapCtrl.io.fetched <> instrFetchUnit.io.getFetched
-    trapCtrl.io.setTrap <> csrFile.io.setTrap
-    trapCtrl.io.trapRetInfo <> csrFile.io.trapRetInfo
-    trapCtrl.io.mstatus <> csrFile.io.mstatus
-    trapCtrl.io.mie <> csrFile.io.mie
+    exceptionUnit.io.pc <> ifu.io.getPc
+    exceptionUnit.io.privilege <> misc.io.getPrivilege
+    exceptionUnit.io.setException <> csrFile.io.setException
+    exceptionUnit.io.exceptionRetInfo <> csrFile.io.exceptionRetInfo
+    exceptionUnit.io.mstatus <> csrFile.io.mstatus
+    exceptionUnit.io.mie <> csrFile.io.mie
 
-    miscUnit.io.trapRet <> csrFile.io.trapRet
+    rob.io.exceptionRet <> csrFile.io.exceptionRet
 
     // Frontend Pipeline Connections
-    instrPrefetchUnit.io.flush := flush
-    instrPrefetchUnit.io.readAddr <> instrCache.io.inReadReq
-    instrPrefetchUnit.io.readData <> instrCache.io.inReadData
-    instrPrefetchUnit.io.transactionAddr <> instrCache.io.transactionAddr
+    ipu.io.flush := flush
+    ipu.io.readAddr <> iCache.io.inReadReq
+    ipu.io.readData <> iCache.io.inReadData
+    ipu.io.transactionAddr <> iCache.io.transactionAddr
 
-    instrFetchQueue.io.flush := flush
-    instrFetchQueue.io.fetchPc <> instrPrefetchUnit.io.fetchPc
-    instrFetchQueue.io.cachelineRead <> instrPrefetchUnit.io.fetched
-    instrFetchQueue.io.pc <> instrFetchUnit.io.getPc
-    instrFetchQueue.io.regRead <> registerFile.io.readAddrs(2)
-    instrFetchQueue.io.regData <> registerFile.io.readDatas(2)
+    ifq.io.flush := flush
+    ifq.io.fetchPc <> ipu.io.fetchPc
+    ifq.io.cachelineRead <> ipu.io.fetched
+    ifq.io.pc <> ifu.io.getPc
 
-    instrFetchUnit.io.flush := flush
-    instrFetchUnit.io.invalidDrop <> instrDecoder.io.invalidDrop
-    instrFetchUnit.io.fetchBundle <> instrFetchQueue.io.fetchBundle
-    instrFetchUnit.io.fetchHlt <> trapCtrl.io.fetchHlt
-    instrFetchUnit.io.setPc := MuxCase(0.U, Seq(
-        trapCtrl.io.flush -> trapCtrl.io.setPc,
-        branchUnit.io.flush -> branchUnit.io.setPc,
-        miscUnit.io.flush -> miscUnit.io.setPc
+    ifu.io.flush := flush
+    ifu.io.invalidDrop <> decoder.io.invalidDrop
+    ifu.io.fetchBundle <> ifq.io.fetchBundle
+    ifu.io.fetchHlt <> exceptionUnit.io.fetchHlt
+    ifu.io.flushPc := MuxCase(0.U, Seq(
+        exceptionUnit.io.flush -> exceptionUnit.io.flushPc,
+        rob.io.flush -> rob.io.flushPc
     ))
 
+    // Rename Table Interface
+    renameTable.io.createCkpt.valid := false.B
+    renameTable.io.createCkpt.bits := Vec(31,UInt(log2Ceil(c.regFileSize).W)).zero
+    renameTable.io.rmLastCkpt := false.B
+    renameTable.io.restoreEntry.valid := 0.U
+    renameTable.io.restoreEntry.bits := Vec(31,UInt(log2Ceil(c.regFileSize).W)).zero
+
+    // Reorder Buffer Interface
+    rob.io.renameTailIndex <> renameTable.io.tailIndex
+
     // Register File Interface
-    instrIssuer.io.regRead1 <> registerFile.io.readAddrs(0)
-    instrIssuer.io.regRead2 <> registerFile.io.readAddrs(1)
-    instrIssuer.io.regData1 <> registerFile.io.readDatas(0)
-    instrIssuer.io.regData2 <> registerFile.io.readDatas(1)
-    instrIssuer.io.occupiedRegs <> registerFile.io.getOccupied
-    instrIssuer.io.acquireReg <> registerFile.io.acquireReg
-    instrIssuer.io.acquired <> registerFile.io.acquired
-    registerFile.io.flush := flush
+    regStateCtrl.io.renameTableReadIndex <> renameTable.io.readIndex
+    regStateCtrl.io.renameTableReadEntry <> renameTable.io.readEntry
+    regStateCtrl.io.issueEvent   <> issuer.io.issueEvent
+    regStateCtrl.io.commitEvents <> commitUnit.io.commitEvents
+    regStateCtrl.io.retireEvent  <> rob.io.retireEvent
+    regStateCtrl.io.disconEvent  <> rob.io.disconEvent
+
+    regFile.io.setStates <> regStateCtrl.io.setStates
+    regFile.io.getStates <> regStateCtrl.io.getStates
+
+    issuer.io.regRead1 <> regFile.io.readAddrs(0)
+    issuer.io.regRead2 <> regFile.io.readAddrs(1)
+    issuer.io.regData1 <> regFile.io.readDatas(0)
+    issuer.io.regData2 <> regFile.io.readDatas(1)
+
+    // Issuer Interface
+    issuer.io.robReq  <> rob.io.allocReq
+    issuer.io.robResp <> rob.io.allocResp
+    issuer.io.regStates <> regFile.io.getStates
+    issuer.io.renameTable <> renameTable.io.tailEntry
 
     // Main Pipeline Stages
     PipelineConnect(
-        instrFetchUnit.io.instrBundle,
-        instrDecoder.io.instrBundle,
-        instrDecoder.io.outfire,
+        ifu.io.instrBundle,
+        decoder.io.instrBundle,
+        decoder.io.outfire,
         flush
     )
+
     PipelineConnect(
-        instrDecoder.io.issueTask,
-        instrIssuer.io.issueTask,
-        instrIssuer.io.outfire,
+        decoder.io.issueTask,
+        issuer.io.issueTask,
+        issuer.io.outfire,
         flush
     )
 
     // Execution Unit Dispatch
-    PipelineConnect(instrIssuer.io.aluOut, arithmeticLogicUnit.io.aluInstr, arithmeticLogicUnit.io.outfire, flush)
-    PipelineConnect(instrIssuer.io.lsuOut, loadStoreUnit.io.lsuInstr, loadStoreUnit.io.outfire, flush)
-    PipelineConnect(instrIssuer.io.miscOut, miscUnit.io.miscInstr, miscUnit.io.outfire, flush)
-    PipelineConnect(instrIssuer.io.muOut, multiplyUnit.io.muInstr, multiplyUnit.io.outfire, flush)
-    PipelineConnect(instrIssuer.io.branchOut, branchUnit.io.branchInstr, branchUnit.io.outfire, flush)
+    PipelineConnect(issuer.io.aluOut, alu.io.aluInstr, alu.io.outfire, flush)
+    PipelineConnect(issuer.io.bruOut, bru.io.branchInstr, bru.io.outfire, flush)
+    PipelineConnect(issuer.io.lsuOut, lsu.io.lsuInstr, lsu.io.outfire, flush)
+    PipelineConnect(issuer.io.mduOut, mdu.io.muInstr, mdu.io.outfire, flush)
+    PipelineConnect(issuer.io.miscOut, misc.io.miscInstr, misc.io.outfire, flush)
 
-    // Execution Unit Status
-    instrFetchUnit.io.exuOutfires := VecInit(Seq(
-        arithmeticLogicUnit.io.outfire,
-        loadStoreUnit.io.outfire,
-        miscUnit.io.outfire,
-        multiplyUnit.io.outfire,
-        branchUnit.io.outfire
-    ))
+    // Execution Unit Side Effect Control
+    lsu.io.robHeadIndex <> rob.io.headIndex
+    misc.io.robHeadIndex <> rob.io.headIndex
 
     // Commit Stage
-    Seq(
-        (loadStoreUnit.io.commit, 0),
-        (arithmeticLogicUnit.io.commit, 1),
-        (miscUnit.io.commit, 2),
-        (multiplyUnit.io.commit, 3),
-        (branchUnit.io.commit, 4)
-    ).foreach { case (unit, idx) =>
-        // No flush here, as flushing would corrupt the `jalr`.
-        PipelineConnect(unit, commitUnit.io.registerCommits(idx), true.B, false.B)
-    }
+    PipelineConnect(alu.io.commit, commitUnit.io.alu, commitUnit.io.outfires(0), flush)
+    PipelineConnect(bru.io.commit, commitUnit.io.bru, commitUnit.io.outfires(1), flush)
+    PipelineConnect(lsu.io.commit, commitUnit.io.lsu, commitUnit.io.outfires(2), flush)
+    PipelineConnect(mdu.io.commit, commitUnit.io.mdu, commitUnit.io.outfires(3), flush)
+    PipelineConnect(misc.io.commit, commitUnit.io.misc, commitUnit.io.outfires(4), flush)
 
-    commitUnit.io.regWrite <> registerFile.io.writeAddr
-    commitUnit.io.writeData <> registerFile.io.writeData
+    commitUnit.io.robReadIndexs  <> rob.io.readIndexs
+    commitUnit.io.robReadEntries <> rob.io.readEntries
+    commitUnit.io.regWrites  <> regFile.io.writePorts
+    commitUnit.io.robCommits <> rob.io.commits
 
     // CSR and Privilege
-    csrFile.io.instret <> commitUnit.io.instret
+    csrFile.io.retireEvent := rob.io.retireEvent
     csrFile.io.time <> io.time
-    csrFile.io.csrio <> miscUnit.io.csrio
-    csrFile.io.privilege <> miscUnit.io.getPrivilege
+    csrFile.io.csrio <> misc.io.csrio
+    csrFile.io.privilege <> misc.io.getPrivilege
 
-    miscUnit.io.setPrivilege <> trapCtrl.io.setPrivilege
-    miscUnit.io.trapRet <> trapCtrl.io.trapRet
-    miscUnit.io.exception <> trapCtrl.io.exceptions(0)
+    rob.io.trap <> exceptionUnit.io.trap
+    rob.io.exceptionRet <> exceptionUnit.io.exceptionRet
+    misc.io.setPrivilege <> exceptionUnit.io.setPrivilege
 
     // AMO
-    loadStoreUnit.io.invalidateReserved := miscUnit.io.trapRet
+    lsu.io.invalidateReserved := rob.io.exceptionRet
 
     // Debug Outputs
-    io.pc := instrFetchUnit.io.instrBundle.bits.pc
-    io.instrNow := Mux(instrFetchUnit.io.instrBundle.valid,instrFetchUnit.io.instrBundle.bits.instr.rawBits,0.U)
+    io.pc := ifu.io.instrBundle.bits.pc
+    io.instrNow := Mux(ifu.io.instrBundle.valid,ifu.io.instrBundle.bits.instr.rawBits,0.U)
 }
 
 object MarkoRvCore extends App {

@@ -232,13 +232,13 @@ class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int) extends Module {
 
 class AxiCtrl(implicit val config: CoreConfig) extends Module {
     val io = IO(new Bundle {
-        val instrFetch = new IOInterface()(config.InstrFetchIoConfig,false)
-        val loadStore = new IOInterface()(config.loadStoreIoConfig,false)
+        val instrFetch = new IOInterface()(config.fetchIoConfig,false)
+        val loadStore = new IOInterface()(config.lsuIoConfig,false)
         val axi = new AxiInterface(config.axiConfig)
     })
 
-    val instrFetchHandler = Module(new AXIHandler(config.axiConfig, config.InstrFetchIoConfig, 0))
-    val loadStoreHandler = Module(new AXIHandler(config.axiConfig, config.loadStoreIoConfig, 1))
+    val instrFetchHandler = Module(new AXIHandler(config.axiConfig, config.fetchIoConfig, 0))
+    val loadStoreHandler = Module(new AXIHandler(config.axiConfig, config.lsuIoConfig, 1))
     instrFetchHandler.io.req <> io.instrFetch
     loadStoreHandler.io.req <> io.loadStore
 

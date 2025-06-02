@@ -4,9 +4,16 @@ import chisel3._
 import chisel3.util._
 
 import markorv.utils.ChiselUtils._
+import markorv.config._
 import markorv.frontend._
+import markorv.manage.CommitBundle
+import markorv.manage.DisconEventEnum
 
-object MultiplyUnitFunct3Op64 extends ChiselEnum {
+object EXUEnum extends ChiselEnum {
+    val alu, bru, lsu, mdu, misc = Value
+}
+
+object MultiplyDivisionUnitFunct3Op64 extends ChiselEnum {
     val mul    = Value("b000".U)
     val mulh   = Value("b001".U)
     val mulhsu = Value("b010".U)
@@ -17,7 +24,7 @@ object MultiplyUnitFunct3Op64 extends ChiselEnum {
     val remu   = Value("b111".U)
 }
 
-object MultiplyUnitFunct3Op32 extends ChiselEnum {
+object MultiplyDivisionUnitFunct3Op32 extends ChiselEnum {
     val mulw   = Value("b000".U)
     val divw   = Value("b100".U)
     val divuw  = Value("b101".U)
@@ -70,7 +77,6 @@ object LSUOpcode extends ChiselEnum {
     def isamo(op: LSUOpcode.Type): Bool = op.asUInt(0) === 1.U
     def isload(op: LSUOpcode.Type): Bool = op === LSUOpcode.load
     def isstore(op: LSUOpcode.Type): Bool = op === LSUOpcode.store
-    def needwb(op: LSUOpcode.Type): Bool = isamo(op) | isload(op)
 }
 
 object SystemOpMap extends ChiselEnum {
@@ -80,66 +86,12 @@ object SystemOpMap extends ChiselEnum {
     val mret = Value("h604000".U)
 }
 
-class CommitBundle extends Bundle {
-    val reg = UInt(5.W)
-    val data = UInt(64.W)
-}
-
-class MUOpcode extends Bundle {
-    val op32 = Bool()
-    val funct3 = UInt(3.W)
-
-    def fromReg(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
-        val instr = rawInstr.asTypeOf(new RTypeInstruction)
-        val valid = WireInit(false.B)
-
-        this.op32 := false.B
-        this.funct3 := instr.funct3
-
-        val (_, op64Valid) = MultiplyUnitFunct3Op64.safe(instr.funct3)
-        valid := op64Valid
-
-        regReq.source1 := instr.rs1
-        regReq.source2 := instr.rs2
-        params.rd := instr.rd
-        valid
-    }
-
-    def fromReg32(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
-        val instr = rawInstr.asTypeOf(new RTypeInstruction)
-        val valid = WireInit(false.B)
-
-        this.op32 := true.B
-        this.funct3 := instr.funct3
-
-        val (_, op32Valid) = MultiplyUnitFunct3Op32.safe(instr.funct3)
-        valid := op32Valid
-
-        regReq.source1 := instr.rs1
-        regReq.source2 := instr.rs2
-        params.rd := instr.rd
-        valid
-    }
-
-    def getFunct3Op64(): MultiplyUnitFunct3Op64.Type = {
-        suppressEnumCastWarning {
-            this.funct3.asTypeOf(new MultiplyUnitFunct3Op64.Type)
-        }
-    }
-
-    def getFunct3Op32(): MultiplyUnitFunct3Op32.Type = {
-        suppressEnumCastWarning {
-            this.funct3.asTypeOf(new MultiplyUnitFunct3Op32.Type)
-        }
-    }
-}
-
 class ALUOpcode extends Bundle {
     val op32 = Bool()
     val sraSub = Bool()
     val funct3 = UInt(3.W)
 
-    def fromLui(rawInstr: Instruction, _regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+    def fromLui(rawInstr: Instruction, _regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new UTypeInstruction)
         val valid = WireInit(true.B)
 
@@ -153,7 +105,7 @@ class ALUOpcode extends Bundle {
         valid
     }
 
-    def fromAuipc(rawInstr: Instruction, _regReq: RegisterRequests, params: DecoderOutParams, pc: UInt): Bool = {
+    def fromAuipc(rawInstr: Instruction, _regReq: RegisterRequests, params: DecodedParams, pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new UTypeInstruction)
         val valid = WireInit(true.B)
 
@@ -167,7 +119,7 @@ class ALUOpcode extends Bundle {
         valid
     }
 
-    def fromImm(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+    def fromImm(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
@@ -188,7 +140,7 @@ class ALUOpcode extends Bundle {
         valid
     }
 
-    def fromImm32(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+    def fromImm32(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
@@ -209,7 +161,7 @@ class ALUOpcode extends Bundle {
         valid
     }
 
-    def fromReg(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+    def fromReg(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new RTypeInstruction)
         val valid = WireInit(false.B)
 
@@ -227,7 +179,7 @@ class ALUOpcode extends Bundle {
         valid
     }
 
-    def fromReg32(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+    def fromReg32(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new RTypeInstruction)
         val valid = WireInit(false.B)
 
@@ -258,11 +210,13 @@ class ALUOpcode extends Bundle {
     }
 }
 
+class ALUCommit(implicit override val c: CoreConfig) extends CommitBundle
+
 class BranchOpcode extends Bundle {
     val funct = UInt(4.W)
     val offset = UInt(12.W)
 
-    def fromBranch(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+    def fromBranch(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new BTypeInstruction)
         val valid = WireInit(false.B)
 
@@ -277,7 +231,7 @@ class BranchOpcode extends Bundle {
         valid
     }
 
-    def fromJal(rawInstr: Instruction, _regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt) = {
+    def fromJal(rawInstr: Instruction, _regReq: RegisterRequests, params: DecodedParams, _pc: UInt) = {
         val instr = rawInstr.asTypeOf(new JTypeInstruction)
         val valid = WireInit(true.B)
 
@@ -286,7 +240,7 @@ class BranchOpcode extends Bundle {
         valid
     }
 
-    def fromJalr(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt) = {
+    def fromJalr(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt) = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(true.B)
 
@@ -304,11 +258,17 @@ class BranchOpcode extends Bundle {
     }
 }
 
+class BRUCommit(implicit override val c: CoreConfig) extends CommitBundle {
+    val disconType = new DisconEventEnum.Type
+    val recover = Bool()
+    val recoverPc = UInt(64.W)
+}
+
 class LoadStoreOpcode extends Bundle {
     val funct = UInt(6.W)
     val size = UInt(3.W)
 
-    def fromAmo(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+    def fromAmo(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new RTypeInstruction)
         val valid = WireInit(false.B)
 
@@ -325,7 +285,7 @@ class LoadStoreOpcode extends Bundle {
         valid
     }
 
-    def fromLoad(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt) = {
+    def fromLoad(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt) = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
@@ -339,7 +299,7 @@ class LoadStoreOpcode extends Bundle {
         valid
     }
 
-    def fromStore(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt) = {
+    def fromStore(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt) = {
         val instr = rawInstr.asTypeOf(new STypeInstruction)
         val valid = WireInit(false.B)
 
@@ -354,12 +314,70 @@ class LoadStoreOpcode extends Bundle {
     }
 }
 
-class MiscOpcode extends Bundle {
+class LSUCommit(implicit override val c: CoreConfig) extends CommitBundle {
+    val disconType = new DisconEventEnum.Type
+    val trap = Bool()
+    val cause = UInt(16.W)
+    val xtval = UInt(64.W)
+}
+
+class MDUOpcode extends Bundle {
+    val op32 = Bool()
+    val funct3 = UInt(3.W)
+
+    def fromReg(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new RTypeInstruction)
+        val valid = WireInit(false.B)
+
+        this.op32 := false.B
+        this.funct3 := instr.funct3
+
+        val (_, op64Valid) = MultiplyDivisionUnitFunct3Op64.safe(instr.funct3)
+        valid := op64Valid
+
+        regReq.source1 := instr.rs1
+        regReq.source2 := instr.rs2
+        params.rd := instr.rd
+        valid
+    }
+
+    def fromReg32(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+        val instr = rawInstr.asTypeOf(new RTypeInstruction)
+        val valid = WireInit(false.B)
+
+        this.op32 := true.B
+        this.funct3 := instr.funct3
+
+        val (_, op32Valid) = MultiplyDivisionUnitFunct3Op32.safe(instr.funct3)
+        valid := op32Valid
+
+        regReq.source1 := instr.rs1
+        regReq.source2 := instr.rs2
+        params.rd := instr.rd
+        valid
+    }
+
+    def getFunct3Op64(): MultiplyDivisionUnitFunct3Op64.Type = {
+        suppressEnumCastWarning {
+            this.funct3.asTypeOf(new MultiplyDivisionUnitFunct3Op64.Type)
+        }
+    }
+
+    def getFunct3Op32(): MultiplyDivisionUnitFunct3Op32.Type = {
+        suppressEnumCastWarning {
+            this.funct3.asTypeOf(new MultiplyDivisionUnitFunct3Op32.Type)
+        }
+    }
+}
+
+class MDUCommit(implicit override val c: CoreConfig) extends CommitBundle
+
+class MISCOpcode extends Bundle {
     val miscCsrFunct = UInt(4.W)
     val miscSysFunct = UInt(3.W)
-    val miscMemFunct = UInt(1.W)
+    val miscMemFunct = UInt(2.W)
 
-    def fromSys(rawInstr: Instruction, regReq: RegisterRequests, params: DecoderOutParams, _pc: UInt): Bool = {
+    def fromSys(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
@@ -391,7 +409,7 @@ class MiscOpcode extends Bundle {
         valid
     }
 
-    def fromMiscMem(rawInstr: Instruction, _regReq: RegisterRequests, params: DecoderOutParams, pc: UInt): Bool = {
+    def fromMISCMem(rawInstr: Instruction, _regReq: RegisterRequests, params: DecodedParams, pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
@@ -403,4 +421,16 @@ class MiscOpcode extends Bundle {
         }
         valid
     }
+}
+
+class MISCCommit(implicit override val c: CoreConfig) extends CommitBundle {
+    val disconType = new DisconEventEnum.Type
+    val trap = Bool()
+    val cause = UInt(16.W)
+    val xtval = UInt(64.W)
+    val xret  = Bool()
+
+    // For fence.i
+    val recover = Bool()
+    val recoverPc = UInt(64.W)
 }

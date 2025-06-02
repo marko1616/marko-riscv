@@ -4,26 +4,31 @@ import chisel3._
 import chisel3.util._
 
 import markorv.utils.ChiselUtils._
-import markorv.backend._
-import markorv.frontend.DecoderOutParams
-import markorv.bus._
 import markorv.config._
+import markorv.backend._
+import markorv.bus._
+import markorv.frontend.DecodedParams
+import markorv.manage.RegisterCommit
+import markorv.manage.EXUParams
 
-class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
+class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val lsuInstr = Flipped(Decoupled(new Bundle {
             val lsuOpcode = new LoadStoreOpcode
-            val params = new DecoderOutParams
+            val params = new EXUParams
         }))
 
-        val interface = new IOInterface()(config.loadStoreIoConfig,true)
+        val interface = new IOInterface()(c.lsuIoConfig,true)
 
-        val commit = Decoupled(new CommitBundle)
+        val robHeadIndex = Input(UInt(log2Ceil(c.robSize).W))
+
+        val commit = Decoupled(new LSUCommit)
         val invalidateReserved = Input(Bool())
         val outfire = Output(Bool())
     })
     private val readChannel = io.interface.read.get
     private val writeChannel = io.interface.write.get
+
     object State extends ChiselEnum {
         val statNormal, statAmoCache, statAmoRead, statAmoWrite = Value
     }
@@ -35,6 +40,7 @@ class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
     val size = io.lsuInstr.bits.lsuOpcode.size(1,0)
     val sign = !io.lsuInstr.bits.lsuOpcode.size(2)
     val params = io.lsuInstr.bits.params
+    val nonSpeculative = io.robHeadIndex === params.robIndex
 
     val opFired = Wire(Bool())
     val loadData = Wire(UInt(64.W))
@@ -51,16 +57,16 @@ class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
 
     // default
     readChannel.params.valid := false.B
-    readChannel.params.bits := new ReadParams()(config.loadStoreIoConfig).zero
+    readChannel.params.bits := new ReadParams()(c.lsuIoConfig).zero
     readChannel.resp.ready := false.B
 
     writeChannel.params.valid := false.B
-    writeChannel.params.bits := new WriteParams()(config.loadStoreIoConfig).zero
+    writeChannel.params.bits := new WriteParams()(c.lsuIoConfig).zero
     writeChannel.resp.ready := false.B
 
     io.commit.valid := false.B
-    io.commit.bits.data := 0.U(64.W)
-    io.commit.bits.reg := 0.U(5.W)
+    io.commit.bits := new LSUCommit().zero
+    io.commit.bits.robIndex := params.robIndex
 
     io.lsuInstr.ready := false.B
     io.outfire := false.B
@@ -128,7 +134,6 @@ class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
 
             io.commit.valid := true.B
             io.commit.bits.data := amoDataReg
-            io.commit.bits.reg := params.rd
             state := State.statNormal
         }.elsewhen(isSc) {
             when(localLoadReservedValid && localLoadReservedAddr === addr) {
@@ -143,14 +148,12 @@ class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
                     localLoadReservedAddr := 0.U
                     io.commit.valid := true.B
                     io.commit.bits.data := Mux(writeChannel.resp.bits === AxiResp.exokay,AMO_SC_SUCCED, AMO_SC_FAILED)
-                    io.commit.bits.reg := params.rd
                     state := State.statNormal
                 }
             }.otherwise {
                 opFired := true.B
                 io.commit.valid := true.B
                 io.commit.bits.data := AMO_SC_FAILED
-                io.commit.bits.reg := params.rd
                 state := State.statNormal
             }
         }.otherwise {
@@ -163,17 +166,12 @@ class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
                 opFired := true.B
                 io.commit.valid := true.B
                 io.commit.bits.data := amoDataReg
-                io.commit.bits.reg := params.rd
                 state := State.statNormal
             }
         }
     }
 
-    when(!io.lsuInstr.valid) {
-        io.lsuInstr.ready := io.commit.ready && state === State.statNormal
-    }
-
-    when(io.lsuInstr.valid && validFunct && io.commit.ready && state === State.statNormal) {
+    when(io.lsuInstr.valid && nonSpeculative && validFunct && io.commit.ready && state === State.statNormal) {
         when(LSUOpcode.isamo(opcode)) {
             // AMO
             state := State.statAmoCache
@@ -211,13 +209,16 @@ class LoadStoreUnit(implicit val config: CoreConfig) extends Module {
         }
     }
 
+    when(!io.lsuInstr.valid) {
+        io.lsuInstr.ready := io.commit.ready && state === State.statNormal
+    }
+
     when(opFired) {
         io.outfire := true.B
-        io.lsuInstr.ready := true.B
-        when(state === State.statNormal && LSUOpcode.needwb(opcode)) {
+        io.lsuInstr.ready := io.commit.ready
+        when(state === State.statNormal) {
             io.commit.valid := true.B
             io.commit.bits.data := loadData
-            io.commit.bits.reg := params.rd
         }
     }
 }

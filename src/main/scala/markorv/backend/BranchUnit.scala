@@ -4,36 +4,24 @@ import chisel3._
 import chisel3.util._
 
 import markorv.utils.ChiselUtils._
-import markorv.frontend.DecoderOutParams
-import markorv.backend._
+import markorv.config._
+import markorv.frontend.DecodedParams
+import markorv.manage.RegisterCommit
+import markorv.manage.EXUParams
+import markorv.manage.DisconEventEnum
 
-class BranchUnit extends Module {
+class BranchUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val branchInstr = Flipped(Decoupled(new Bundle {
             val branchOpcode = new BranchOpcode
             val predTaken = Bool()
             val predPc = UInt(64.W)
-            val params = new DecoderOutParams
+            val params = new EXUParams
         }))
 
-        val commit = Decoupled(new Bundle {
-            val reg = Input(UInt(5.W))
-            val data = Input(UInt(64.W))
-        })
-
-        val flush = Bool()
-        val setPc = UInt(64.W)
+        val commit = Decoupled(new BRUCommit)
         val outfire = Output(Bool())
     })
-
-    io.outfire := false.B
-    io.branchInstr.ready := true.B
-
-    io.commit.valid := false.B
-    io.commit.bits.reg := 0.U
-    io.commit.bits.data := 0.U
-    io.flush := false.B
-    io.setPc := 0.U
 
     val opcode    = io.branchInstr.bits.branchOpcode
     val params    = io.branchInstr.bits.params
@@ -42,6 +30,13 @@ class BranchUnit extends Module {
     val source1   = params.source1
     val source2   = params.source2
     val jalrPc    = ((source1 + source2) & ~(1.U(64.W)))
+
+    io.outfire := false.B
+    io.branchInstr.ready := io.commit.ready
+
+    io.commit.valid := false.B
+    io.commit.bits := new BRUCommit().zero
+    io.commit.bits.robIndex := params.robIndex
 
     val funct = opcode.getFunct()
     val branch_taken = MuxLookup(funct, false.B)(Seq(
@@ -56,12 +51,12 @@ class BranchUnit extends Module {
         BranchFunct.jal -> (false.B),
         BranchFunct.jalr -> (jalrPc =/= predPc)
     ))
-    val recoverPc = Mux(branch_taken, (params.pc.asSInt + (opcode.offset ## 0.U(1.W)).asSInt).asUInt, params.pc + 4.U)
+    val branchPc = Mux(branch_taken, (params.pc.asSInt + (opcode.offset ## 0.U(1.W)).asSInt).asUInt, params.pc + 4.U)
 
     io.commit.valid := io.branchInstr.valid
-    io.commit.bits.reg := Mux(funct.in(BranchFunct.jal, BranchFunct.jalr), params.rd, 0.U)
     io.commit.bits.data := Mux(funct.in(BranchFunct.jal, BranchFunct.jalr), params.pc + 4.U, 0.U)
-    io.flush := io.branchInstr.valid && recover
-    io.setPc := Mux(funct === BranchFunct.jalr, jalrPc, recoverPc)
+    io.commit.bits.disconType := Mux(funct === BranchFunct.jalr, DisconEventEnum.instrRedirect, DisconEventEnum.branchMispred)
+    io.commit.bits.recover := recover
+    io.commit.bits.recoverPc := Mux(funct === BranchFunct.jalr, jalrPc, branchPc)
     io.outfire := io.branchInstr.valid
 }

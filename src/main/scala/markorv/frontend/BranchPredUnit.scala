@@ -3,7 +3,6 @@ package markorv.frontend
 import chisel3._
 import chisel3.util._
 
-import markorv.frontend._
 import markorv.utils.ChiselUtils._
 
 class BranchPredUnit extends Module {
@@ -18,12 +17,7 @@ class BranchPredUnit extends Module {
             val predTaken = Bool()
             val predPc = UInt(64.W)
         })
-
-        val regRead = Output(UInt(5.W))
-        val regData = Input(UInt(64.W))
     })
-
-    io.regRead := 0.U
 
     io.bpuResult.isBranch := false.B
     io.bpuResult.predTaken := false.B
@@ -43,12 +37,10 @@ class BranchPredUnit extends Module {
             ).sextu(64)
         }
         is("b1100111".U) {
-            // jalr
-            io.regRead := io.bpuInstr.instr(19, 15)
-
+            // TODO: jalr
             io.bpuResult.isBranch := true.B
             io.bpuResult.predTaken := true.B
-            io.bpuResult.predPc := (io.regData + io.bpuInstr.instr(31, 20).sextu(64)) & ~(1.U(64.W))
+            io.bpuResult.predPc := io.bpuInstr.pc + 4.U
         }
         is("b1100011".U) {
             // branch

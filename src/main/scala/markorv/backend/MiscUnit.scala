@@ -4,9 +4,13 @@ import chisel3._
 import chisel3.util._
 
 import markorv.utils.ChiselUtils._
-import markorv.trap._
-import markorv.frontend.DecoderOutParams
+import markorv.exception._
+import markorv.config._
+import markorv.frontend.DecodedParams
 import markorv.ControlStatusRegistersIO
+import markorv.manage.RegisterCommit
+import markorv.manage.EXUParams
+import markorv.manage.DisconEventEnum
 
 object CsrOperation extends ChiselEnum {
     val csrrw = Value("h1".U)
@@ -26,13 +30,14 @@ object MemoryOperation extends ChiselEnum {
     val fenceI = Value("h2".U)
 }
 
-class MiscUnit extends Module {
+class MISCUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val miscInstr = Flipped(Decoupled(new Bundle {
-            val miscOpcode = new MiscOpcode
-            val params = new DecoderOutParams
+            val miscOpcode = new MISCOpcode
+            val params = new EXUParams
         }))
-        val commit = Decoupled(new CommitBundle)
+        val commit = Decoupled(new MISCCommit)
+        val robHeadIndex = Input(UInt(log2Ceil(c.robSize).W))
 
         val csrio = Flipped(new ControlStatusRegistersIO)
         val outfire = Output(Bool())
@@ -40,20 +45,14 @@ class MiscUnit extends Module {
         val getPrivilege = Output(UInt(2.W))
         val setPrivilege = Flipped(Decoupled(UInt(2.W)))
 
-        val exception = Decoupled(new ExceptionInfo)
-        val trapRet = Output(Bool())
-
-        val flush = Output(Bool())
-        val setPc = Output(UInt(64.W))
-
         val icacheInvalidate = Output(Bool())
         val icacheInvalidateOutfire = Input(Bool())
     })
-
     // M-mode by default on reset
     val privilegeReg = RegInit(3.U(2.W))
     val opcode = io.miscInstr.bits.miscOpcode
     val params = io.miscInstr.bits.params
+    val speculative = io.robHeadIndex =/= params.robIndex
 
     val (csrOp, validCsrOp) = CsrOperation.safe(opcode.miscCsrFunct(1, 0))
     val (sysOp, validSysOp) = SystemOperation.safe(opcode.miscSysFunct)
@@ -68,23 +67,16 @@ class MiscUnit extends Module {
     io.csrio.writeData := 0.U
 
     io.outfire := false.B
-    io.miscInstr.ready := true.B
+    io.miscInstr.ready := io.commit.ready && ~(validOp && speculative)
     io.commit.valid := false.B
-    io.commit.bits := new CommitBundle().zero
-
-    io.exception.valid := false.B
-    io.exception.bits := new ExceptionInfo().zero
+    io.commit.bits := new MISCCommit().zero
+    io.commit.bits.robIndex := params.robIndex
 
     io.getPrivilege := privilegeReg
     io.setPrivilege.ready := true.B
-    io.trapRet := false.B
-
-    io.flush := false.B
-    io.setPc := 0.U
-
     io.icacheInvalidate := false.B
 
-    when(validOp) {
+    when(validOp && ~speculative) {
         when(validCsrOp) {
             val csrSrc1 = params.source1
             val csrAddr = params.source2
@@ -105,7 +97,6 @@ class MiscUnit extends Module {
             ))
 
             io.commit.valid := true.B
-            io.commit.bits.reg := params.rd
             io.commit.bits.data := csrData
             io.outfire := true.B
         }
@@ -116,19 +107,23 @@ class MiscUnit extends Module {
                     io.outfire := true.B // wfi treated as NOP
                 }
                 is(SystemOperation.ecall) {
-                    io.exception.valid := true.B
-                    io.exception.bits.cause := 11.U
-                    io.exception.bits.retAddr := params.pc + 4.U
+                    io.commit.valid := true.B
+                    io.commit.bits.disconType := DisconEventEnum.instrException
+                    io.commit.bits.trap := true.B
+                    io.commit.bits.cause := 11.U
                     io.outfire := true.B
                 }
                 is(SystemOperation.ebreak) {
-                    io.exception.valid := true.B
-                    io.exception.bits.cause := 3.U
-                    io.exception.bits.retAddr := params.pc + 4.U
+                    io.commit.valid := true.B
+                    io.commit.bits.disconType := DisconEventEnum.instrException
+                    io.commit.bits.trap := true.B
+                    io.commit.bits.cause := 3.U
                     io.outfire := true.B
                 }
                 is(SystemOperation.mret) {
-                    io.trapRet := true.B
+                    io.commit.valid := true.B
+                    io.commit.bits.disconType := DisconEventEnum.excepReturn
+                    io.commit.bits.xret := true.B
                     io.outfire := true.B
                 }
             }
@@ -140,9 +135,11 @@ class MiscUnit extends Module {
                     io.miscInstr.ready := false.B
                     io.icacheInvalidate := true.B
                     when(io.icacheInvalidateOutfire) {
-                        io.flush := true.B
                         io.outfire := true.B
-                        io.setPc := params.source1
+                        io.commit.valid := true.B
+                        io.commit.bits.disconType := DisconEventEnum.instrSync
+                        io.commit.bits.recover := true.B
+                        io.commit.bits.recoverPc := params.source1
                     }
                 }
             }

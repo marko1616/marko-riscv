@@ -209,7 +209,7 @@ class ELF {
         EM_CLOUDSHIELD = 192,         // CloudShield architecture family
         EM_COREA_1ST = 193,           // KIPO-KAIST Core-A 1st generation processor family
         EM_COREA_2ND = 194,           // KIPO-KAIST Core-A 2nd generation processor family
-        EM_ARC_COMPACT2 = 195,         // Synopsys ARCompact V2
+        EM_ARC_COMPACT2 = 195,        // Synopsys ARCompact V2
         EM_OPEN8 = 196,               // Open8 8-bit RISC soft processor core
         EM_RL78 = 197,                // Renesas RL78 family
         EM_VIDEOCORE5 = 198,          // Broadcom VideoCore V processor

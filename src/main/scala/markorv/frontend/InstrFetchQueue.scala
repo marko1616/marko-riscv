@@ -4,15 +4,12 @@ import chisel3._
 import chisel3.util._
 
 import markorv.utils.ChiselUtils._
-import markorv.frontend._
 import markorv.bus._
 import markorv.config._
 
 class InstrFetchQueue(implicit val config: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val cachelineRead = Flipped(Decoupled(UInt((8 * config.icacheConfig.dataBytes).W)))
-        val regRead = Output(UInt(5.W))
-        val regData = Input(UInt(64.W))
 
         val fetchBundle = Decoupled(new FetchQueueEntities)
         val pc = Input(UInt(64.W))
@@ -24,7 +21,7 @@ class InstrFetchQueue(implicit val config: CoreConfig) extends Module {
     val bpu = Module(new BranchPredUnit)
     val instrQueue = Module(new Queue(
         new FetchQueueEntities,
-        config.ifqSize,
+        config.fetchQueueSize,
         flow = true,
         hasFlush = true
     ))
@@ -38,8 +35,6 @@ class InstrFetchQueue(implicit val config: CoreConfig) extends Module {
 
     bpu.io.bpuInstr.instr := 0.U
     bpu.io.bpuInstr.pc := 0.U
-    bpu.io.regRead <> io.regRead
-    bpu.io.regData <> io.regData
 
     when(instrQueue.io.count === 0.U) {
         endPc := io.pc
