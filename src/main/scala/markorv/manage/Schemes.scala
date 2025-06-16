@@ -4,6 +4,10 @@ import chisel3._
 import chisel3.util._
 
 import markorv.config._
+import markorv.frontend.OpcodeBundle
+import markorv.frontend.DecodedParams
+import markorv.frontend.PhyRegRequests
+import markorv.backend.EXUEnum
 
 object DisconEventEnum extends ChiselEnum {
     val interrupt      = Value  // External Asynchronous Interrupt
@@ -50,10 +54,13 @@ class ROBDisconField extends Bundle {
 }
 
 class ROBEntry(implicit val c: CoreConfig) extends Bundle {
-    val phyRdValid = Bool()
-    val phyRd      = UInt(log2Ceil(c.regFileSize).W)
-    val prevPhyRd  = UInt(log2Ceil(c.regFileSize).W)
-    val pc         = UInt(64.W)
+    val valid = Bool()
+    val exu = new EXUEnum.Type
+
+    val prdValid = Bool()
+    val prd      = UInt(log2Ceil(c.regFileSize).W)
+    val prevprd  = UInt(log2Ceil(c.regFileSize).W)
+    val pc       = UInt(64.W)
 
     val fCtrl = new ROBDisconField
     val commited = Bool()
@@ -61,9 +68,10 @@ class ROBEntry(implicit val c: CoreConfig) extends Bundle {
 }
 
 class ROBAllocReq(implicit val c: CoreConfig) extends Bundle {
-    val phyRdValid = Bool()
-    val phyRd = UInt(log2Ceil(c.regFileSize).W)
-    val prevPhyRd = UInt(log2Ceil(c.regFileSize).W)
+    val exu = new EXUEnum.Type
+    val prdValid = Bool()
+    val prd = UInt(log2Ceil(c.regFileSize).W)
+    val prevprd = UInt(log2Ceil(c.regFileSize).W)
     val pc = UInt(64.W)
 }
 
@@ -78,27 +86,27 @@ class ROBCommitReq(implicit val c: CoreConfig) extends Bundle {
 
 class EXUParams(implicit val c: CoreConfig) extends Bundle {
     val robIndex = UInt(log2Ceil(c.robSize).W)
+    val pc = UInt(64.W)
     val source1 = UInt(64.W)
     val source2 = UInt(64.W)
-    val pc = UInt(64.W)
 }
 
 class IssueEvent(implicit val c: CoreConfig) extends Bundle {
-    val phyRdValid = Bool()
-    val phyRd = UInt(log2Ceil(c.regFileSize).W)
+    val prdValid = Bool()
+    val prd = UInt(log2Ceil(c.regFileSize).W)
 }
 
 class CommitEvent(implicit val c: CoreConfig) extends Bundle {
-    val phyRdValid = Bool()
-    val phyRd = UInt(log2Ceil(c.regFileSize).W)
+    val prdValid = Bool()
+    val prd = UInt(log2Ceil(c.regFileSize).W)
 }
 
 class DisconEvent(implicit val c: CoreConfig) extends Bundle {
     val disconType  = new DisconEventEnum.Type
 
-    val phyRdValid = Bool()
-    val phyRd = UInt(log2Ceil(c.regFileSize).W)
-    val prevPhyRd = UInt(log2Ceil(c.regFileSize).W)
+    val prdValid = Bool()
+    val prd = UInt(log2Ceil(c.regFileSize).W)
+    val prevprd = UInt(log2Ceil(c.regFileSize).W)
 
     val renameCkptIndex = UInt(log2Ceil(c.renameTableSize).W)
 }
@@ -109,9 +117,37 @@ class RetireEvent(implicit val c: CoreConfig) extends Bundle {
     // but we still generate this event to update internal states.
     // Refer to the RISC-V Privileged Spec, section 3.3.1.
     val isTrap = Bool()
-    val phyRdValid = Bool()
-    val phyRd = UInt(log2Ceil(c.regFileSize).W)
-    val prevPhyRd = UInt(log2Ceil(c.regFileSize).W)
+    val prdValid = Bool()
+    val prd = UInt(log2Ceil(c.regFileSize).W)
+    val prevprd = UInt(log2Ceil(c.regFileSize).W)
+}
+
+class ReservationStationEntry(implicit val c: CoreConfig) extends Bundle {
+    val valid = Bool()
+    val exu = new EXUEnum.Type
+    val opcodes = new OpcodeBundle
+    val predTaken = Bool()
+    val predPc = UInt(64.W)
+    val params = new EXUParams
+    val regReq = new PhyRegRequests
+
+    def psrcValid(regStates: Vec[PhyRegState.Type]): Bool = {
+        val prs1Valid = this.regReq.prs1Valid
+        val prs2Valid = this.regReq.prs2Valid
+        val prs1IsRd  = this.regReq.prs1IsRd
+        val prs2IsRd  = this.regReq.prs2IsRd
+        val prs1State = regStates(this.regReq.prs1)
+        val prs2State = regStates(this.regReq.prs2)
+
+        val prs1Ready = (prs1State === PhyRegState.Allocated || prs1State === PhyRegState.Committed) || !prs1Valid || prs1IsRd
+        val prs2Ready = (prs2State === PhyRegState.Allocated || prs2State === PhyRegState.Committed) || !prs2Valid || prs2IsRd
+
+        prs1Ready && prs2Ready
+    }
+
+    def ready(regStates: Vec[PhyRegState.Type]): Bool = {
+        this.valid && this.psrcValid(regStates)
+    }
 }
 
 abstract class CommitBundle(implicit val c: CoreConfig) extends Bundle {

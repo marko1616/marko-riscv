@@ -1,0 +1,33 @@
+{
+    "simulate": true,
+    "fetchQueueSize": 4,
+    "axiConfig": {
+        "addrWidth": 64,
+        "dataWidth": 64,
+        "idWidth": 2
+    },
+    "icacheConfig": {
+        "addrWidth": 64,
+        "wayNum": 2,
+        "setNum": 4,
+        "offsetBits": 6
+    },
+    "robSize": 16,
+    "rsSize": 16,
+    "renameTableSize": 4,
+    "regFileSize": 64,
+    "fetchIoConfig": {
+        "read": true,
+        "write": false,
+        "atomicity": false,
+        "addrWidth": 64,
+        "dataWidth": 512
+    },
+    "lsuIoConfig": {
+        "read": true,
+        "write": true,
+        "atomicity": true,
+        "addrWidth": 64,
+        "dataWidth": 64
+    }
+}

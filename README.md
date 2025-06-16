@@ -15,45 +15,58 @@ This project is a learning endeavor focused on RISC-V architecture and Hardware 
 
 ```
 .
-|-- Dockerfile              # Defines the build environment container
-|-- LICENSE
-|-- Makefile                # Main Makefile for building the project
-|-- README.md               # This file
-|-- README_zh.md            # Chinese version of this README
-|-- TODO.md
-|-- build.mill              # Mill build configuration for Chisel code
-|-- docker-compose.yml      # Docker Compose for easy environment startup
-|-- docs
-|   `-- update-log.md
-|-- dump.bin
-|-- emulator
-|   |-- assets              # Bootloader, DTS, etc.
-|   |   |-- Makefile        # Makefile for emulator assets (e.g., boot.bin)
-|   |   `-- ...
-|   `-- src                 # C++ emulator source code
-|       `-- ...
-|-- libs                    # External libraries (e.g., capstone, cxxopts as submodules or included)
-|   |-- capstone
-|   `-- cxxopts
-|-- src
-|   `-- main
-|       `-- scala
-|           `-- markorv     # Chisel source code for the RISC-V core
-|               |-- backend   # Execution units
-|               |-- bus       # Bus interfaces (e.g., AXI)
-|               |-- cache     # Cache implementation
-|               |-- config    # Core configuration
-|               |-- frontend  # Fetch, decode, issue stages
-|               |-- trap      # Trap handling
-|               `-- utils     # Utility components
-|-- tests
-|   |-- asmtst              # Assembly tests for the core
-|   |   |-- general.ld
-|   |   `-- src
-|   |       `-- *.S         # Assembly source files
-|   |-- batched_test.py
-|   `-- clock               # Clock-related tests/utils
-`-- ... (other project files)
+├── Dockerfile                 # Dockerfile for building development/production environment
+├── docker-compose.yml         # Compose configuration for service orchestration
+├── Makefile                   # Project entry point for build/test/clean commands
+├── build.mill                 # Mill build script for Scala/Chisel sources
+├── cli.py                     # Interactive CLI (built with Typer + Questionary + Rich)
+│
+├── README.md                  # Main README in English
+├── README_zh.md               # Translated README in Chinese
+├── LICENSE                    # Project license file
+├── TODO.md                    # Development roadmap and task list
+│
+├── docs/                      # Documentation directory
+│   └── update-log.md          # Change history and updates
+│
+├── assets/                    # Core configuration assets
+│   └── core_config.json       # Core-level configuration parameters
+│
+├── scripts/                   # Helper and automation scripts
+│   └── batched_test.py        # Parallel RISC-V assembly test execution
+│
+├── tests/                     # Test resources
+│   ├── asmtests/              # Assembly test sources and linker script
+│   │   ├── general.ld
+│   │   └── src/*.S
+│   ├── clock/                 # Clock-related test helpers
+│   └── riscv-tests/           # Git submodule: Official RISC-V ISA test suite
+│
+├── libs/                      # External dependencies (Git submodules)
+│   ├── capstone/              # Capstone disassembly engine (used in emulator)
+│   └── cxxopts/               # Lightweight C++ CLI options parser
+│
+├── emulator/                  # Verilator-based test platform (not a full C++ simulator)
+│   ├── assets/                # Boot ROM, device tree, and other binaries
+│   └── src/                   # C++ source code for the test harness
+│       ├── dpi/               # SystemVerilog DPI-C header interfaces
+│       └── slaves/            # Virtual peripherals (RAM, UART, etc.)
+│
+├── src/                       # Chisel source code for RISC-V processor
+│   ├── main/scala/markorv/    # Core logic
+│   │   ├── backend/           # Execution units (ALU, MUL/DIV, etc.)
+│   │   ├── frontend/          # Fetch, decode, and branch prediction
+│   │   ├── manage/            # Rename table, scheduler, register file
+│   │   ├── bus/               # AXI bus interfaces
+│   │   ├── cache/             # I/D cache modules
+│   │   ├── config/            # Global parameters and configuration
+│   │   ├── exception/         # Trap/exception handling
+│   │   └── utils/             # Utility functions and helpers
+│   └── test/scala/markorv/    # Scala-based unit tests
+│
+├── project/
+│   └── build.properties       # Mill project metadata
+└── mill/                      # Mill tool support files
 ```
 
 ### 🛠️ Development Environment Setup
@@ -61,7 +74,7 @@ This project is a learning endeavor focused on RISC-V architecture and Hardware 
 This project uses a Dockerized development environment to ensure consistency and ease of setup.
 
 **Prerequisites:**
-*   Docker Engine
+*   Docker Engine (version 18.09 or later)
 *   Docker Compose
 *   An SSH client
 *   Your SSH public key (typically `~/.ssh/id_rsa.pub`). If you don't have one, generate it using `ssh-keygen -t rsa -b 4096`.
@@ -74,72 +87,39 @@ This project uses a Dockerized development environment to ensure consistency and
     cd marko-riscv
     ```
 
-2.  **Prepare SSH Public Key for Docker:**
-    The Docker environment uses your SSH public key to allow passwordless SSH access into the container.
-    Copy your public key content. We will use it in the next step.
+2.  **Prepare SSH Public Key as a Secret:**
+    The Dockerfile uses your SSH public key to allow passwordless access into the container. Pass it securely using Docker BuildKit's secret mount.
+
+    > Make sure BuildKit is enabled before building:
     ```bash
-    cat ~/.ssh/id_rsa.pub
+    export DOCKER_BUILDKIT=1
     ```
 
-3.  **Start the Development Environment:**
-    Build and start the container. You'll be prompted to enter your SSH public key.
-    ```bash
-    # If your public key is in a variable:
-    # export MY_SSH_PUB_KEY=$(cat ~/.ssh/id_rsa.pub)
-    # docker-compose build --build-arg SSH_PUB_KEY="$MY_SSH_PUB_KEY"
-    # docker-compose up -d
+3.  **Build the Docker Image:**
+    Run the following command to build the container image with your public key mounted securely:
 
-    # Or directly (paste your key when prompted or pass it directly):
-    docker-compose build --build-arg SSH_PUB_KEY="$(cat ~/.ssh/id_rsa.pub)"
+    ```bash
+        docker build \
+        --build-arg USE_MIRROR=true \
+        --build-arg PROXY="<your_proxy_url>" \
+        --secret id=ssh_pub_key,src=~/.ssh/id_rsa.pub \
+        -t your-dev-env-image .
+    ```
+
+4.  **Start the Container with Docker Compose:**
+    ```bash
     docker-compose up -d
     ```
-    *   The `build` command is only needed the first time or if `Dockerfile` changes.
-    *   The project directory (`.`) is mounted into `/home/build-user/code` inside the container.
 
-4.  **Connect to the Development Environment:**
-    SSH into the running container. The SSH server inside the container listens on port `8022` of your host machine.
+5.  **Access the Container via SSH:**
     ```bash
     ssh build-user@localhost -p 8022
     ```
-    You are now inside the container, in the `/home/build-user` directory. Your project code is at `/home/build-user/code`.
 
-5.  **Initial Setup (Inside the Container):**
-    Navigate to the code directory and perform initial setup:
-    ```bash
-    cd /home/build-user/code
+    You are now inside the container at `/home/build-user`. Project files are located in `/home/build-user/code`.
 
-    # Initialize and update Git submodules (e.g., capstone)
-    make init
-
-    # Install mill (Scala build tool)
-    # The Dockerfile adds /home/build-user/code/ to PATH, so place mill here.
-    # This only needs to be done once.
-    curl -L https://github.com/com-lihaoyi/mill/releases/download/0.12.5/0.12.5 > mill && chmod +x mill
-    # Verify:
-    # mill --version
-
-    # Install RISC-V GNU Toolchain (if not already on your system path and you need to build .S files)
-    # The Makefile expects riscv64-unknown-elf-gcc.
-    # The following are example instructions for installing it within the container.
-    # This is a one-time setup inside the container.
-    echo "Installing RISC-V GNU Toolchain..."
-    sudo apt-get update
-    sudo apt-get install autoconf automake autotools-dev curl \
-                 python3 python3-pip python3-tomli libmpc-dev \
-                 libmpfr-dev libgmp-dev gawk build-essential bison flex \ 
-                 texinfo gperf libtool patchutils bc zlib1g-dev \ 
-                 libexpat-dev ninja-build git cmake libglib2.0-dev libslirp-dev
-    git clone https://github.com/riscv-collab/riscv-gnu-toolchain.git /tmp/riscv-gnu-toolchain
-    cd /tmp/riscv-gnu-toolchain
-    ./configure --prefix=/opt/riscv --with-arch=rv64ima_zicsr --with-abi=lp64
-    sudo make -j$(nproc)
-    cd /home/build-user/code
-    echo 'export PATH="/opt/riscv/bin:$PATH"' >> ~/.bashrc
-    source ~/.bashrc
-    # Verify:
-    # riscv64-unknown-elf-gcc --version
-    ```
-    *Note: The `start.sh` script in the Docker container runs `make clean` on startup.*
+6.  **Initial Setup (Inside the Container):**
+    Follow the remaining setup instructions inside the container as described below.
 
 ### 🏗️ Building the Project
 
@@ -181,41 +161,58 @@ All build commands should be run **inside the Docker container** from the `/home
 
 Simulations are run **inside the Docker container**. The emulator `VMarkoRvCore` loads ELF files directly.
 
-1.  **Running Custom Assembly Tests (from `tests/asmtst`):**
-    *   Ensure the emulator and bootloader are built:
-        ```bash
-        make compile
-        make gen-rom
-        ```
-    *   Compile your specific assembly test if not already done:
-        ```bash
-        make tests/asmtst/src/your_test_name.elf # Or 'make gen-tests' for all
-        ```
-    *   Run the emulator with your custom test ELF:
-        ```bash
-        obj_dir/VMarkoRvCore --rom-path emulator/assets/boot.elf --ram-path tests/asmtst/src/your_test_name.elf
-        ```
-        Replace `your_test_name.elf` with the desired test (e.g., `helloWorld.elf`). Check `obj_dir/VMarkoRvCore --help` for more emulator options.
+#### 1. Running Custom Assembly Tests (from `tests/asmtests/src`):
 
-2.  **Running Official RISC-V ISA Tests (from `tests/riscv-tests`):**
-    These tests are run using the `batched_test.py` script. The `riscv-tests` submodule (fetched by `make init`) contains pre-compiled ELF files.
-    *   Ensure the emulator and bootloader are built:
-        ```bash
-        make compile
-        make gen-rom
-        ```
-    *   Run the batch test script:
-        ```bash
-        python3 tests/batched_test.py
-        ```
-        You can specify the number of parallel jobs:
-        ```bash
-        python3 tests/batched_test.py -j $(nproc)
-        ```
-        The script will output PASSED/FAILED status for each test case from the `riscv-tests/isa` directory. The `Dockerfile` already installs `python3-rich` and `python3-pyelftools` required by this script.
+    ```bash
+    make build-simulator
+    make build-sim-rom
+    ```
 
-### 📜 Program Order Definition
-*This is a temporary program order definition.* Write-back order in the cache is not guaranteed, but the consistency of instruction effects on the internal CPU state is ensured (non-out-of-order execution).
+    If you need to compile a specific assembly test:
+
+    ```bash
+    make tests/asmtests/src/your_test_name.elf   # Or use 'make build-test-elves' to compile all
+    ```
+
+    Run the emulator with your custom test ELF:
+
+    ```bash
+    obj_dir/VMarkoRvCore --rom-path emulator/assets/boot.elf --ram-path tests/asmtests/src/your_test_name.elf
+    ```
+
+    Use `--help` to view all available emulator options.
+
+#### 2. Running Official RISC-V ISA Tests (from `tests/riscv-tests`):
+
+    These tests are run using the `batched_test.py` script. Before running, make sure the emulator and boot ROM are built:
+
+    ```bash
+    make build-simulator
+    make build-sim-rom
+    ```
+
+    Run the batch test script:
+
+    ```bash
+    python3 scripts/batched_test.py -j $(nproc)
+    ```
+
+    This script will automatically run all ELF files from the `riscv-tests/isa/` directory and output PASSED/FAILED status for each test.
+
+### 🛠️ Available Makefile Commands Summary
+
+| Command Name           | Description |
+|------------------------|-------------|
+| `make init`            | Initialize submodules and build Capstone |
+| `make build-simulator` | Build the RISC-V emulator |
+| `make build-test-elves`| Compile test ELF files |
+| `make build-sim-rom`   | Build ROM files for the emulator |
+| `make clean-all`       | Clean all build artifacts |
+| `make batched-riscv-tests` | Run all RISC-V ISA tests in parallel |
+| `make exit`            | Exit the CLI tool (if using CLI management) |
+
+### 📜 Memory Order Definition
+*This is a temporary Memory order definition.* Write-back order in the cache is not guaranteed, but the consistency of instruction effects on the internal CPU state is ensured (non-out-of-order execution).
 
 ### 🗺️ Update Roadmap
 Please refer to [TODO.md](./TODO.md) for future update plans.

@@ -19,7 +19,7 @@ class InstrDecoder extends Module {
     case class DecodeEntry(
         opcode: UInt,
         matchFn: Instruction => Bool,
-        handler: (Instruction, RegisterRequests, DecodedParams, UInt) => Bool,
+        handler: (Instruction, LogicRegRequests, DecodedParams, UInt) => Bool,
         unit: EXUEnum.Type
     )
 
@@ -28,11 +28,11 @@ class InstrDecoder extends Module {
     val validInstr = WireDefault(false.B)
     val instr = io.instrBundle.bits.instr
     val pc = io.instrBundle.bits.pc
-    val operateUnit = WireInit(EXUEnum.alu)
+    val exu = WireInit(EXUEnum.alu)
     val params = WireInit(new DecodedParams().zero)
     params.pc := pc
 
-    val regRequests = WireDefault(0.U.asTypeOf(new RegisterRequests))
+    val lregReq = WireDefault(new LogicRegRequests().zero)
     val opcode = instr.rawBits(6, 0)
 
     // Pred info (used only by branch-like instructions)
@@ -56,30 +56,31 @@ class InstrDecoder extends Module {
     val OP_AMO      = "b0101111".U
 
     // === Decode Table ===
+    val opcodes = issueTask.opcodes
     val decodeTable = Seq(
-        DecodeEntry(OP_LUI,     _ => true.B, issueTask.aluOpcode.fromLui,       EXUEnum.alu),
-        DecodeEntry(OP_AUIPC,   _ => true.B, issueTask.aluOpcode.fromAuipc,     EXUEnum.alu),
-        DecodeEntry(OP_IMM,     _ => true.B, issueTask.aluOpcode.fromImm,       EXUEnum.alu),
-        DecodeEntry(OP_IMM32,   _ => true.B, issueTask.aluOpcode.fromImm32,     EXUEnum.alu),
-        DecodeEntry(OP,         _ => true.B, issueTask.aluOpcode.fromReg,       EXUEnum.alu),
-        DecodeEntry(OP,         i => i.rawBits(31,25) === "b0000001".U, issueTask.mduOpcode.fromReg,   EXUEnum.mdu),
-        DecodeEntry(OP_32,      _ => true.B, issueTask.aluOpcode.fromReg32,     EXUEnum.alu),
-        DecodeEntry(OP_32,      i => i.rawBits(31,25) === "b0000001".U, issueTask.mduOpcode.fromReg32, EXUEnum.mdu),
-        DecodeEntry(OP_LOAD,    _ => true.B, issueTask.lsuOpcode.fromLoad,      EXUEnum.lsu),
-        DecodeEntry(OP_STOR,    _ => true.B, issueTask.lsuOpcode.fromStore,     EXUEnum.lsu),
-        DecodeEntry(OP_JAL,     _ => true.B, issueTask.branchOpcode.fromJal,    EXUEnum.bru),
-        DecodeEntry(OP_JALR,    _ => true.B, issueTask.branchOpcode.fromJalr,   EXUEnum.bru),
-        DecodeEntry(OP_BRANCH,  _ => true.B, issueTask.branchOpcode.fromBranch, EXUEnum.bru),
-        DecodeEntry(OP_SYSTEM,  _ => true.B, issueTask.miscOpcode.fromSys,      EXUEnum.misc),
-        DecodeEntry(OP_MISC_MEM,_ => true.B, issueTask.miscOpcode.fromMISCMem,  EXUEnum.misc),
-        DecodeEntry(OP_AMO,     _ => true.B, issueTask.lsuOpcode.fromAmo,       EXUEnum.lsu)
+        DecodeEntry(OP_LUI,     _ => true.B, opcodes.aluOpcode.fromLui,       EXUEnum.alu),
+        DecodeEntry(OP_AUIPC,   _ => true.B, opcodes.aluOpcode.fromAuipc,     EXUEnum.alu),
+        DecodeEntry(OP_IMM,     _ => true.B, opcodes.aluOpcode.fromImm,       EXUEnum.alu),
+        DecodeEntry(OP_IMM32,   _ => true.B, opcodes.aluOpcode.fromImm32,     EXUEnum.alu),
+        DecodeEntry(OP,         _ => true.B, opcodes.aluOpcode.fromReg,       EXUEnum.alu),
+        DecodeEntry(OP,         i => i.rawBits(31,25) === "b0000001".U, opcodes.mduOpcode.fromReg,   EXUEnum.mdu),
+        DecodeEntry(OP_32,      _ => true.B, opcodes.aluOpcode.fromReg32,     EXUEnum.alu),
+        DecodeEntry(OP_32,      i => i.rawBits(31,25) === "b0000001".U, opcodes.mduOpcode.fromReg32, EXUEnum.mdu),
+        DecodeEntry(OP_LOAD,    _ => true.B, opcodes.lsuOpcode.fromLoad,      EXUEnum.lsu),
+        DecodeEntry(OP_STOR,    _ => true.B, opcodes.lsuOpcode.fromStore,     EXUEnum.lsu),
+        DecodeEntry(OP_JAL,     _ => true.B, opcodes.branchOpcode.fromJal,    EXUEnum.bru),
+        DecodeEntry(OP_JALR,    _ => true.B, opcodes.branchOpcode.fromJalr,   EXUEnum.bru),
+        DecodeEntry(OP_BRANCH,  _ => true.B, opcodes.branchOpcode.fromBranch, EXUEnum.bru),
+        DecodeEntry(OP_SYSTEM,  _ => true.B, opcodes.miscOpcode.fromSys,      EXUEnum.misc),
+        DecodeEntry(OP_MISC_MEM,_ => true.B, opcodes.miscOpcode.fromMISCMem,  EXUEnum.misc),
+        DecodeEntry(OP_AMO,     _ => true.B, opcodes.lsuOpcode.fromAmo,       EXUEnum.lsu)
     )
 
     // === Decode dispatcher ===
     for (entry <- decodeTable) {
         when(io.instrBundle.valid && (opcode === entry.opcode) && entry.matchFn(instr)) {
-            validInstr := entry.handler(instr, regRequests, params, pc)
-            operateUnit := entry.unit
+            validInstr := entry.handler(instr, lregReq, params, pc)
+            exu := entry.unit
 
             when(entry.unit === EXUEnum.bru) {
                 issueTask.predTaken := predTaken
@@ -97,8 +98,8 @@ class InstrDecoder extends Module {
 
     when(validInstr && io.instrBundle.valid && io.issueTask.ready) {
         issueTask.params := params
-        issueTask.operateUnit := operateUnit
-        issueTask.regRequests := regRequests
+        issueTask.exu := exu
+        issueTask.lregReq := lregReq
 
         io.issueTask.valid := true.B
         io.issueTask.bits := issueTask

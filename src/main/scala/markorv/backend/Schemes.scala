@@ -91,7 +91,7 @@ class ALUOpcode extends Bundle {
     val sraSub = Bool()
     val funct3 = UInt(3.W)
 
-    def fromLui(rawInstr: Instruction, _regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+    def fromLui(rawInstr: Instruction, _regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new UTypeInstruction)
         val valid = WireInit(true.B)
 
@@ -105,7 +105,7 @@ class ALUOpcode extends Bundle {
         valid
     }
 
-    def fromAuipc(rawInstr: Instruction, _regReq: RegisterRequests, params: DecodedParams, pc: UInt): Bool = {
+    def fromAuipc(rawInstr: Instruction, _regReq: LogicRegRequests, params: DecodedParams, pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new UTypeInstruction)
         val valid = WireInit(true.B)
 
@@ -119,7 +119,7 @@ class ALUOpcode extends Bundle {
         valid
     }
 
-    def fromImm(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+    def fromImm(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
@@ -135,12 +135,12 @@ class ALUOpcode extends Bundle {
             instr.imm12(5,0).sextu(64), // shamt6
             instr.imm12.sextu(64)
         )
-        regReq.source1 := instr.rs1
+        regReq.lrs1 := instr.rs1
         params.rd := instr.rd
         valid
     }
 
-    def fromImm32(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+    def fromImm32(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
@@ -156,12 +156,12 @@ class ALUOpcode extends Bundle {
             instr.imm12(4,0).sextu(64), // shamt5
             instr.imm12.sextu(64)
         )
-        regReq.source1 := instr.rs1
+        regReq.lrs1 := instr.rs1
         params.rd := instr.rd
         valid
     }
 
-    def fromReg(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+    def fromReg(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new RTypeInstruction)
         val valid = WireInit(false.B)
 
@@ -173,13 +173,13 @@ class ALUOpcode extends Bundle {
         val (_, isValidSubSra) = ALUFunct3SubSra.safe(instr.funct3)
         valid := Mux(this.sraSub, isValidSubSra, isValidNorm)
 
-        regReq.source1 := instr.rs1
-        regReq.source2 := instr.rs2
+        regReq.lrs1 := instr.rs1
+        regReq.lrs2 := instr.rs2
         params.rd := instr.rd
         valid
     }
 
-    def fromReg32(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+    def fromReg32(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new RTypeInstruction)
         val valid = WireInit(false.B)
 
@@ -191,8 +191,8 @@ class ALUOpcode extends Bundle {
         val (_, isValidSubSra) = ALUFunct3SubSra.safe(instr.funct3)
         valid := Mux(this.sraSub, isValidSubSra, isValidNorm)
 
-        regReq.source1 := instr.rs1
-        regReq.source2 := instr.rs2
+        regReq.lrs1 := instr.rs1
+        regReq.lrs2 := instr.rs2
         params.rd := instr.rd
         valid
     }
@@ -216,7 +216,7 @@ class BranchOpcode extends Bundle {
     val funct = UInt(4.W)
     val offset = UInt(12.W)
 
-    def fromBranch(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+    def fromBranch(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new BTypeInstruction)
         val valid = WireInit(false.B)
 
@@ -226,12 +226,12 @@ class BranchOpcode extends Bundle {
         val (_, isValid) = BranchFunct.safe(funct4)
         valid := isValid
 
-        regReq.source1 := instr.rs1
-        regReq.source2 := instr.rs2
+        regReq.lrs1 := instr.rs1
+        regReq.lrs2 := instr.rs2
         valid
     }
 
-    def fromJal(rawInstr: Instruction, _regReq: RegisterRequests, params: DecodedParams, _pc: UInt) = {
+    def fromJal(rawInstr: Instruction, _regReq: LogicRegRequests, params: DecodedParams, _pc: UInt) = {
         val instr = rawInstr.asTypeOf(new JTypeInstruction)
         val valid = WireInit(true.B)
 
@@ -240,12 +240,12 @@ class BranchOpcode extends Bundle {
         valid
     }
 
-    def fromJalr(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt) = {
+    def fromJalr(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt) = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(true.B)
 
         this.funct := "b1001".U
-        regReq.source1 := instr.rs1
+        regReq.lrs1 := instr.rs1
         params.source2 := instr.imm12.sextu(64)
         params.rd := instr.rd
         valid
@@ -268,7 +268,7 @@ class LoadStoreOpcode extends Bundle {
     val funct = UInt(6.W)
     val size = UInt(3.W)
 
-    def fromAmo(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+    def fromAmo(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new RTypeInstruction)
         val valid = WireInit(false.B)
 
@@ -279,13 +279,13 @@ class LoadStoreOpcode extends Bundle {
         val (_, functValid) = LSUOpcode.safe(this.funct)
         val sizeValid = instr.funct3 === "b11".U || instr.funct3 === "b10".U
         valid := functValid && sizeValid
-        regReq.source1 := instr.rs1
-        regReq.source2 := instr.rs2
+        regReq.lrs1 := instr.rs1
+        regReq.lrs2 := instr.rs2
         params.rd := instr.rd
         valid
     }
 
-    def fromLoad(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt) = {
+    def fromLoad(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt) = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
@@ -293,21 +293,21 @@ class LoadStoreOpcode extends Bundle {
         this.size := instr.funct3
         valid := this.funct =/= "b111".U // There is no ldu
         // Issuer will sum up register request values from this instruction
-        regReq.source1 := instr.rs1
+        regReq.lrs1 := instr.rs1
         params.source1 := instr.imm12.sextu(64)
         params.rd := instr.rd
         valid
     }
 
-    def fromStore(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt) = {
+    def fromStore(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt) = {
         val instr = rawInstr.asTypeOf(new STypeInstruction)
         val valid = WireInit(false.B)
 
         this.funct := 1.U(1.W) ## 0.U(1.W)
         this.size := instr.funct3
         valid := this.funct =/= "b111".U // There is no sdu
-        regReq.source1 := instr.rs1
-        regReq.source2 := instr.rs2
+        regReq.lrs1 := instr.rs1
+        regReq.lrs2 := instr.rs2
         // Issuer will sum up register request values from this instruction
         params.source1 := instr.imm12.sextu(64)
         valid
@@ -325,7 +325,7 @@ class MDUOpcode extends Bundle {
     val op32 = Bool()
     val funct3 = UInt(3.W)
 
-    def fromReg(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+    def fromReg(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new RTypeInstruction)
         val valid = WireInit(false.B)
 
@@ -335,13 +335,13 @@ class MDUOpcode extends Bundle {
         val (_, op64Valid) = MultiplyDivisionUnitFunct3Op64.safe(instr.funct3)
         valid := op64Valid
 
-        regReq.source1 := instr.rs1
-        regReq.source2 := instr.rs2
+        regReq.lrs1 := instr.rs1
+        regReq.lrs2 := instr.rs2
         params.rd := instr.rd
         valid
     }
 
-    def fromReg32(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+    def fromReg32(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new RTypeInstruction)
         val valid = WireInit(false.B)
 
@@ -351,8 +351,8 @@ class MDUOpcode extends Bundle {
         val (_, op32Valid) = MultiplyDivisionUnitFunct3Op32.safe(instr.funct3)
         valid := op32Valid
 
-        regReq.source1 := instr.rs1
-        regReq.source2 := instr.rs2
+        regReq.lrs1 := instr.rs1
+        regReq.lrs2 := instr.rs2
         params.rd := instr.rd
         valid
     }
@@ -377,7 +377,7 @@ class MISCOpcode extends Bundle {
     val miscSysFunct = UInt(3.W)
     val miscMemFunct = UInt(2.W)
 
-    def fromSys(rawInstr: Instruction, regReq: RegisterRequests, params: DecodedParams, _pc: UInt): Bool = {
+    def fromSys(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
@@ -392,7 +392,7 @@ class MISCOpcode extends Bundle {
             when(isImm) {
                 params.source1 := instr.rs1.zextu(64)
             } otherwise {
-                regReq.source1 := instr.rs1
+                regReq.lrs1 := instr.rs1
             }
             params.rd := instr.rd
             valid := true.B
@@ -409,7 +409,7 @@ class MISCOpcode extends Bundle {
         valid
     }
 
-    def fromMISCMem(rawInstr: Instruction, _regReq: RegisterRequests, params: DecodedParams, pc: UInt): Bool = {
+    def fromMISCMem(rawInstr: Instruction, _regReq: LogicRegRequests, params: DecodedParams, pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 

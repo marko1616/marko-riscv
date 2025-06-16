@@ -12,150 +12,79 @@ class Issuer(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val issueTask = Flipped(Decoupled(new IssueTask))
 
-        val lsuOut = Decoupled(new Bundle {
-            val lsuOpcode = new LoadStoreOpcode
-            val params = new EXUParams
-        })
-
-        val aluOut = Decoupled(new Bundle {
-            val aluOpcode = new ALUOpcode
-            val params = new EXUParams
-        })
-
-        val miscOut = Decoupled(new Bundle {
-            val miscOpcode = new MISCOpcode
-            val params = new EXUParams
-        })
-
-        val mduOut = Decoupled(new Bundle {
-            val mduOpcode = new MDUOpcode
-            val params = new EXUParams
-        })
-
-        val bruOut = Decoupled(new Bundle {
-            val branchOpcode = new BranchOpcode
-            val predTaken = Bool()
-            val predPc = UInt(64.W)
-            val params = new EXUParams
-        })
-
-        val regRead1 = Output(UInt(5.W))
-        val regRead2 = Output(UInt(5.W))
-        val regData1 = Input(UInt(64.W))
-        val regData2 = Input(UInt(64.W))
-
         val robReq = Valid(new ROBAllocReq)
         val robResp = Flipped(Valid(new ROBAllocResp))
+        val robHasBrc = Input(Bool())
+
+        val rsReq = Decoupled(new ReservationStationEntry)
+        val rsHasLdSt = Input(Bool())
+        val rsHasMisc = Input(Bool())
+        val rsRegReqBits = Input(UInt(c.regFileSize.W))
 
         val regStates = Input(Vec(c.regFileSize, new PhyRegState.Type))
-        val issueEvent = Valid(new IssueEvent)
-
         val renameTable = Input(Vec(31, UInt(log2Ceil(c.regFileSize).W)))
+
+        val issueEvent = Valid(new IssueEvent)
         val outfire = Output(Bool())
     })
-    val finalParams = WireInit(new EXUParams().zero)
+    val issueParams = WireInit(new EXUParams().zero)
+    val exu = io.issueTask.bits.exu
+    val predTaken = io.issueTask.bits.predTaken
+    val predPc = io.issueTask.bits.predPc
+    val opcodes = io.issueTask.bits.opcodes
     val params = io.issueTask.bits.params
-    val exuReady = io.lsuOut.ready && io.aluOut.ready && io.miscOut.ready && io.mduOut.ready && io.bruOut.ready
+    val lregReq = io.issueTask.bits.lregReq
 
     // Rename
-    val rs1 = io.issueTask.bits.regRequests.source1
-    val rs2 = io.issueTask.bits.regRequests.source2
-    val phyRdValid = params.rd =/= 0.U
-    val phyRd = io.renameTable(params.rd-1.U)
-    val rdOccupied = io.regStates(phyRd) =/= PhyRegState.Allocated && phyRdValid
+    val lrs1 = lregReq.lrs1
+    val lrs2 = lregReq.lrs2
+    val prdValid = params.rd =/= 0.U
+    val prd = io.renameTable(params.rd-1.U)
 
-    val phyRs1 = io.renameTable(rs1-1.U)
-    val phyRs2 = io.renameTable(rs2-1.U)
+    val prs1 = io.renameTable(lrs1-1.U)
+    val prs2 = io.renameTable(lrs2-1.U)
 
-    io.lsuOut.valid := false.B
-    io.aluOut.valid := false.B
-    io.miscOut.valid := false.B
-    io.mduOut.valid := false.B
-    io.bruOut.valid := false.B
-
-    io.lsuOut.bits.lsuOpcode := new LoadStoreOpcode().zero
-    io.lsuOut.bits.params := new EXUParams().zero
-    io.aluOut.bits.aluOpcode := new ALUOpcode().zero
-    io.aluOut.bits.params := new EXUParams().zero
-    io.miscOut.bits.miscOpcode := new MISCOpcode().zero
-    io.miscOut.bits.params := new EXUParams().zero
-    io.mduOut.bits.mduOpcode := new MDUOpcode().zero
-    io.mduOut.bits.params := new EXUParams().zero
-    io.bruOut.bits.branchOpcode := new BranchOpcode().zero
-    io.bruOut.bits.predTaken := false.B
-    io.bruOut.bits.predPc := 0.U
-    io.bruOut.bits.params := new EXUParams().zero
-
-    io.issueTask.ready := false.B
-    io.outfire := false.B
-
-    finalParams.robIndex := io.robResp.bits.index
-    finalParams.pc := io.issueTask.bits.params.pc
-
-    val regData1 = Wire(UInt(64.W))
-    val regData2 = Wire(UInt(64.W))
-    io.regRead1 := phyRs1
-    io.regRead2 := phyRs2
-    regData1 := io.regData1
-    regData2 := io.regData2
-    finalParams.source1 := params.source1 + Mux(rs1 === 0.U, 0.U, regData1)
-    finalParams.source2 := params.source2 + Mux(rs2 === 0.U, 0.U, regData2)
-    val rs1Occupied = io.regStates(phyRs1) =/= PhyRegState.Allocated && rs1 =/= 0.U
-    val rs2Occupied = io.regStates(phyRs2) =/= PhyRegState.Allocated && rs2 =/= 0.U
-    val regOccupied = rs1Occupied || rs2Occupied || rdOccupied
-    val robReqValid = io.issueTask.valid && exuReady && ~regOccupied
+    val ldstOrderHlt = io.rsHasLdSt && exu === EXUEnum.lsu
+    val miscOrderHlt = io.rsHasMisc && exu === EXUEnum.misc
+    val warHlt = io.rsRegReqBits(prd)
+    val wawHltReg = io.regStates(prd) =/= PhyRegState.Allocated && prdValid
+    val wawHltBrc = io.robHasBrc
+    val wawHlt = wawHltReg || wawHltBrc
+    val issueValid = io.issueTask.valid && io.rsReq.ready && ~ldstOrderHlt && ~miscOrderHlt && ~wawHlt && ~warHlt
     val robRespValid = io.robResp.valid
 
-    // No rename and ooo for now
-    io.robReq.bits.prevPhyRd := phyRd
-    io.robReq.bits.pc := io.issueTask.bits.params.pc
+    // No rename for now
+    io.robReq.valid := issueValid
+    io.robReq.bits.exu := exu
+    io.robReq.bits.prdValid := prdValid
+    io.robReq.bits.prd := prd
+    io.robReq.bits.prevprd := prd
+    io.robReq.bits.pc := params.pc
 
-    io.issueEvent.valid := robReqValid
-    io.issueEvent.bits.phyRdValid := phyRdValid
-    io.issueEvent.bits.phyRd := phyRd
+    issueParams.source1 := params.source1
+    issueParams.source2 := params.source2
+    issueParams.robIndex := io.robResp.bits.index
+    issueParams.pc := params.pc
 
-    when(robReqValid && robRespValid) {
-        // Only try to acquire register when all other are prepared.
-        when(io.issueTask.bits.operateUnit === EXUEnum.alu) {
-            io.outfire := true.B
-            io.aluOut.valid := true.B
-        }.elsewhen(io.issueTask.bits.operateUnit === EXUEnum.bru) {
-            io.outfire := true.B
-            io.bruOut.valid := true.B
-        }.elsewhen(io.issueTask.bits.operateUnit === EXUEnum.lsu) {
-            io.outfire := true.B
-            io.lsuOut.valid := true.B
-        }.elsewhen(io.issueTask.bits.operateUnit === EXUEnum.mdu) {
-            io.outfire := true.B
-            io.mduOut.valid := true.B
-        }.elsewhen(io.issueTask.bits.operateUnit === EXUEnum.misc) {
-            io.outfire := true.B
-            io.miscOut.valid := true.B
-        }
-    }
+    // Issue
+    io.rsReq.valid := robRespValid
+    io.rsReq.bits.valid := true.B
+    io.rsReq.bits.exu := exu
+    io.rsReq.bits.opcodes := opcodes
+    io.rsReq.bits.predTaken := predTaken
+    io.rsReq.bits.predPc := predPc
+    io.rsReq.bits.params := issueParams
+    io.rsReq.bits.regReq.prs1Valid := lrs1 =/= 0.U
+    io.rsReq.bits.regReq.prs2Valid := lrs2 =/= 0.U
+    io.rsReq.bits.regReq.prs1IsRd := prs1 === prd
+    io.rsReq.bits.regReq.prs2IsRd := prs2 === prd
+    io.rsReq.bits.regReq.prs1 := prs1
+    io.rsReq.bits.regReq.prs2 := prs2
 
-    // Dispatch
-    io.aluOut.bits.aluOpcode := io.issueTask.bits.aluOpcode
-    io.aluOut.bits.params := finalParams
-
-    io.bruOut.bits.branchOpcode := io.issueTask.bits.branchOpcode
-    io.bruOut.bits.predTaken := io.issueTask.bits.predTaken
-    io.bruOut.bits.predPc := io.issueTask.bits.predPc
-    io.bruOut.bits.params := finalParams
-
-    io.lsuOut.bits.lsuOpcode := io.issueTask.bits.lsuOpcode
-    io.lsuOut.bits.params := finalParams
-
-    io.mduOut.bits.mduOpcode := io.issueTask.bits.mduOpcode
-    io.mduOut.bits.params := finalParams
-
-    io.miscOut.bits.miscOpcode := io.issueTask.bits.miscOpcode
-    io.miscOut.bits.params := finalParams
-
-    io.robReq.valid := robReqValid
-    io.robReq.bits.phyRdValid := phyRdValid
-    io.robReq.bits.phyRd := phyRd
-
-    // Ready when dispatch is available.
-    io.issueTask.ready := exuReady && ~regOccupied
+    // Issue Boardcast
+    io.issueTask.ready := (io.issueTask.valid && robRespValid) || (~io.issueTask.valid && io.rsReq.ready)
+    io.outfire := robRespValid
+    io.issueEvent.valid := robRespValid
+    io.issueEvent.bits.prdValid := prdValid
+    io.issueEvent.bits.prd := prd
 }

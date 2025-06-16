@@ -1,0 +1,10 @@
+#pragma once
+#define CFG_DEFAULT_MAX_CLOCK 0x400
+#define CFG_ROM_SIZE (1024LL * 32)
+#define CFG_RAM_SIZE (1024LL * 1024 * 8)
+#define CFG_MAX_RESERVED 2
+
+#define CFG_ROB_SIZE     {{ robSize }}
+#define CFG_RS_SIZE      {{ rsSize }}
+#define CFG_RT_SIZE      {{ renameTableSize }}
+#define CFG_RF_SIZE      {{ regFileSize }}

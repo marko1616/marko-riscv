@@ -2,8 +2,14 @@ package markorv.manage
 
 import chisel3._
 import chisel3.util._
+import chisel3.util.circt.dpi._
 
 import markorv.config._
+
+class RegFileDebug extends DPIClockedVoidFunctionImport {
+    val functionName = "update_rf"
+    override val inputNames = Some(Seq("regs", "states"))
+}
 
 class RegFile(implicit val c: CoreConfig) extends Module {
     val addrWidth = log2Ceil(c.regFileSize)
@@ -35,4 +41,13 @@ class RegFile(implicit val c: CoreConfig) extends Module {
     }
 
     io.getStates := states
+
+    // Debug
+    if(c.simulate) {
+        val debugger = new RegFileDebug
+        val paddedStates = VecInit.tabulate(c.regFileSize){
+            x => states(x).asTypeOf(UInt(8.W))
+        }
+        debugger.call(regs, paddedStates)
+    }
 }

@@ -7,3 +7,6 @@
 [submodule "tests/riscv-tests"]
 	path = tests/riscv-tests
 	url = https://github.com/riscv-software-src/riscv-tests.git
+[submodule "libs/pfr"]
+	path = libs/pfr
+	url = https://github.com/boostorg/pfr.git
