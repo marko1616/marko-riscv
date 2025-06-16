@@ -9,6 +9,7 @@
 #include "slaves/slave.hpp"
 #include "slaves/virtual_ram.hpp"
 #include "slaves/virtual_uart.hpp"
+#include "dpi/manager.hpp"
 
 csh capstone_handle;
 
@@ -157,81 +158,117 @@ void init_stimulus(const std::unique_ptr<VMarkoRvCore> &top) {
     set_time(top);
 }
 
-int main(int argc, char **argv, char **env)
-{
-    Verilated::commandArgs(argc, argv);
-    auto top = std::make_unique<VMarkoRvCore>();
-    auto context = std::make_unique<VerilatedContext>();
-
-    parsedArgs args;
-    if(parse_args(argc, argv, args) != 0)
-        return 1;
-
-    // Init
-    top->clock = 0;
-    top->reset = 0;
-    VirtualAxiSlaves slaves;
-    uint64_t rom_id  = slaves.register_slave(std::make_shared<VirtualRAM> (0x00001000, args.rom_path, ROM_SIZE));
-    uint64_t ram_id  = slaves.register_slave(std::make_shared<VirtualRAM> (0x80000000, args.ram_path, RAM_SIZE));
-    uint64_t uart_id = slaves.register_slave(std::make_shared<VirtualUart>(0x10000000));
-
-    // RV64G only not for C extension.
-    if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64, &capstone_handle) != CS_ERR_OK) {
-        std::cerr << "Capstone engine failed to init.\n";
-        return 1;
-    }
-
-    // Main loop
-    uint64_t clock_cnt = 0;
-    axiSignal axi;
-    while (!Verilated::gotFinish() && clock_cnt < args.max_clock) {
-        if (clock_cnt < 4) {
-            top->reset = 1;
-        } else {
-            top->reset = 0;
-        }
-
-        // Debug out
-        if(args.verbose)
-            cycle_verbose(clock_cnt, top->io_pc, top->io_instrNow);
-        // Posedge clk
-        context->timeInc(1);
-        top->clock = 1;
-        top->eval();
-        // Handle axi
-        init_stimulus(top);
-        if (!top->reset) {
-            std::memset(&axi, 0, sizeof(axiSignal));
-            read_axi(top, axi);
-            slaves.sim_step(axi);
-            if (args.axi_debug)
-                axi_debug(axi);
-            set_axi(top, axi);
-        }
-
-        // Negedge clk
-        context->timeInc(1);
+class SimulationManager {
+public:
+    SimulationManager(parsedArgs& args) {
+        context = std::make_unique<VerilatedContext>();
+        top = std::make_unique<VMarkoRvCore>();
         top->clock = 0;
-        top->eval();
-        clock_cnt++;
-    }
-    // Clean up
-    top->final();
+        top->reset = 0;
 
-    // Save memory dump
-    if(args.ram_dump.has_value()) {
-        std::ofstream dump_file(args.ram_dump.value(), std::ios::out | std::ios::binary);
-        if(!dump_file) {
-            std::cerr << "Can't create dump file.\n";
-            return 1;
+        slaves.register_slave(std::make_shared<VirtualRAM> (0x00001000, args.rom_path, CFG_ROM_SIZE));
+        slaves.register_slave(std::make_shared<VirtualRAM> (0x80000000, args.ram_path, CFG_RAM_SIZE));
+        slaves.register_slave(std::make_shared<VirtualUart>(0x10000000));
+
+        if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64, &capstone_handle) != CS_ERR_OK) {
+            throw std::runtime_error("Capstone engine failed to init.");
         }
-        auto ram = std::dynamic_pointer_cast<VirtualRAM>(slaves.get_slave(ram_id));
+    }
+
+    ~SimulationManager() {
+        top->final(); // Ensure top is finalized before destruction
+    }
+
+    void run_simulation(parsedArgs args) {
+        uint64_t clock_cnt = 0;
+        axiSignal axi;
+        DpiManager& dpi = DpiManager::getInstance();
+
+        while (!Verilated::gotFinish() && clock_cnt < args.max_clock) {
+            // Reset handling
+            if (clock_cnt < 4) {
+                top->reset = 1;
+            } else {
+                top->reset = 0;
+            }
+
+            // Debug output
+            if (args.verbose)
+                cycle_verbose(clock_cnt, top->io_pc, top->io_instrNow);
+            if (args.rob_debug)
+                dpi.print_rob();
+            if (args.rs_debug)
+                dpi.print_rs();
+            if (args.rt_debug)
+                dpi.print_rt();
+            if (args.rf_debug)
+                dpi.print_rf();
+
+            // Posedge and Negedge clock simulation
+            context->timeInc(1);
+            top->clock = 1;
+            top->eval();
+            init_stimulus(top);
+
+            if (!top->reset) {
+                std::memset(&axi, 0, sizeof(axiSignal));
+                read_axi(top, axi);
+                slaves.sim_step(axi);
+                if (args.axi_debug)
+                    axi_debug(axi);
+                set_axi(top, axi);
+            }
+
+            context->timeInc(1);
+            top->clock = 0;
+            top->eval();
+
+            clock_cnt++;
+        }
+
+        if (args.ram_dump.has_value()) {
+            save_ram_dump(args.ram_dump.value());
+        }
+    }
+
+private:
+    std::unique_ptr<VerilatedContext> context;
+    std::unique_ptr<VMarkoRvCore> top;
+    VirtualAxiSlaves slaves;
+
+    void save_ram_dump(const std::string& dump_path) {
+        std::ofstream dump_file(dump_path, std::ios::out | std::ios::binary);
+        if (!dump_file) {
+            std::cerr << "Can't create dump file.\n";
+            return;
+        }
+
+        auto ram = std::dynamic_pointer_cast<VirtualRAM>(slaves.get_slave(1));
         if (!ram) {
             std::cerr << "Can't dump ram.\n";
-            return 1;
+            return;
         }
+
         dump_file.write(reinterpret_cast<const char*>(ram->ram), ram->size);
         dump_file.close();
     }
+};
+
+int main(int argc, char **argv, char **env)
+{
+    Verilated::commandArgs(argc, argv);
+
+    parsedArgs args;
+    if (parse_args(argc, argv, args) != 0)
+        return 1;
+
+    try {
+        SimulationManager sim_manager(args);
+        sim_manager.run_simulation(args);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
+    }
+
     return 0;
 }

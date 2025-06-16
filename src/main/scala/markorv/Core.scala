@@ -12,8 +12,7 @@ import markorv.bus._
 import markorv.cache._
 import markorv.manage._
 
-class MarkoRvCore extends Module {
-    implicit val c: CoreConfig = new CoreConfig
+class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val axi = new AxiInterface(c.axiConfig)
         val time = Input(UInt(64.W))
@@ -38,6 +37,7 @@ class MarkoRvCore extends Module {
     // Dataflow schedule pipeline & Register file
     val regFile = Module(new RegFile)
     val issuer = Module(new Issuer)
+    val reservStation = Module(new ReservationStation)
     val commitUnit = Module(new CommitUnit)
     val renameTable = Module(new RenameTable)
     val rob = Module(new ReorderBuffer)
@@ -126,16 +126,25 @@ class MarkoRvCore extends Module {
     regFile.io.setStates <> regStateCtrl.io.setStates
     regFile.io.getStates <> regStateCtrl.io.getStates
 
-    issuer.io.regRead1 <> regFile.io.readAddrs(0)
-    issuer.io.regRead2 <> regFile.io.readAddrs(1)
-    issuer.io.regData1 <> regFile.io.readDatas(0)
-    issuer.io.regData2 <> regFile.io.readDatas(1)
+    reservStation.io.regRead1 <> regFile.io.readAddrs(0)
+    reservStation.io.regRead2 <> regFile.io.readAddrs(1)
+    reservStation.io.regData1 <> regFile.io.readDatas(0)
+    reservStation.io.regData2 <> regFile.io.readDatas(1)
 
     // Issuer Interface
-    issuer.io.robReq  <> rob.io.allocReq
+    issuer.io.rsHasLdSt <> reservStation.io.rsHasLdSt
+    issuer.io.rsHasMisc <> reservStation.io.rsHasMisc
+    issuer.io.rsRegReqBits <> reservStation.io.rsRegReqBits
+    issuer.io.robHasBrc <> rob.io.robHasBrc
+    issuer.io.robReq <> rob.io.allocReq
     issuer.io.robResp <> rob.io.allocResp
     issuer.io.regStates <> regFile.io.getStates
     issuer.io.renameTable <> renameTable.io.tailEntry
+
+    // Reservation Station Interface
+    reservStation.io.rsReq <> issuer.io.rsReq
+    reservStation.io.flush <> flush
+    reservStation.io.regStates <> regFile.io.getStates
 
     // Main Pipeline Stages
     PipelineConnect(
@@ -153,11 +162,11 @@ class MarkoRvCore extends Module {
     )
 
     // Execution Unit Dispatch
-    PipelineConnect(issuer.io.aluOut, alu.io.aluInstr, alu.io.outfire, flush)
-    PipelineConnect(issuer.io.bruOut, bru.io.branchInstr, bru.io.outfire, flush)
-    PipelineConnect(issuer.io.lsuOut, lsu.io.lsuInstr, lsu.io.outfire, flush)
-    PipelineConnect(issuer.io.mduOut, mdu.io.muInstr, mdu.io.outfire, flush)
-    PipelineConnect(issuer.io.miscOut, misc.io.miscInstr, misc.io.outfire, flush)
+    PipelineConnect(reservStation.io.aluOut, alu.io.aluInstr, alu.io.outfire, flush)
+    PipelineConnect(reservStation.io.bruOut, bru.io.branchInstr, bru.io.outfire, flush)
+    PipelineConnect(reservStation.io.lsuOut, lsu.io.lsuInstr, lsu.io.outfire, flush)
+    PipelineConnect(reservStation.io.mduOut, mdu.io.muInstr, mdu.io.outfire, flush)
+    PipelineConnect(reservStation.io.miscOut, misc.io.miscInstr, misc.io.outfire, flush)
 
     // Execution Unit Side Effect Control
     lsu.io.robHeadIndex <> rob.io.headIndex
@@ -193,10 +202,17 @@ class MarkoRvCore extends Module {
     io.instrNow := Mux(ifu.io.instrBundle.valid,ifu.io.instrBundle.bits.instr.rawBits,0.U)
 }
 
-object MarkoRvCore extends App {
-    ChiselStage.emitSystemVerilogFile(
-        new MarkoRvCore,
-        Array("--target-dir", "generated"),
-        Array("-disable-all-randomization", "--strip-debug-info")
-    )
+object Main extends App {
+    val configPath = if (args.nonEmpty) args(0) else "assets/core_config.json"
+    ConfigLoader.loadCoreConfigFromFile(configPath) match {
+        case Right(config) =>
+            ChiselStage.emitSystemVerilogFile(
+                new MarkoRvCore()(using config),
+                Array("--target-dir", "generated"),
+                Array("-disable-all-randomization", "--strip-debug-info", "-enable-layers=Verification")
+            )
+            println(s"Config loaded: $config")
+        case Left(error) =>
+            println(s"Config loading error: $error")
+    }
 }

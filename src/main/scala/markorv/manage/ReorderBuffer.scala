@@ -2,10 +2,17 @@ package markorv.manage
 
 import chisel3._
 import chisel3.util._
+import chisel3.util.circt.dpi._
 
 import markorv.utils.ChiselUtils._
+import markorv.backend.EXUEnum
 import markorv.exception._
 import markorv.config._
+
+class ReorderBufferDebug extends DPIClockedVoidFunctionImport {
+    val functionName = "update_rob"
+    override val inputNames = Some(Seq("entry", "index"))
+}
 
 class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     private val robIndexWidth = log2Ceil(c.robSize)
@@ -13,6 +20,8 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     private val phyRegWidth = log2Ceil(c.regFileSize)
 
     val io = IO(new Bundle {
+        val robHasBrc = Output(Bool())
+
         val allocReq  = Flipped(Valid(new ROBAllocReq))
         val allocResp = Valid(new ROBAllocResp)
 
@@ -44,6 +53,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
 
     nextBuffer := buffer
     io.headIndex := deqPtr
+    io.robHasBrc := buffer.map(e => e.valid && e.exu === EXUEnum.bru).reduce(_ || _)
 
     // Read Entry
     for ((readIndex, readEntry) <- io.readIndexs.zip(io.readEntries)) {
@@ -62,11 +72,12 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     val retireValid = !empty && nextBuffer(deqPtr).commited
     io.retireEvent.valid := retireValid
     io.retireEvent.bits.isTrap := false.B
-    io.retireEvent.bits.phyRdValid := nextBuffer(deqPtr).phyRdValid
-    io.retireEvent.bits.phyRd := nextBuffer(deqPtr).phyRd
-    io.retireEvent.bits.prevPhyRd := nextBuffer(deqPtr).prevPhyRd
+    io.retireEvent.bits.prdValid := nextBuffer(deqPtr).prdValid
+    io.retireEvent.bits.prd := nextBuffer(deqPtr).prd
+    io.retireEvent.bits.prevprd := nextBuffer(deqPtr).prevprd
 
     when (retireValid) {
+        nextBuffer(deqPtr).valid := false.B
         deqPtr := deqPtr + 1.U
         mayFull := false.B
     }
@@ -77,9 +88,13 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     io.allocResp.bits.index := enqPtr
 
     when (allocValid) {
-        nextBuffer(enqPtr).phyRdValid := io.allocReq.bits.phyRdValid
-        nextBuffer(enqPtr).phyRd := io.allocReq.bits.phyRd
-        nextBuffer(enqPtr).prevPhyRd := io.allocReq.bits.prevPhyRd
+        nextBuffer(enqPtr).valid := true.B
+        nextBuffer(enqPtr).exu := io.allocReq.bits.exu
+
+        nextBuffer(enqPtr).prdValid := io.allocReq.bits.prdValid
+        nextBuffer(enqPtr).prd := io.allocReq.bits.prd
+        nextBuffer(enqPtr).prevprd := io.allocReq.bits.prevprd
+        nextBuffer(enqPtr).pc := io.allocReq.bits.pc
 
         nextBuffer(enqPtr).commited := false.B
         nextBuffer(enqPtr).fCtrl := new ROBDisconField().zero
@@ -108,19 +123,31 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     io.exceptionRet := exceptionRetRequired
 
     val disconEventValid = recoverRequired || trapRequired || exceptionRetRequired
+
+    io.disconEvent.valid := disconEventValid
+    io.disconEvent.bits.disconType := nextBuffer(deqPtr).fCtrl.disconType
+    io.disconEvent.bits.prdValid := nextBuffer(deqPtr).prdValid
+    io.disconEvent.bits.prd := nextBuffer(deqPtr).prd
+    io.disconEvent.bits.prevprd := nextBuffer(deqPtr).prevprd
+    io.disconEvent.bits.renameCkptIndex := nextBuffer(deqPtr).renameCkptIndex
+
     when (disconEventValid) {
+        for(entry <- nextBuffer) {
+            entry.valid := false.B
+        }
         enqPtr := 0.U
         deqPtr := 0.U
         mayFull := false.B
     }
 
-    io.disconEvent.valid := disconEventValid
-    io.disconEvent.bits.disconType := nextBuffer(deqPtr).fCtrl.disconType
-    io.disconEvent.bits.phyRdValid := nextBuffer(deqPtr).phyRdValid
-    io.disconEvent.bits.phyRd := nextBuffer(deqPtr).phyRd
-    io.disconEvent.bits.prevPhyRd := nextBuffer(deqPtr).prevPhyRd
-    io.disconEvent.bits.renameCkptIndex := nextBuffer(deqPtr).renameCkptIndex
-
     // Update buffer
     buffer := nextBuffer
+
+    // Debug
+    if(c.simulate) {
+        val debugger = new ReorderBufferDebug
+        for((e,i) <- buffer.zipWithIndex) {
+            debugger.call(e, i.U(32.W))
+        }
+    }
 }

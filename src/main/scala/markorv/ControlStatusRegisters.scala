@@ -3,6 +3,7 @@ package markorv
 import chisel3._
 import chisel3.util._
 
+import markorv.utils.ChiselUtils._
 import markorv.config._
 import markorv.exception._
 import markorv.manage.RetireEvent
@@ -232,7 +233,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
 
     val retException = io.exceptionRetInfo
     val ret = io.exceptionRet
-    retException := 0.U.asTypeOf(new ExceptionState)
+    retException := new ExceptionState().zero
 
     when(ret) {
         val privilege = mstatus(12, 11)

@@ -25,16 +25,16 @@ class ExceptionUnit extends Module {
         val mstatus = Input(UInt(64.W))
         val mie = Input(UInt(64.W))
     })
-    def doException(cause: UInt, isInt: Bool, instExceptionPc: UInt) = {
+    def doException(isInt: Boolean, cause: UInt, instExceptionPc: UInt) = {
         io.setException.set := true.B
         intPending := false.B
 
-        exceptionInfo.interruption := isInt
+        exceptionInfo.interruption := isInt.B
         exceptionInfo.causeCode := cause
         exceptionInfo.state.privilege := io.privilege
-        when(isInt) {
+        if(isInt) {
             exceptionInfo.state.exceptionPc := io.pc
-        }.otherwise {
+        } else {
             exceptionInfo.state.exceptionPc := instExceptionPc
         }
 
@@ -82,6 +82,6 @@ class ExceptionUnit extends Module {
     }
 
     when(io.trap.valid) {
-        doException(io.trap.bits.cause, false.B, io.trap.bits.xepc)
+        doException(false, io.trap.bits.cause, io.trap.bits.xepc)
     }
 }

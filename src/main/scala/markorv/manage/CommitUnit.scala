@@ -43,13 +43,13 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
         outfire := in.valid
 
         robReadIndex       := in.bits.robIndex
-        regWrite.valid     := in.valid && robReadEntry.phyRdValid
-        regWrite.bits.addr := robReadEntry.phyRd
+        regWrite.valid     := in.valid && robReadEntry.prdValid
+        regWrite.bits.addr := robReadEntry.prd
         regWrite.bits.data := in.bits.data
 
         commitEvent.valid           := in.valid
-        commitEvent.bits.phyRdValid := robReadEntry.phyRdValid
-        commitEvent.bits.phyRd      := robReadEntry.phyRd
+        commitEvent.bits.prdValid := robReadEntry.prdValid
+        commitEvent.bits.prd      := robReadEntry.prd
 
         robCommit.valid         := in.valid
         robCommit.bits.robIndex := in.bits.robIndex

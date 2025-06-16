@@ -1,7 +1,5 @@
 #include "arg_parser.hpp"
 
-#define DEFAULT_MAX_CLOCK 0x400
-
 int parse_args(int argc, char **argv, parsedArgs &args) {
     try {
         cxxopts::Options options(argv[0], "MarkoRvCore simulator");
@@ -10,9 +8,9 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
             ("rom-path", "Path to ROM payload", cxxopts::value<std::string>())
             ("ram-path", "Path to RAM payload", cxxopts::value<std::string>())
             ("ram-dump", "Dump the memory after the run is complete", cxxopts::value<std::string>())
-            ("max-clock", "Maximum clock cycles to simulate (hex value)", cxxopts::value<std::string>()->default_value(std::to_string(DEFAULT_MAX_CLOCK)))
+            ("max-clock", "Maximum clock cycles to simulate (hex value)", cxxopts::value<std::string>()->default_value(std::to_string(CFG_DEFAULT_MAX_CLOCK)))
             ("verbose", "Enable verbose output")
-            ("axi-debug", "Enable AXI debug output")
+            ("d,debug", "Enable debug options (comma separated: axi,rob,rs,rt,rf)", cxxopts::value<std::vector<std::string>>())
             ("help", "Print usage information");
 
         auto result = options.parse(argc, argv);
@@ -43,11 +41,23 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
                 return 1;
             }
         } else {
-            args.max_clock = DEFAULT_MAX_CLOCK;
+            args.max_clock = CFG_DEFAULT_MAX_CLOCK;
         }
 
         args.verbose = result.count("verbose") > 0;
-        args.axi_debug = result.count("axi-debug") > 0;
+        if (result.count("debug")) {
+            auto debug_flags = result["debug"].as<std::vector<std::string>>();
+            for (const auto& flag : debug_flags) {
+                if (flag == "axi") args.axi_debug = true;
+                else if (flag == "rob") args.rob_debug = true;
+                else if (flag == "rs") args.rs_debug = true;
+                else if (flag == "rt") args.rt_debug = true;
+                else if (flag == "rf") args.rf_debug = true;
+                else {
+                    std::cerr << "Warning: Unknown debug flag: " << flag << std::endl;
+                }
+            }
+        }
 
         std::cout << std::format("ROM payload path: {}\n", args.rom_path);
         std::cout << std::format("RAM payload path: {}\n", args.ram_path);

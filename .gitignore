@@ -354,3 +354,6 @@ mill
 *.dtb
 *.dump
 *.bin
+
+# Generated config
+config.hpp

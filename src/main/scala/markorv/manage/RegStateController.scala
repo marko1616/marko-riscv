@@ -25,27 +25,27 @@ class RegStateController(implicit val c: CoreConfig) extends Module {
     io.setStates.bits := io.getStates
 
     val issueEvent = io.issueEvent
-    when(issueEvent.valid && issueEvent.bits.phyRdValid) {
-        val phyRd = issueEvent.bits.phyRd
-        io.setStates.bits(phyRd) := PhyRegState.Occupied
+    when(issueEvent.valid && issueEvent.bits.prdValid) {
+        val prd = issueEvent.bits.prd
+        io.setStates.bits(prd) := PhyRegState.Occupied
         io.setStates.valid := true.B
     }
 
     for(commitEvent <- io.commitEvents) {
-        val phyRd = commitEvent.bits.phyRd
-        when(commitEvent.valid && commitEvent.bits.phyRdValid) {
-            io.setStates.bits(phyRd) := PhyRegState.Committed
+        val prd = commitEvent.bits.prd
+        when(commitEvent.valid && commitEvent.bits.prdValid) {
+            io.setStates.bits(prd) := PhyRegState.Committed
             io.setStates.valid := true.B
         }
     }
 
     val retireEvent = io.retireEvent
-    when(retireEvent.valid && retireEvent.bits.phyRdValid) {
-        val phyRd = retireEvent.bits.phyRd
-        val prevPhyRd = retireEvent.bits.prevPhyRd
-        io.setStates.bits(phyRd) := PhyRegState.Allocated
-        when(phyRd =/= prevPhyRd) {
-            io.setStates.bits(prevPhyRd) := PhyRegState.Free
+    when(retireEvent.valid && retireEvent.bits.prdValid) {
+        val prd = retireEvent.bits.prd
+        val prevprd = retireEvent.bits.prevprd
+        io.setStates.bits(prd) := PhyRegState.Allocated
+        when(prd =/= prevprd) {
+            io.setStates.bits(prevprd) := PhyRegState.Free
         }
         io.setStates.valid := true.B
     }
@@ -57,10 +57,10 @@ class RegStateController(implicit val c: CoreConfig) extends Module {
         for (i <- 0 until 31) {
             disconStates(io.renameTableReadEntry(i)) := PhyRegState.Allocated
         }
-        when(disconEvent.bits.disconType === DisconEventEnum.instrRedirect && disconEvent.bits.phyRdValid) {
+        when(disconEvent.bits.disconType === DisconEventEnum.instrRedirect && disconEvent.bits.prdValid) {
             // For jalr we still need rename rd
-            disconStates(disconEvent.bits.prevPhyRd) := PhyRegState.Free
-            disconStates(disconEvent.bits.phyRd) := PhyRegState.Allocated
+            disconStates(disconEvent.bits.prevprd) := PhyRegState.Free
+            disconStates(disconEvent.bits.prd) := PhyRegState.Allocated
         }
         io.setStates.bits := disconStates
         io.setStates.valid := true.B

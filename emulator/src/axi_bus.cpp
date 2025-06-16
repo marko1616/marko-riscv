@@ -20,7 +20,7 @@ bool VirtualAxiSlaves::ReservedItem::isConflict(uint64_t addr, uint8_t size) {
 VirtualAxiSlaves::VirtualAxiSlaves() {
     empty_read_transaction();
     empty_write_transaction();
-    reserved_items.resize(MAX_RESERVED);
+    reserved_items.resize(CFG_MAX_RESERVED);
 }
 
 VirtualAxiSlaves::~VirtualAxiSlaves() = default;
@@ -158,7 +158,7 @@ void VirtualAxiSlaves::handle_read(axiSignal &axi) {
                     if (!reserved) {
                         static size_t replace_ptr = 0;
                         reserved_items[replace_ptr] = {true, current_read.addr, current_read.size};
-                        replace_ptr = (replace_ptr + 1) % MAX_RESERVED;
+                        replace_ptr = (replace_ptr + 1) % CFG_MAX_RESERVED;
                     }
                 }
 

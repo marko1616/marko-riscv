@@ -3,6 +3,7 @@ package markorv.frontend
 import chisel3._
 import chisel3.util._
 
+import markorv.config._
 import markorv.backend.EXUEnum
 import markorv.backend.ALUOpcode
 import markorv.backend.MDUOpcode
@@ -72,22 +73,35 @@ class DecodedParams extends Bundle {
     val pc = UInt(64.W)
 }
 
-class RegisterRequests extends Bundle {
-    val source1 = UInt(5.W)
-    val source2 = UInt(5.W)
+class LogicRegRequests extends Bundle {
+    val lrs1 = UInt(5.W)
+    val lrs2 = UInt(5.W)
 }
 
-class IssueTask extends Bundle {
-    val operateUnit = new EXUEnum.Type
-    val aluOpcode = new ALUOpcode()
+class PhyRegRequests(implicit val c: CoreConfig) extends Bundle {
+    val prs1Valid = Bool()
+    val prs2Valid = Bool()
+    val prs1IsRd = Bool()
+    val prs2IsRd = Bool()
+    val prs1 = UInt(log2Ceil(c.regFileSize).W)
+    val prs2 = UInt(log2Ceil(c.regFileSize).W)
+}
+
+class OpcodeBundle extends Bundle {
+    val aluOpcode = new ALUOpcode
     val lsuOpcode = new LoadStoreOpcode
     val miscOpcode = new MISCOpcode
     val branchOpcode = new BranchOpcode
     val mduOpcode = new MDUOpcode
+}
+
+class IssueTask extends Bundle {
+    val exu = new EXUEnum.Type
+    val opcodes = new OpcodeBundle
     val predTaken = Bool()
     val predPc = UInt(64.W)
     val params = new DecodedParams
-    val regRequests = new RegisterRequests
+    val lregReq = new LogicRegRequests
 }
 
 class InstrDecodeBundle extends Bundle {
