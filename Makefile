@@ -43,7 +43,7 @@ build-simulator:
 		--build \
 		-CFLAGS  "-g $(CXX_SANITIZE_FLAGS) -I$(CAPSTONE_DIR)/include -I$(CXXOPTS_DIR)/include -I$(BOOSTPFR_DIR)/include -Iinclude -std=c++23" \
 		-LDFLAGS "$(LD_SANITIZE_FLAGS) -L$(CAPSTONE_DIR) -lcapstone" \
-		--MAKEFLAGS "CXX=clang++ CXXFLAGS=-O3 OPT=-O3"
+		--MAKEFLAGS "CXX=clang LINK=clang OPT=-O3" # Clang is almost 5 times faster
 
 build-test-elves: $(ELFS)
 

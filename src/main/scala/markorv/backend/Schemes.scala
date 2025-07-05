@@ -6,7 +6,11 @@ import chisel3.util._
 import markorv.utils.ChiselUtils._
 import markorv.config._
 import markorv.frontend._
-import markorv.manage.CommitBundle
+import markorv.manage.BaseCommitBundle
+import markorv.manage.CommitWithDiscon
+import markorv.manage.CommitWithTrap
+import markorv.manage.CommitWithRecover
+import markorv.manage.CommitWithXret
 import markorv.manage.DisconEventEnum
 
 object EXUEnum extends ChiselEnum {
@@ -210,7 +214,7 @@ class ALUOpcode extends Bundle {
     }
 }
 
-class ALUCommit(implicit override val c: CoreConfig) extends CommitBundle
+class ALUCommit(implicit override val c: CoreConfig) extends BaseCommitBundle
 
 class BranchOpcode extends Bundle {
     val funct = UInt(4.W)
@@ -258,11 +262,9 @@ class BranchOpcode extends Bundle {
     }
 }
 
-class BRUCommit(implicit override val c: CoreConfig) extends CommitBundle {
-    val disconType = new DisconEventEnum.Type
-    val recover = Bool()
-    val recoverPc = UInt(64.W)
-}
+class BRUCommit(implicit c: CoreConfig)
+    extends BaseCommitBundle
+    with CommitWithDiscon with CommitWithRecover
 
 class LoadStoreOpcode extends Bundle {
     val funct = UInt(6.W)
@@ -314,12 +316,9 @@ class LoadStoreOpcode extends Bundle {
     }
 }
 
-class LSUCommit(implicit override val c: CoreConfig) extends CommitBundle {
-    val disconType = new DisconEventEnum.Type
-    val trap = Bool()
-    val cause = UInt(16.W)
-    val xtval = UInt(64.W)
-}
+class LSUCommit(implicit c: CoreConfig)
+    extends BaseCommitBundle
+    with CommitWithDiscon with CommitWithTrap
 
 class MDUOpcode extends Bundle {
     val op32 = Bool()
@@ -370,7 +369,7 @@ class MDUOpcode extends Bundle {
     }
 }
 
-class MDUCommit(implicit override val c: CoreConfig) extends CommitBundle
+class MDUCommit(implicit override val c: CoreConfig) extends BaseCommitBundle
 
 class MISCOpcode extends Bundle {
     val miscCsrFunct = UInt(4.W)
@@ -423,14 +422,6 @@ class MISCOpcode extends Bundle {
     }
 }
 
-class MISCCommit(implicit override val c: CoreConfig) extends CommitBundle {
-    val disconType = new DisconEventEnum.Type
-    val trap = Bool()
-    val cause = UInt(16.W)
-    val xtval = UInt(64.W)
-    val xret  = Bool()
-
-    // For fence.i
-    val recover = Bool()
-    val recoverPc = UInt(64.W)
-}
+class MISCCommit(implicit c: CoreConfig)
+    extends BaseCommitBundle
+    with CommitWithDiscon with CommitWithTrap with CommitWithRecover with CommitWithXret

@@ -8,61 +8,66 @@ import markorv.utils.ChiselUtils._
 class BranchPredUnit extends Module {
     val io = IO(new Bundle {
         val bpuInstr = Input(new Bundle {
-            val instr = UInt(32.W)
+            val instr = new Instruction
             val pc = UInt(64.W)
         })
 
         val bpuResult = Output(new Bundle {
-            val isBranch = Bool()
             val predTaken = Bool()
             val predPc = UInt(64.W)
         })
     })
 
-    io.bpuResult.isBranch := false.B
+    // Helper case class for table-driven decoding
+    case class DecodeEntry(
+        opcode: UInt,
+        handler: (Instruction, UInt, UInt, Bool) => Unit,
+    )
+
+    def predJal(rawInstr: Instruction, pc: UInt, predPc: UInt, predTaken: Bool) = {
+        val instr = rawInstr.asTypeOf(new JTypeInstruction)
+        predTaken := true.B
+        predPc := pc + instr.imm.sextu(64)
+    }
+
+    def predJalr(rawInstr: Instruction, pc: UInt, predPc: UInt, predTaken: Bool) = {
+        val instr = rawInstr.asTypeOf(new ITypeInstruction)
+        // TODO
+        predTaken := true.B
+        predPc := pc + 4.U
+    }
+
+    def predBranch(rawInstr: Instruction, pc: UInt, predPc: UInt, predTaken: Bool) = {
+        val instr = rawInstr.asTypeOf(new BTypeInstruction)
+        predTaken := instr.imm.asSInt < 0.S
+        predPc := Mux(predTaken, pc + instr.imm.sextu(64), pc + 4.U)
+    }
+
+    val OP_JAL      = "b1101111".U
+    val OP_JALR     = "b1100111".U
+    val OP_BRANCH   = "b1100011".U
+
+    val decodeTable = Seq(
+        DecodeEntry(OP_JAL, predJal),
+        DecodeEntry(OP_JALR, predJalr),
+        DecodeEntry(OP_BRANCH, predBranch),
+    )
+
     io.bpuResult.predTaken := false.B
     io.bpuResult.predPc := io.bpuInstr.pc + 4.U
 
-    switch(io.bpuInstr.instr(6, 0)) {
-        is("b1101111".U) {
-            // jal
-            io.bpuResult.isBranch := true.B
-            io.bpuResult.predTaken := true.B
-            io.bpuResult.predPc := io.bpuInstr.pc + Cat(
-              io.bpuInstr.instr(31),
-              io.bpuInstr.instr(19, 12),
-              io.bpuInstr.instr(20),
-              io.bpuInstr.instr(30, 21),
-              0.U(1.W)
-            ).sextu(64)
-        }
-        is("b1100111".U) {
-            // TODO: jalr
-            io.bpuResult.isBranch := true.B
-            io.bpuResult.predTaken := true.B
-            io.bpuResult.predPc := io.bpuInstr.pc + 4.U
-        }
-        is("b1100011".U) {
-            // branch
-            io.bpuResult.isBranch := true.B
-            io.bpuResult.predPc := 0.U
+    val instr = io.bpuInstr.instr
+    val instrPc = io.bpuInstr.pc
+    val opcode = io.bpuInstr.instr.opcode
+    val predTaken = io.bpuResult.predTaken
+    val predPc = io.bpuResult.predPc
 
-            // static prediction for backward branches
-            val imm = Wire(SInt(64.W))
-            imm := Cat(
-              io.bpuInstr.instr(31),
-              io.bpuInstr.instr(7),
-              io.bpuInstr.instr(30, 25),
-              io.bpuInstr.instr(11, 8),
-              0.U(1.W)
-            ).sexts(64)
-            when(imm < 0.S) {
-                io.bpuResult.predTaken := true.B
-                io.bpuResult.predPc := io.bpuInstr.pc + imm.asUInt
-            }.otherwise {
-                io.bpuResult.predTaken := false.B
-                io.bpuResult.predPc := io.bpuInstr.pc + 4.U
-            }
+    predTaken := false.B
+    predPc := io.bpuInstr.pc + 4.U
+
+    for (entry <- decodeTable) {
+        when(opcode === entry.opcode) {
+            entry.handler(instr, instrPc, predPc, predTaken)
         }
     }
 }

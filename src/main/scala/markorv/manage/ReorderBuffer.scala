@@ -20,30 +20,47 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     private val phyRegWidth = log2Ceil(c.regFileSize)
 
     val io = IO(new Bundle {
-        val robHasBrc = Output(Bool())
-
+        // Allocation signals
+        // ========================
         val allocReq  = Flipped(Valid(new ROBAllocReq))
         val allocResp = Valid(new ROBAllocResp)
 
-        val headIndex = Output(UInt(robIndexWidth.W))
+        // Commit signals
+        // ========================
         val commits   = Flipped(Vec(5, Valid(new ROBCommitReq)))
-        val readIndexs  = Input(Vec(5, UInt(robIndexWidth.W)))
+        val readIndices  = Input(Vec(5, UInt(robIndexWidth.W)))
         val readEntries = Output(Vec(5, new ROBEntry))
 
-        val renameTailIndex = Input(UInt(renameIndexWidth.W))
+        // Retirement signals
+        // ========================
+        val retireEvent = Valid(new RetireEvent)
+        val headIndex = Output(UInt(robIndexWidth.W))
+        val robMayDison = Output(Bool())
 
+        // Speculative control signals
+        // ========================
         val flush       = Output(Bool())
         val flushPc     = Output(UInt(64.W))
-
-        val retireEvent = Valid(new RetireEvent)
         val disconEvent = Valid(new DisconEvent)
 
+        // Rename table signals
+        // ========================
+        val rtRmLastCkpt = Output(Bool())
+        val rtRestoreIndex = Valid(UInt(renameIndexWidth.W))
+
+        // Exception signals
+        // ========================
         val trap = Decoupled(new TrapInfo)
         val exceptionRet = Output(Bool())
+
+        // Status signals
+        // ========================
+        val full = Output(Bool())
     })
 
     val nextBuffer = Wire(Vec(c.robSize, new ROBEntry))
     val buffer = RegInit(VecInit.tabulate(c.robSize){(_) => (new ROBEntry().zero)})
+    val lastRtCkptIndex = RegInit(0.U(renameIndexWidth.W))
     val enqPtr = RegInit(0.U(robIndexWidth.W))
     val deqPtr = RegInit(0.U(robIndexWidth.W))
     val mayFull = RegInit(false.B)
@@ -51,12 +68,14 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     val full = ptrMatch && mayFull
     val empty = ptrMatch && !mayFull
 
+    io.full := full
+
     nextBuffer := buffer
     io.headIndex := deqPtr
-    io.robHasBrc := buffer.map(e => e.valid && e.exu === EXUEnum.bru).reduce(_ || _)
+    io.robMayDison := buffer.map(e => e.valid && (e.exu === EXUEnum.bru || e.exu === EXUEnum.lsu || e.exu === EXUEnum.misc)).reduce(_ || _)
 
     // Read Entry
-    for ((readIndex, readEntry) <- io.readIndexs.zip(io.readEntries)) {
+    for ((readIndex, readEntry) <- io.readIndices.zip(io.readEntries)) {
         readEntry := buffer(readIndex)
     }
 
@@ -77,6 +96,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     io.retireEvent.bits.prevprd := nextBuffer(deqPtr).prevprd
 
     when (retireValid) {
+        lastRtCkptIndex := nextBuffer(deqPtr).renameCkptIndex
         nextBuffer(deqPtr).valid := false.B
         deqPtr := deqPtr + 1.U
         mayFull := false.B
@@ -95,10 +115,10 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
         nextBuffer(enqPtr).prd := io.allocReq.bits.prd
         nextBuffer(enqPtr).prevprd := io.allocReq.bits.prevprd
         nextBuffer(enqPtr).pc := io.allocReq.bits.pc
+        nextBuffer(enqPtr).renameCkptIndex := io.allocReq.bits.renameCkptIndex
 
         nextBuffer(enqPtr).commited := false.B
         nextBuffer(enqPtr).fCtrl := new ROBDisconField().zero
-        nextBuffer(enqPtr).renameCkptIndex := io.renameTailIndex
 
         enqPtr := enqPtr + 1.U
         mayFull := true.B
@@ -123,9 +143,9 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     io.exceptionRet := exceptionRetRequired
 
     val disconEventValid = recoverRequired || trapRequired || exceptionRetRequired
-
+    val disconType = nextBuffer(deqPtr).fCtrl.disconType
     io.disconEvent.valid := disconEventValid
-    io.disconEvent.bits.disconType := nextBuffer(deqPtr).fCtrl.disconType
+    io.disconEvent.bits.disconType := disconType
     io.disconEvent.bits.prdValid := nextBuffer(deqPtr).prdValid
     io.disconEvent.bits.prd := nextBuffer(deqPtr).prd
     io.disconEvent.bits.prevprd := nextBuffer(deqPtr).prevprd
@@ -138,6 +158,20 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
         enqPtr := 0.U
         deqPtr := 0.U
         mayFull := false.B
+        lastRtCkptIndex := 0.U
+    }
+
+    // Update Rename Table
+    io.rtRestoreIndex.valid := false.B
+    io.rtRestoreIndex.bits := 0.U
+    io.rtRmLastCkpt := false.B
+    when(retireValid) {
+        when(disconEventValid) {
+            io.rtRestoreIndex.valid := true.B
+            io.rtRestoreIndex.bits := nextBuffer(deqPtr).renameCkptIndex
+        } otherwise {
+            io.rtRmLastCkpt := nextBuffer(deqPtr).renameCkptIndex =/= lastRtCkptIndex
+        }
     }
 
     // Update buffer

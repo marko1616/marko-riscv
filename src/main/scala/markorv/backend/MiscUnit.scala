@@ -37,7 +37,6 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
             val params = new EXUParams
         }))
         val commit = Decoupled(new MISCCommit)
-        val robHeadIndex = Input(UInt(log2Ceil(c.robSize).W))
 
         val csrio = Flipped(new ControlStatusRegistersIO)
         val outfire = Output(Bool())
@@ -52,7 +51,6 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     val privilegeReg = RegInit(3.U(2.W))
     val opcode = io.miscInstr.bits.miscOpcode
     val params = io.miscInstr.bits.params
-    val speculative = io.robHeadIndex =/= params.robIndex
 
     val (csrOp, validCsrOp) = CsrOperation.safe(opcode.miscCsrFunct(1, 0))
     val (sysOp, validSysOp) = SystemOperation.safe(opcode.miscSysFunct)
@@ -67,7 +65,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     io.csrio.writeData := 0.U
 
     io.outfire := false.B
-    io.miscInstr.ready := io.commit.ready && ~(validOp && speculative)
+    io.miscInstr.ready := io.commit.ready && ~validOp
     io.commit.valid := false.B
     io.commit.bits := new MISCCommit().zero
     io.commit.bits.robIndex := params.robIndex
@@ -76,7 +74,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     io.setPrivilege.ready := true.B
     io.icacheInvalidate := false.B
 
-    when(validOp && ~speculative) {
+    when(validOp) {
         when(validCsrOp) {
             val csrSrc1 = params.source1
             val csrAddr = params.source2

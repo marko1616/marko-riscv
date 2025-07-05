@@ -345,6 +345,7 @@ hs_err_pid*
 
 # Build cache
 generated/
+sim-generated/
 obj_dir/
 
 # Build tool

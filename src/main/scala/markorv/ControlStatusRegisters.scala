@@ -225,7 +225,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         when(mtvec(1,0) === 0.U) {
             setException.exceptionHandler := Cat(mtvec(63,2),0.U(2.W))
         }.elsewhen(mtvec(1,0) === 1.U) {
-            setException.exceptionHandler := Cat(mtvec(63,2),0.U(2.W)) + 4.U*causeCode
+            setException.exceptionHandler := Cat(mtvec(63,2),0.U(2.W)) + causeCode << 2.U
         }
         // TODO trap delegate
         setException.privilege := 3.U

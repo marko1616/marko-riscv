@@ -7,6 +7,7 @@
 #include "axi_signal.hpp"
 #include "axi_bus.hpp"
 #include "slaves/slave.hpp"
+#include "slaves/clint.hpp"
 #include "slaves/virtual_ram.hpp"
 #include "slaves/virtual_uart.hpp"
 #include "dpi/manager.hpp"
@@ -166,9 +167,10 @@ public:
         top->clock = 0;
         top->reset = 0;
 
-        slaves.register_slave(std::make_shared<VirtualRAM> (0x00001000, args.rom_path, CFG_ROM_SIZE));
-        slaves.register_slave(std::make_shared<VirtualRAM> (0x80000000, args.ram_path, CFG_RAM_SIZE));
-        slaves.register_slave(std::make_shared<VirtualUart>(0x10000000));
+        slaves.register_slave(std::make_shared<VirtualCLINT>(0x02000000));
+        slaves.register_slave(std::make_shared<VirtualRAM>  (0x00001000, args.rom_path, CFG_ROM_SIZE));
+        slaves.register_slave(std::make_shared<VirtualRAM>  (0x80000000, args.ram_path, CFG_RAM_SIZE));
+        slaves.register_slave(std::make_shared<VirtualUart> (0x10000000));
 
         if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64, &capstone_handle) != CS_ERR_OK) {
             throw std::runtime_error("Capstone engine failed to init.");
@@ -213,7 +215,7 @@ public:
             if (!top->reset) {
                 std::memset(&axi, 0, sizeof(axiSignal));
                 read_axi(top, axi);
-                slaves.sim_step(axi);
+                slaves.sim_step(top, axi);
                 if (args.axi_debug)
                     axi_debug(axi);
                 set_axi(top, axi);
@@ -243,7 +245,7 @@ private:
             return;
         }
 
-        auto ram = std::dynamic_pointer_cast<VirtualRAM>(slaves.get_slave(1));
+        auto ram = std::dynamic_pointer_cast<VirtualRAM>(slaves.get_slave(2));
         if (!ram) {
             std::cerr << "Can't dump ram.\n";
             return;

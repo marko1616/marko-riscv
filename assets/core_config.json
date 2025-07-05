@@ -14,7 +14,7 @@
     },
     "robSize": 16,
     "rsSize": 16,
-    "renameTableSize": 4,
+    "renameTableSize": 16,
     "regFileSize": 64,
     "fetchIoConfig": {
         "read": true,

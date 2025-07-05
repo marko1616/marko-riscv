@@ -54,7 +54,7 @@ public:
 
     uint64_t register_slave(std::shared_ptr<Slave> slave);
     std::shared_ptr<Slave> get_slave(uint64_t id);
-    void sim_step(axiSignal &axi);
+    void sim_step(const std::unique_ptr<VMarkoRvCore> &top, axiSignal &axi);
 
 private:
     std::vector<std::shared_ptr<Slave>> slaves;
@@ -65,6 +65,7 @@ private:
     void empty_read_transaction();
     void empty_write_transaction();
     uint64_t calculate_next_addr(uint64_t base_addr, uint8_t size, axi_burst_t burst, uint8_t beat);
+    void handle_top(const std::unique_ptr<VMarkoRvCore> &top);
     void handle_read(axiSignal &axi);
     void handle_write(axiSignal &axi);
 };

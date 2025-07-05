@@ -39,7 +39,7 @@ class BranchUnit(implicit val c: CoreConfig) extends Module {
     io.commit.bits.robIndex := params.robIndex
 
     val funct = opcode.getFunct()
-    val branch_taken = MuxLookup(funct, false.B)(Seq(
+    val branchTaken = MuxLookup(funct, false.B)(Seq(
         BranchFunct.beq -> (source1 === source2),
         BranchFunct.bne -> (source1 =/= source2),
         BranchFunct.blt -> (source1.asSInt < source2.asSInt),
@@ -47,11 +47,11 @@ class BranchUnit(implicit val c: CoreConfig) extends Module {
         BranchFunct.bltu -> (source1 < source2),
         BranchFunct.bgeu -> (source1 >= source2),
     ))
-    val recover = MuxLookup(funct, branch_taken =/= predTaken)(Seq(
+    val recover = MuxLookup(funct, branchTaken =/= predTaken)(Seq(
         BranchFunct.jal -> (false.B),
         BranchFunct.jalr -> (jalrPc =/= predPc)
     ))
-    val branchPc = Mux(branch_taken, (params.pc.asSInt + (opcode.offset ## 0.U(1.W)).asSInt).asUInt, params.pc + 4.U)
+    val branchPc = Mux(branchTaken, params.pc + (opcode.offset ## 0.U(1.W)).sextu(64), params.pc + 4.U)
 
     io.commit.valid := io.branchInstr.valid
     io.commit.bits.data := Mux(funct.in(BranchFunct.jal, BranchFunct.jalr), params.pc + 4.U, 0.U)

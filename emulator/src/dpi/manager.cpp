@@ -72,7 +72,7 @@ void DpiManager::print_rob() {
             case EXUEnum::MISC: exu_type = "MISC"; break;
             default: exu_type = "UNKNOWN"; break;
         }
-
+        std::cout << "exu_type:" << static_cast<uint64_t>(entry.exu) << "\n";
 
         std::cout << std::format("{:<5x} {:<8} {:<8} {:#016x} {:<10} {:<10} {:<10} {:<8}\n",
                                 i,

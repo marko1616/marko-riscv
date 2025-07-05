@@ -58,6 +58,7 @@ class Booth4 extends Module {
         val src = Flipped(Decoupled(new MultiplyParams))
         val result = Valid(UInt(128.W))
         val idle = Output(Bool())
+        val flush = Input(Bool())
     })
     val state = RegInit(0.U(5.W))
     val returnFlag = RegInit(false.B)
@@ -132,6 +133,11 @@ class Booth4 extends Module {
         accumulator := 0.S
         state := 0.U
     }
+
+    when(io.flush) {
+        accumulator := 0.S
+        state := 0.U
+    }
 }
 
 class NonRestoringDivider extends Module {
@@ -139,6 +145,7 @@ class NonRestoringDivider extends Module {
         val src = Flipped(Decoupled(new DivideParams))
         val result = Valid(new DivideResult)
         val idle = Output(Bool())
+        val flush = Input(Bool())
     })
     object DividerState extends ChiselEnum {
         val statIdle    = Value
@@ -204,6 +211,10 @@ class NonRestoringDivider extends Module {
         io.result.bits.remainder := Mux(sign && rawDividendSign, adjustedRemainder.neg, adjustedRemainder)
         state := DividerState.statIdle
     }
+
+    when(io.flush) {
+        state := DividerState.statIdle
+    }
 }
 
 class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
@@ -213,6 +224,8 @@ class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
             val params = new EXUParams
         }))
         val commit = Decoupled(new MDUCommit)
+
+        val flush = Input(Bool())
         val outfire = Output(Bool())
     })
 
@@ -244,9 +257,11 @@ class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
 
     booth4.io.src.valid := false.B
     booth4.io.src.bits := new MultiplyParams().zero
+    booth4.io.flush := io.flush
 
     divider.io.src.valid := false.B
     divider.io.src.bits := new DivideParams().zero
+    divider.io.flush := io.flush
 
     when(isDiv) {
         val sign = Mux(op32,

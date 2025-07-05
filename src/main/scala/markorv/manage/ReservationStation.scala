@@ -15,12 +15,12 @@ class ReservationStationDebug extends DPIClockedVoidFunctionImport {
 }
 
 class ReservationStation(implicit val c: CoreConfig) extends Module {
+    private val phyRegWidth = log2Ceil(c.regFileSize)
+
     val io = IO(new Bundle {
         // Issuer signals
         // ========================
         val rsReq = Flipped(Decoupled(new ReservationStationEntry))
-        val rsHasLdSt = Output(Bool())
-        val rsHasMisc = Output(Bool())
         val rsRegReqBits = Output(UInt(c.regFileSize.W))
 
         // Dispatch signals
@@ -55,10 +55,14 @@ class ReservationStation(implicit val c: CoreConfig) extends Module {
         // Register signals
         // ========================
         val regStates = Input(Vec(c.regFileSize, new PhyRegState.Type))
-        val regRead1 = Output(UInt(5.W))
-        val regRead2 = Output(UInt(5.W))
+        val regRead1 = Output(UInt(phyRegWidth.W))
+        val regRead2 = Output(UInt(phyRegWidth.W))
         val regData1 = Input(UInt(64.W))
         val regData2 = Input(UInt(64.W))
+
+        // Speculative ex control
+        // ========================
+        val robHeadIndex = Input(UInt(log2Ceil(c.robSize).W))
 
         // Boardcast
         // ========================
@@ -69,7 +73,7 @@ class ReservationStation(implicit val c: CoreConfig) extends Module {
     val buffer    = RegInit(VecInit.tabulate(c.rsSize)(_ => new ReservationStationEntry().zero))
 
     val validVec = buffer.map(_.valid)
-    val readyVec = buffer.map(_.ready(regStates))
+    val readyVec = buffer.map(_.ready(regStates, io.robHeadIndex))
 
     val freeBits         = validVec.map(~_.asUInt).reduce(_ ## _)
     val freeLeadingZeros = CountLeadingZeros(freeBits)
@@ -82,8 +86,6 @@ class ReservationStation(implicit val c: CoreConfig) extends Module {
     val readyIndex        = readyLeadingZeros(log2Ceil(c.rsSize)-1, 0)
 
     io.rsReq.ready := hasFreeEntries
-    io.rsHasLdSt := buffer.map(e => e.exu === EXUEnum.lsu  && e.valid).reduce(_ || _)
-    io.rsHasMisc := buffer.map(e => e.exu === EXUEnum.misc && e.valid).reduce(_ || _)
     io.rsRegReqBits := buffer.map { entry =>
         val prs1Bit = Mux(entry.regReq.prs1Valid, (1.U << entry.regReq.prs1), 0.U)
         val prs2Bit = Mux(entry.regReq.prs2Valid, (1.U << entry.regReq.prs2), 0.U)

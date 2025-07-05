@@ -36,14 +36,19 @@ namespace PhyRegState {
     };
 }
 
+constexpr size_t rob_idx_width = log2_ceil(CFG_ROB_SIZE);
+constexpr size_t rs_idx_width = log2_ceil(CFG_RS_SIZE);
+constexpr size_t rt_idx_width = log2_ceil(CFG_RT_SIZE);
+constexpr size_t rf_idx_width = log2_ceil(CFG_RF_SIZE);
+
 // Reorder Buffer
-using rob_index_t = BitUtils<log2_ceil(CFG_ROB_SIZE)>::type;
+using rob_index_t = BitUtils<rob_idx_width>::type;
 // Reservation Station
-using rs_index_t = BitUtils<log2_ceil(CFG_RS_SIZE)>::type;
+using rs_index_t = BitUtils<rs_idx_width>::type;
 // Rename Table
-using rt_index_t = BitUtils<log2_ceil(CFG_RS_SIZE)>::type;
+using rt_index_t = BitUtils<rt_idx_width>::type;
 // Register File
-using rf_index_t = BitUtils<log2_ceil(CFG_RF_SIZE)>::type;
+using rf_index_t = BitUtils<rf_idx_width>::type;
 
 struct flowCtrl {
     Field<uint64_t, 64> recover_pc;
@@ -55,40 +60,40 @@ struct flowCtrl {
     Field<bool, 1> trap;
     Field<uint8_t, 3> discon_type;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };
 
 struct robEntry {
-    Field<uint8_t, 2> rename_ckpt_index;
+    Field<uint8_t, rt_idx_width> rename_ckpt_index;
     Field<bool, 1> commited;
 
     flowCtrl f_ctrl;
 
     Field<uint64_t, 64> pc;
-    Field<rf_index_t, 6> prev_prd;
-    Field<rf_index_t, 6> prd;
+    Field<rf_index_t, rf_idx_width> prev_prd;
+    Field<rf_index_t, rf_idx_width> prd;
     Field<bool, 1> prd_valid;
 
     Field<uint8_t, 3> exu;
     Field<bool, 1> valid;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };
 static std::array<robEntry, CFG_ROB_SIZE> rob_data;
 
 struct PhyRegRequests {
+    Field<uint8_t, log2_ceil(CFG_RF_SIZE)> prs2;
+    Field<uint8_t, log2_ceil(CFG_RF_SIZE)> prs1;
     Field<bool, 1> prs2_is_rd;
     Field<bool, 1> prs1_is_rd;
     Field<bool, 1> prs2_valid;
     Field<bool, 1> prs1_valid;
-    Field<uint8_t, log2_ceil(CFG_RF_SIZE)> prs2;
-    Field<uint8_t, log2_ceil(CFG_RF_SIZE)> prs1;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };
@@ -99,7 +104,7 @@ struct EXUParams {
     Field<uint64_t, 64> pc;
     Field<uint8_t, log2_ceil(CFG_ROB_SIZE)> rob_index;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };
@@ -108,7 +113,7 @@ struct MDUOpcode {
     Field<uint8_t, 3> funct3;
     Field<bool, 1> op32;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };
@@ -118,7 +123,7 @@ struct MISCOpcode {
     Field<uint8_t, 3> misc_sys_funct;
     Field<uint8_t, 4> misc_csr_funct;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };
@@ -127,7 +132,7 @@ struct LoadStoreOpcode {
     Field<uint8_t, 3> size;
     Field<uint8_t, 6> funct;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };
@@ -136,7 +141,7 @@ struct BranchOpcode {
     Field<uint16_t, 12> offset;
     Field<uint8_t, 4> funct;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };
@@ -146,7 +151,7 @@ struct ALUOpcode {
     Field<bool, 1> sra_sub;
     Field<bool, 1> op32;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };
@@ -158,7 +163,7 @@ struct OpcodeBundle {
     BranchOpcode bru_op;
     ALUOpcode alu_op;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };
@@ -172,7 +177,7 @@ struct ReservationStationEntry {
     Field<uint8_t, 3> exu;  // EXUEnum::Type
     Field<bool, 1> valid;
 
-    auto as_tuple() {
+    constexpr auto as_tuple() {
         return boost::pfr::structure_tie(*this);
     }
 };

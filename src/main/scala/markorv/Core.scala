@@ -18,6 +18,9 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
         val time = Input(UInt(64.W))
         val pc = Output(UInt(64.W))
         val instrNow = Output(UInt(64.W))
+
+        val mtip = Input(Bool())
+        val msip = Input(Bool())
     })
 
     // Submodule Instantiations
@@ -106,18 +109,14 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     ))
 
     // Rename Table Interface
-    renameTable.io.createCkpt.valid := false.B
-    renameTable.io.createCkpt.bits := Vec(31,UInt(log2Ceil(c.regFileSize).W)).zero
-    renameTable.io.rmLastCkpt := false.B
-    renameTable.io.restoreEntry.valid := 0.U
-    renameTable.io.restoreEntry.bits := Vec(31,UInt(log2Ceil(c.regFileSize).W)).zero
-
-    // Reorder Buffer Interface
-    rob.io.renameTailIndex <> renameTable.io.tailIndex
+    renameTable.io.createCkpt <> issuer.io.createRtCkpt
+    renameTable.io.restoreIndex <> rob.io.rtRestoreIndex
+    renameTable.io.rmLastCkpt <> rob.io.rtRmLastCkpt
+    renameTable.io.readIndices(1) := 0.U
 
     // Register File Interface
-    regStateCtrl.io.renameTableReadIndex <> renameTable.io.readIndex
-    regStateCtrl.io.renameTableReadEntry <> renameTable.io.readEntry
+    regStateCtrl.io.renameTableReadIndex <> renameTable.io.readIndices(0)
+    regStateCtrl.io.renameTableReadEntry <> renameTable.io.readEntries(0)
     regStateCtrl.io.issueEvent   <> issuer.io.issueEvent
     regStateCtrl.io.commitEvents <> commitUnit.io.commitEvents
     regStateCtrl.io.retireEvent  <> rob.io.retireEvent
@@ -132,16 +131,17 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     reservStation.io.regData2 <> regFile.io.readDatas(1)
 
     // Issuer Interface
-    issuer.io.rsHasLdSt <> reservStation.io.rsHasLdSt
-    issuer.io.rsHasMisc <> reservStation.io.rsHasMisc
     issuer.io.rsRegReqBits <> reservStation.io.rsRegReqBits
-    issuer.io.robHasBrc <> rob.io.robHasBrc
+    issuer.io.robMayDison <> rob.io.robMayDison
     issuer.io.robReq <> rob.io.allocReq
     issuer.io.robResp <> rob.io.allocResp
+    issuer.io.robFull <> rob.io.full
     issuer.io.regStates <> regFile.io.getStates
+    issuer.io.renameTailIndex <> renameTable.io.tailIndex
     issuer.io.renameTable <> renameTable.io.tailEntry
 
     // Reservation Station Interface
+    reservStation.io.robHeadIndex <> rob.io.headIndex
     reservStation.io.rsReq <> issuer.io.rsReq
     reservStation.io.flush <> flush
     reservStation.io.regStates <> regFile.io.getStates
@@ -168,9 +168,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     PipelineConnect(reservStation.io.mduOut, mdu.io.muInstr, mdu.io.outfire, flush)
     PipelineConnect(reservStation.io.miscOut, misc.io.miscInstr, misc.io.outfire, flush)
 
-    // Execution Unit Side Effect Control
-    lsu.io.robHeadIndex <> rob.io.headIndex
-    misc.io.robHeadIndex <> rob.io.headIndex
+    mdu.io.flush <> flush
 
     // Commit Stage
     PipelineConnect(alu.io.commit, commitUnit.io.alu, commitUnit.io.outfires(0), flush)
@@ -179,7 +177,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     PipelineConnect(mdu.io.commit, commitUnit.io.mdu, commitUnit.io.outfires(3), flush)
     PipelineConnect(misc.io.commit, commitUnit.io.misc, commitUnit.io.outfires(4), flush)
 
-    commitUnit.io.robReadIndexs  <> rob.io.readIndexs
+    commitUnit.io.robReadIndices  <> rob.io.readIndices
     commitUnit.io.robReadEntries <> rob.io.readEntries
     commitUnit.io.regWrites  <> regFile.io.writePorts
     commitUnit.io.robCommits <> rob.io.commits

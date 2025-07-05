@@ -33,7 +33,7 @@ class InstrFetchQueue(implicit val config: CoreConfig) extends Module {
     instrQueue.io.enq.valid := false.B
     instrQueue.io.enq.bits := new FetchQueueEntities().zero
 
-    bpu.io.bpuInstr.instr := 0.U
+    bpu.io.bpuInstr.instr := new Instruction().zero
     bpu.io.bpuInstr.pc := 0.U
 
     when(instrQueue.io.count === 0.U) {
@@ -53,11 +53,10 @@ class InstrFetchQueue(implicit val config: CoreConfig) extends Module {
     val instr = (fetchLine >> (pcIndex << 5))(31, 0)
 
     when(instrQueue.io.enq.ready && io.cachelineRead.valid && !io.flush) {
+        bpu.io.bpuInstr.instr.fromUInt(instr)
         bpu.io.bpuInstr.pc := endPc
-        bpu.io.bpuInstr.instr := instr
 
         instrQueue.io.enq.bits.instr := instr
-        instrQueue.io.enq.bits.isBranch := bpu.io.bpuResult.isBranch
         instrQueue.io.enq.bits.predTaken := bpu.io.bpuResult.predTaken
         instrQueue.io.enq.bits.predPc := bpu.io.bpuResult.predPc
         instrQueue.io.enq.valid := true.B

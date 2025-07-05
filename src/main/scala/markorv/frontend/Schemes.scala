@@ -113,7 +113,6 @@ class InstrDecodeBundle extends Bundle {
 
 class FetchQueueEntities extends Bundle {
     val instr = UInt(32.W)
-    val isBranch = Bool()
     val predTaken = Bool()
     val predPc = UInt(64.W)
 }

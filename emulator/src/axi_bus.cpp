@@ -34,7 +34,8 @@ std::shared_ptr<Slave> VirtualAxiSlaves::get_slave(uint64_t id) {
     return slaves[id];
 }
 
-void VirtualAxiSlaves::sim_step(axiSignal &axi) {
+void VirtualAxiSlaves::sim_step(const std::unique_ptr<VMarkoRvCore> &top, axiSignal &axi) {
+    handle_top(top);
     handle_read(axi);
     handle_write(axi);
 }
@@ -83,6 +84,12 @@ uint64_t VirtualAxiSlaves::calculate_next_addr(uint64_t base_addr, uint8_t size,
         default:
             std::cerr << "Not valid burst mode";
             return base_addr;
+    }
+}
+
+void VirtualAxiSlaves::handle_top(const std::unique_ptr<VMarkoRvCore> &top) {
+    for(const auto& slave : slaves) {
+        slave->step(top);
     }
 }
 

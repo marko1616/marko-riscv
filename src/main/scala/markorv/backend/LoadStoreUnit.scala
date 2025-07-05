@@ -17,10 +17,7 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
             val lsuOpcode = new LoadStoreOpcode
             val params = new EXUParams
         }))
-
         val interface = new IOInterface()(c.lsuIoConfig,true)
-
-        val robHeadIndex = Input(UInt(log2Ceil(c.robSize).W))
 
         val commit = Decoupled(new LSUCommit)
         val invalidateReserved = Input(Bool())
@@ -40,7 +37,6 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
     val size = io.lsuInstr.bits.lsuOpcode.size(1,0)
     val sign = !io.lsuInstr.bits.lsuOpcode.size(2)
     val params = io.lsuInstr.bits.params
-    val speculative = io.robHeadIndex =/= params.robIndex
 
     val opFired = Wire(Bool())
     val loadData = Wire(UInt(64.W))
@@ -171,7 +167,7 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
         }
     }
 
-    when(io.lsuInstr.valid && ~speculative && validFunct && io.commit.ready && state === State.statNormal) {
+    when(io.lsuInstr.valid && validFunct && io.commit.ready && state === State.statNormal) {
         when(LSUOpcode.isamo(opcode)) {
             // AMO
             state := State.statAmoCache

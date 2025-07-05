@@ -9,7 +9,7 @@
 
 class VirtualRAM : public Slave {
 public:
-    VirtualRAM(uint64_t base_addr, const std::string& file_path, uint64_t size);
+    explicit VirtualRAM(uint64_t base_addr, const std::string& file_path, uint64_t size);
     ~VirtualRAM();
 
     uint64_t read(uint64_t addr, uint8_t size) override;

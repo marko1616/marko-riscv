@@ -17,14 +17,14 @@ class RenameTable(implicit val c: CoreConfig) extends Module {
     private val renameIndexWidth = log2Ceil(c.renameTableSize)
 
     val io = IO(new Bundle {
-        val readIndex = Input(UInt(renameIndexWidth.W))
-        val readEntry = Output(Vec(31,UInt(phyRegWidth.W)))
+        val readIndices = Input(Vec(2, UInt(renameIndexWidth.W)))
+        val readEntries = Output(Vec(2, Vec(31,UInt(phyRegWidth.W))))
         val tailIndex = Output(UInt(renameIndexWidth.W))
         val tailEntry = Output(Vec(31,UInt(phyRegWidth.W)))
 
         val createCkpt = Flipped(Decoupled(Vec(31,UInt(phyRegWidth.W))))
         val rmLastCkpt = Input(Bool())
-        val restoreEntry = Flipped(Valid(Vec(31,UInt(phyRegWidth.W))))
+        val restoreIndex = Flipped(Valid(UInt(renameIndexWidth.W)))
     })
 
     val table = RegInit(VecInit.tabulate(c.renameTableSize, 31){
@@ -37,7 +37,10 @@ class RenameTable(implicit val c: CoreConfig) extends Module {
     val full = ptrMatch && mayFull
     val tailIndex = enqPtr - 1.U
 
-    io.readEntry := table(io.readIndex)
+    for((readIndex, readEntry) <- io.readIndices.zip(io.readEntries)) {
+        readEntry := table(readIndex)
+    }
+
     io.tailIndex := tailIndex
     io.tailEntry := table(tailIndex)
 
@@ -53,10 +56,10 @@ class RenameTable(implicit val c: CoreConfig) extends Module {
         mayFull := false.B
     }
 
-    when(io.restoreEntry.valid) {
+    when(io.restoreIndex.valid) {
         enqPtr := 1.U
         deqPtr := 0.U
-        table(0) := io.restoreEntry.bits
+        table(0) := table(io.restoreIndex.bits)
         mayFull := false.B
     }
 

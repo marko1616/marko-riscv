@@ -21,7 +21,7 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
         val mdu  = Flipped(Decoupled(new MDUCommit))
         val misc = Flipped(Decoupled(new MISCCommit))
 
-        val robReadIndexs  = Output(Vec(5, UInt(robIndexWidth.W)))
+        val robReadIndices  = Output(Vec(5, UInt(robIndexWidth.W)))
         val robReadEntries = Input(Vec(5, new ROBEntry))
 
         val commitEvents = Vec(5, Valid(new CommitEvent))
@@ -36,8 +36,8 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
     }
 
     val inputs = Seq(io.alu, io.bru, io.lsu, io.mdu, io.misc)
+    val combined = zip7(inputs, io.outfires, io.regWrites, io.robCommits, io.commitEvents, io.robReadIndices, io.robReadEntries)
 
-    val combined = zip7(inputs, io.outfires, io.regWrites, io.robCommits, io.commitEvents, io.robReadIndexs, io.robReadEntries)
     for ((in, outfire, regWrite, robCommit, commitEvent, robReadIndex, robReadEntry) <- combined) {
         in.ready := true.B
         outfire := in.valid
@@ -47,39 +47,39 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
         regWrite.bits.addr := robReadEntry.prd
         regWrite.bits.data := in.bits.data
 
-        commitEvent.valid           := in.valid
+        if (in.bits.isInstanceOf[CommitWithTrap]) {
+            val t = in.bits.asInstanceOf[CommitWithTrap]
+            commitEvent.valid := in.valid && t.trap
+        } else {
+            commitEvent.valid := in.valid
+        }
         commitEvent.bits.prdValid := robReadEntry.prdValid
         commitEvent.bits.prd      := robReadEntry.prd
 
         robCommit.valid         := in.valid
         robCommit.bits.robIndex := in.bits.robIndex
-        robCommit.bits.fCtrl := {
-            val fCtrl = Wire(new ROBDisconField)
-            fCtrl := new ROBDisconField().zero
-            in match {
-                case i if i == io.misc =>
-                    val bits = in.bits.asInstanceOf[MISCCommit]
-                    fCtrl.disconType := bits.disconType
-                    fCtrl.trap       := bits.trap
-                    fCtrl.cause      := bits.cause
-                    fCtrl.xtval      := bits.xtval
-                    fCtrl.xret       := bits.xret
-                    fCtrl.recover    := bits.recover
-                    fCtrl.recoverPc  := bits.recoverPc
-                case i if i == io.bru =>
-                    val bits = in.bits.asInstanceOf[BRUCommit]
-                    fCtrl.disconType := bits.disconType
-                    fCtrl.recover    := bits.recover
-                    fCtrl.recoverPc  := bits.recoverPc
-                case i if i == io.lsu =>
-                    val bits = in.bits.asInstanceOf[LSUCommit]
-                    fCtrl.disconType := bits.disconType
-                    fCtrl.trap       := bits.trap
-                    fCtrl.cause      := bits.cause
-                    fCtrl.xtval      := bits.xtval
-                case _ =>
-            }
-            fCtrl
+
+        val fCtrl = robCommit.bits.fCtrl
+        fCtrl := new ROBDisconField().zero
+
+        if (in.bits.isInstanceOf[CommitWithDiscon]) {
+            val d = in.bits.asInstanceOf[CommitWithDiscon]
+            fCtrl.disconType := d.disconType
+        }
+        if (in.bits.isInstanceOf[CommitWithTrap]) {
+            val t = in.bits.asInstanceOf[CommitWithTrap]
+            fCtrl.trap := t.trap
+            fCtrl.cause := t.cause
+            fCtrl.xtval := t.xtval
+        }
+        if (in.bits.isInstanceOf[CommitWithRecover]) {
+            val r = in.bits.asInstanceOf[CommitWithRecover]
+            fCtrl.recover := r.recover
+            fCtrl.recoverPc := r.recoverPc
+        }
+        if (in.bits.isInstanceOf[CommitWithXret]) {
+            val x = in.bits.asInstanceOf[CommitWithXret]
+            fCtrl.xret := x.xret
         }
     }
 }

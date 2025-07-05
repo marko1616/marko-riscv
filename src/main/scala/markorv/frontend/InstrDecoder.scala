@@ -39,7 +39,6 @@ class InstrDecoder extends Module {
     val predTaken = io.instrBundle.bits.predTaken
     val predPc = io.instrBundle.bits.predPc
 
-    // === OPCODE CONSTANTS ===
     val OP_LUI      = "b0110111".U
     val OP_AUIPC    = "b0010111".U
     val OP_IMM      = "b0010011".U
@@ -55,7 +54,6 @@ class InstrDecoder extends Module {
     val OP_MISC_MEM = "b0001111".U
     val OP_AMO      = "b0101111".U
 
-    // === Decode Table ===
     val opcodes = issueTask.opcodes
     val decodeTable = Seq(
         DecodeEntry(OP_LUI,     _ => true.B, opcodes.aluOpcode.fromLui,       EXUEnum.alu),
@@ -76,7 +74,7 @@ class InstrDecoder extends Module {
         DecodeEntry(OP_AMO,     _ => true.B, opcodes.lsuOpcode.fromAmo,       EXUEnum.lsu)
     )
 
-    // === Decode dispatcher ===
+    // Decode dispatcher
     for (entry <- decodeTable) {
         when(io.instrBundle.valid && (opcode === entry.opcode) && entry.matchFn(instr)) {
             validInstr := entry.handler(instr, lregReq, params, pc)
@@ -89,7 +87,7 @@ class InstrDecoder extends Module {
         }
     }
 
-    // === Commit task ===
+    // Commit task
     io.instrBundle.ready := false.B
     io.outfire := false.B
     io.invalidDrop := false.B

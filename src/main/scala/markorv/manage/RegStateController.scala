@@ -10,59 +10,66 @@ class RegStateController(implicit val c: CoreConfig) extends Module {
     private val phyRegWidth = log2Ceil(c.regFileSize)
 
     val io = IO(new Bundle {
+        // Events
+        // ========================
         val issueEvent = Flipped(Valid(new IssueEvent))
         val commitEvents = Flipped(Vec(5, Valid(new CommitEvent)))
         val retireEvent = Flipped(Valid(new RetireEvent))
         val disconEvent = Flipped(Valid(new DisconEvent))
 
+        // Rename checkpoint lookup
+        // ========================
         val renameTableReadIndex = Output(UInt(renameIndexWidth.W))
-        val renameTableReadEntry = Input(Vec(31,UInt(phyRegWidth.W)))
+        val renameTableReadEntry = Input(Vec(31, UInt(phyRegWidth.W)))
 
-        val setStates = Valid(Vec(c.regFileSize,new PhyRegState.Type))
-        val getStates = Input(Vec(c.regFileSize,new PhyRegState.Type))
+        // Physical register state interface
+        // ========================
+        val setStates = Valid(Vec(c.regFileSize, new PhyRegState.Type)) // updated state output
+        val getStates = Input(Vec(c.regFileSize, new PhyRegState.Type)) // current state input
     })
-    io.setStates.valid := false.B
-    io.setStates.bits := io.getStates
 
-    val issueEvent = io.issueEvent
-    when(issueEvent.valid && issueEvent.bits.prdValid) {
-        val prd = issueEvent.bits.prd
-        io.setStates.bits(prd) := PhyRegState.Occupied
-        io.setStates.valid := true.B
+    // Default assignment
+    val nextStates = WireInit(io.getStates)
+    var updateValid = false.B
+
+    // Handle issue event
+    when(io.issueEvent.valid && io.issueEvent.bits.prdValid) {
+        val prd = io.issueEvent.bits.prd
+        nextStates(prd) := PhyRegState.Occupied
+        updateValid = true.B
     }
 
-    for(commitEvent <- io.commitEvents) {
-        val prd = commitEvent.bits.prd
+    // Handle commit events
+    for (commitEvent <- io.commitEvents) {
         when(commitEvent.valid && commitEvent.bits.prdValid) {
-            io.setStates.bits(prd) := PhyRegState.Committed
-            io.setStates.valid := true.B
+            val prd = commitEvent.bits.prd
+            nextStates(prd) := PhyRegState.Committed
+            updateValid = true.B
         }
     }
 
-    val retireEvent = io.retireEvent
-    when(retireEvent.valid && retireEvent.bits.prdValid) {
-        val prd = retireEvent.bits.prd
-        val prevprd = retireEvent.bits.prevprd
-        io.setStates.bits(prd) := PhyRegState.Allocated
+    // Handle retire event
+    when(io.retireEvent.valid && io.retireEvent.bits.prdValid) {
+        val prd = io.retireEvent.bits.prd
+        val prevprd = io.retireEvent.bits.prevprd
+        nextStates(prd) := PhyRegState.Allocated
         when(prd =/= prevprd) {
-            io.setStates.bits(prevprd) := PhyRegState.Free
+            nextStates(prevprd) := PhyRegState.Free
         }
-        io.setStates.valid := true.B
+        updateValid = true.B
     }
 
-    val disconEvent = io.disconEvent
-    io.renameTableReadIndex := disconEvent.bits.renameCkptIndex
-    when(disconEvent.valid) {
+    // Handle discontinue (rollback)
+    io.renameTableReadIndex := io.disconEvent.bits.renameCkptIndex
+    when(io.disconEvent.valid) {
         val disconStates = WireInit(VecInit.fill(c.regFileSize)(PhyRegState.Free))
         for (i <- 0 until 31) {
             disconStates(io.renameTableReadEntry(i)) := PhyRegState.Allocated
         }
-        when(disconEvent.bits.disconType === DisconEventEnum.instrRedirect && disconEvent.bits.prdValid) {
-            // For jalr we still need rename rd
-            disconStates(disconEvent.bits.prevprd) := PhyRegState.Free
-            disconStates(disconEvent.bits.prd) := PhyRegState.Allocated
-        }
         io.setStates.bits := disconStates
         io.setStates.valid := true.B
+    }.otherwise {
+        io.setStates.bits := nextStates
+        io.setStates.valid := updateValid
     }
 }

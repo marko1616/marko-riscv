@@ -1,7 +1,6 @@
 #include "virtual_ram.hpp"
 
-VirtualRAM::VirtualRAM(uint64_t base_addr, const std::string& file_path, uint64_t size) {
-    this->base_addr = base_addr;
+VirtualRAM::VirtualRAM(uint64_t base_addr, const std::string& file_path, uint64_t size) : Slave(base_addr) {
     this->size = size;
     assert((size & 0x0fff) == 0 && "Virtual RAM size must be 4k aligned.");
     range = std::ranges::iota_view<uint64_t, uint64_t>(0x0, size);

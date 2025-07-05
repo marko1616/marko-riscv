@@ -11,7 +11,6 @@
 #include <type_traits>
 #include <tuple>
 #include <cstring>
-#include <bit>
 
 #include "svdpi.h"
 
@@ -74,65 +73,92 @@ namespace detail {
     template <typename T>
     concept Decodable = HasAsTuple<T> || IsField<T>;
 
-    inline uint64_t extract_bits(const svBitVecVal* data, size_t start_bit, size_t num_bits) {
-        if (num_bits > 64) {
-            num_bits = 64;
-        }
-
+    template <size_t num_bits, size_t base_offset>
+    requires (num_bits <= 64)
+    inline uint64_t extract_bits(const svBitVecVal* data) {
         uint64_t result = 0;
-        size_t word_idx = start_bit / 32;
-        size_t bit_offset = start_bit % 32;
+        constexpr size_t word_idx = base_offset / 32;
+        constexpr size_t bits_offset = base_offset % 32;
+        constexpr size_t num_word = ((bits_offset + num_bits + 31) / 32);
 
-        if constexpr (std::endian::native == std::endian::little) {
-            size_t bytes_to_copy = (bit_offset + num_bits + 7) / 8;
-            if (bytes_to_copy > 8) bytes_to_copy = 8;
-            std::memcpy(&result, reinterpret_cast<const uint8_t*>(&data[word_idx]) + (bit_offset / 8), bytes_to_copy);
-            result >>= (bit_offset % 8);
-            if (num_bits < 64) {
-                result &= ((1ULL << num_bits) - 1);
-            }
-        } else {
-            if (bit_offset + num_bits <= 32) {
-                uint32_t mask = (num_bits == 32) ? 0xFFFFFFFF : ((1u << num_bits) - 1);
-                result = (data[word_idx] >> bit_offset) & mask;
-            } else {
-                uint32_t bits_from_first = 32 - bit_offset;
-                result = (data[word_idx] >> bit_offset);
-                if (num_bits > bits_from_first) {
-                    uint32_t bits_from_second = num_bits - bits_from_first;
-                    uint32_t mask = (bits_from_second == 32) ? 0xFFFFFFFF : ((1u << bits_from_second) - 1);
-                    result |= (static_cast<uint64_t>(data[word_idx + 1] & mask)) << bits_from_first;
-                    if (bits_from_first + 32 < num_bits) {
-                        uint32_t bits_from_third = num_bits - bits_from_first - 32;
-                        uint32_t mask = (bits_from_third == 32) ? 0xFFFFFFFF : ((1u << bits_from_third) - 1);
-                        result |= (static_cast<uint64_t>(data[word_idx + 2] & mask)) << (bits_from_first + 32);
-                    }
-                }
-            }
+        result |= data[word_idx] >> bits_offset;
+        for(size_t i = 1; i < num_word; ++i) {
+            result |= static_cast<uint64_t>(data[word_idx + i]) << (i * 32 - bits_offset);
         }
+
+        if constexpr (num_bits < 64) {
+            result &= (uint64_t(1) << num_bits) - 1;
+        }
+    
         return result;
     }
 
-    template <IsField T>
-    void decode_field(T& field, const svBitVecVal* data, size_t& bit_offset) {
+    template <Decodable T>
+    constexpr size_t get_width() {
+        if constexpr (HasAsTuple<T>) {
+            size_t total = 0;
+            auto calc = [&]<typename... Args>(std::tuple<Args...>) {
+                ((total += get_width<std::remove_reference_t<Args>>()), ...);
+            };
+            calc(T{}.as_tuple());
+            return total;
+        }
+        else if constexpr (IsField<T>) {
+            return T::bit_width;
+        }
+    }
+
+    template <Decodable T>
+    constexpr auto get_offsets() {
+        if constexpr (HasAsTuple<T>) {
+            using TupleType = decltype(T{}.as_tuple());
+            constexpr size_t tuple_size = std::tuple_size_v<TupleType>;
+            std::array<size_t, tuple_size> offsets{};
+            
+            size_t current_offset = 0;
+            
+            [&]<size_t... Is>(std::index_sequence<Is...>) {
+                (([&]() {
+                    offsets[Is] = current_offset;
+                    using ElementType = std::remove_reference_t<std::tuple_element_t<Is, TupleType>>;
+                    current_offset += get_width<ElementType>();
+                }()), ...);
+            }(std::make_index_sequence<tuple_size>{});
+            
+            return offsets;
+        }
+        else if constexpr (IsField<T>) {
+            return std::array<size_t, 1>{0};
+        }
+    }
+
+    template <IsField T, size_t base_offset>
+    void decode_field(T& field, const svBitVecVal* data) {
         if constexpr (T::bit_width <= 64) {
             field.value = static_cast<typename T::value_type>(
-                extract_bits(data, bit_offset, T::bit_width)
+                extract_bits<T::bit_width, base_offset>(data)
             );
         } else {
             // For fields wider than 64 bits, you would need custom logic
             // This is a placeholder for such implementation
             static_assert(T::bit_width <= 64, "Fields wider than 64 bits not yet supported");
         }
-        bit_offset += T::bit_width;
     }
 
-    template <HasAsTuple T>
-    void decode_field(T& structure, const svBitVecVal* data, size_t& bit_offset) {
+    template <HasAsTuple T, size_t base_offset>
+    void decode_field(T& structure, const svBitVecVal* data) {
+        constexpr auto field_offsets = detail::get_offsets<T>();
         auto tuple = structure.as_tuple();
-        std::apply([&data, &bit_offset](auto&... args) {
-            (decode_field(args, data, bit_offset), ...);
-        }, tuple);
+
+        using TupleType = decltype(tuple);
+        constexpr size_t tuple_size = std::tuple_size_v<TupleType>;
+
+        [&]<size_t... Is>(std::index_sequence<Is...>) {
+            (decode_field<
+                std::remove_reference_t<decltype(std::get<Is>(tuple))>, 
+                base_offset + std::get<Is>(field_offsets)
+            >(std::get<Is>(tuple), data), ...);
+        }(std::make_index_sequence<tuple_size>{});
     }
 
     template <typename T>
@@ -181,11 +207,12 @@ constexpr int calc_struct_bit_width() {
 template <typename T>
 void decode_struct(T& structure, const svBitVecVal* data) {
     static_assert(requires (T t) { t.as_tuple(); }, "T must have as_tuple() method");
-    size_t bit_offset = 0;
+    constexpr auto field_offsets = detail::get_offsets<T>();
     auto tuple = structure.as_tuple();
-    std::apply([&data, &bit_offset](auto&... args) {
-        (detail::decode_field(args, data, bit_offset), ...);
-    }, tuple);
+    
+    [&]<size_t... Is>(std::index_sequence<Is...>) {
+        (detail::decode_field<std::remove_reference_t<decltype(std::get<Is>(tuple))>, std::get<Is>(field_offsets)>(std::get<Is>(tuple), data), ...);
+    }(std::make_index_sequence<std::tuple_size_v<decltype(tuple)>>{});
 }
 
 /**

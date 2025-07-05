@@ -1,8 +1,7 @@
 #include "virtual_uart.hpp"
 
-VirtualUart::VirtualUart(uint64_t base_addr) {
-    this->base_addr = base_addr;
-    range = std::ranges::iota_view<uint64_t, uint64_t>(0x0, 0x8);
+VirtualUart::VirtualUart(uint64_t base_addr) : Slave(base_addr) {
+    range = std::ranges::iota_view<uint64_t, uint64_t>(0x0, 0x100);
 
     ier = 0x00;
     isr = 0x01;

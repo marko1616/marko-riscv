@@ -73,6 +73,7 @@ class ROBAllocReq(implicit val c: CoreConfig) extends Bundle {
     val prd = UInt(log2Ceil(c.regFileSize).W)
     val prevprd = UInt(log2Ceil(c.regFileSize).W)
     val pc = UInt(64.W)
+    val renameCkptIndex = UInt(log2Ceil(c.renameTableSize).W)
 }
 
 class ROBAllocResp(implicit val c: CoreConfig) extends Bundle {
@@ -145,12 +146,36 @@ class ReservationStationEntry(implicit val c: CoreConfig) extends Bundle {
         prs1Ready && prs2Ready
     }
 
-    def ready(regStates: Vec[PhyRegState.Type]): Bool = {
-        this.valid && this.psrcValid(regStates)
+    def sideEffectReady(robHeadIndex: UInt): Bool = {
+        val isSideEffectExu = this.exu === EXUEnum.lsu || this.exu === EXUEnum.misc
+        ~isSideEffectExu || this.params.robIndex === robHeadIndex
+    }
+
+    def ready(regStates: Vec[PhyRegState.Type], robHeadIndex: UInt): Bool = {
+        this.valid && this.psrcValid(regStates) && sideEffectReady(robHeadIndex)
     }
 }
 
-abstract class CommitBundle(implicit val c: CoreConfig) extends Bundle {
+abstract class BaseCommitBundle(implicit val c: CoreConfig) extends Bundle {
     val data = UInt(64.W)
     val robIndex = UInt(log2Ceil(c.robSize).W)
+}
+
+trait CommitWithDiscon extends Bundle {
+    val disconType = new DisconEventEnum.Type
+}
+
+trait CommitWithTrap extends Bundle {
+    val trap = Bool()
+    val cause = UInt(16.W)
+    val xtval = UInt(64.W)
+}
+
+trait CommitWithRecover extends Bundle {
+    val recover = Bool()
+    val recoverPc = UInt(64.W)
+}
+
+trait CommitWithXret extends Bundle {
+    val xret = Bool()
 }
