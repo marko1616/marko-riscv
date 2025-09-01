@@ -17,7 +17,7 @@ public:
     void write(uint64_t addr, uint64_t data, uint8_t size, uint8_t strb) override;
     void step(const std::unique_ptr<VMarkoRvCore> &top) override;
 private:
-    uint64_t mtime;
-    uint64_t mtimecmp;
-    uint32_t msip;
+    uint64_t mtime = 0;
+    uint64_t mtimecmp = 0;
+    uint32_t msip = 0;
 };

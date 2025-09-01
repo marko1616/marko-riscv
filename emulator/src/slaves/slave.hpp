@@ -27,7 +27,25 @@ public:
     virtual void step(const std::unique_ptr<VMarkoRvCore> &top) {}
 };
 
-class InterruptController {
+class InterruptController : public Slave {
 public:
-    virtual void set_interrupt(uint32_t interrupt_id, int level) = 0;
+    explicit InterruptController(uint64_t base_addr) : Slave(base_addr) {}
+    virtual ~InterruptController() = default;
+
+    virtual void set_interrupt_level(uint16_t interrupt_id, bool level) = 0;
+};
+
+class InterruptSource {
+private:
+    std::shared_ptr<InterruptController> interrupt_controller = nullptr;
+protected:
+    void trigger_interrupt_level(uint16_t interrupt_id, bool level) {
+        if (interrupt_controller) {
+            interrupt_controller->set_interrupt_level(interrupt_id, level);
+        }
+    }
+public:
+    virtual void set_interrupt_controller(std::shared_ptr<InterruptController> interrupt_controller) {
+        this->interrupt_controller = interrupt_controller;
+    }
 };

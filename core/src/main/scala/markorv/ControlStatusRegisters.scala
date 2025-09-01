@@ -34,7 +34,6 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         val mie = Output(UInt(64.W))
 
         val retireEvent = Flipped(Valid(new RetireEvent))
-        val time = Input(UInt(64.W))
     })
     // While read write simultaneously shuould return old value.
 
@@ -83,7 +82,6 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     val MIP_ADDR = "h344".U(12.W)
 
     val cycle = RegInit(0.U(64.W))
-    val time = WireInit(0.U(64.W))
     val instRetire = RegInit(0.U(64.W))
 
     val mstatus = RegInit(0.U(64.W))
@@ -107,7 +105,6 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     io.mie := mie
 
     cycle := cycle + 1.U
-    time := io.time
     when(io.retireEvent.valid && ~io.retireEvent.bits.isTrap) {
         instRetire := instRetire + 1.U
     }
@@ -118,7 +115,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             readCsr(cycle, Mux(mcounteren(0), "b00".U, "b11".U))
         }.elsewhen(io.csrio.readAddr === TIME_ADDR) {
             // TODO S mode
-            readCsr(time, Mux(mcounteren(1), "b00".U, "b11".U))
+            readCsr(cycle, Mux(mcounteren(1), "b00".U, "b11".U))
         }.elsewhen(io.csrio.readAddr === INSTRET_ADDR) {
             // TODO S mode
             readCsr(instRetire, Mux(mcounteren(2), "b00".U, "b11".U))

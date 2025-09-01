@@ -345,8 +345,8 @@ hs_err_pid*
 
 # Build cache
 generated/
-sim-generated/
 obj_dir/
+out/
 
 # Build tool
 mill
@@ -358,3 +358,6 @@ mill
 
 # Generated config
 config.hpp
+
+# Generated debug file
+*.vcd

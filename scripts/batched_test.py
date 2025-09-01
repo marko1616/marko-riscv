@@ -123,7 +123,7 @@ def run_test(case_name):
         "--max-clock", "10000",
         "--ram-dump", str(ram_dump_path)
     ]
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = subprocess.run(command, capture_output=True, text=True, stdin=subprocess.DEVNULL)
     if result.returncode != 0:
         return (False, case_name, None)
 

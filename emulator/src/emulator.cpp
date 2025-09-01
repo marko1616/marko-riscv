@@ -1,4 +1,5 @@
 #include <capstone/capstone.h>
+#include <verilated_vcd_c.h>
 
 #include "VMarkoRvCore.h"
 #include "config.hpp"
@@ -8,6 +9,7 @@
 #include "axi_bus.hpp"
 #include "slaves/slave.hpp"
 #include "slaves/clint.hpp"
+#include "slaves/plic.hpp"
 #include "slaves/virtual_ram.hpp"
 #include "slaves/virtual_uart.hpp"
 #include "dpi/manager.hpp"
@@ -130,15 +132,17 @@ void axi_debug(const axiSignal& axi) {
                              axi.rvalid, axi.rready, axi.rdata, axi.rresp);
 }
 
-void set_time(const std::unique_ptr<VMarkoRvCore> &top) {
-    top->io_time = std::time(nullptr);
-}
-
-void cycle_verbose(uint64_t cycle, uint64_t pc, uint64_t raw_instr) {
+void cycle_verbose(uint64_t cycle, uint64_t pc, std::optional<uint32_t> raw_instr) {
     uint8_t raw_code[4] = {0};
-    std::cout << std::format("Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Asm: ",cycle, pc, raw_instr);
+    std::cout << std::format("Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Asm: ",cycle, pc, raw_instr.value_or(0));
+
+    if (!raw_instr) {
+        std::cout << "null" << std::endl;
+        return;
+    }
+
     for(int i=0;i<4;i++) {
-        raw_code[i] = static_cast<uint8_t>(raw_instr >> 8*i);
+        raw_code[i] = static_cast<uint8_t>(raw_instr.value() >> 8*i);
     }
 
     cs_insn *instr;
@@ -156,7 +160,6 @@ void cycle_verbose(uint64_t cycle, uint64_t pc, uint64_t raw_instr) {
 
 void init_stimulus(const std::unique_ptr<VMarkoRvCore> &top) {
     clear_axi(top);
-    set_time(top);
 }
 
 class SimulationManager {
@@ -164,13 +167,20 @@ public:
     SimulationManager(parsedArgs& args) {
         context = std::make_unique<VerilatedContext>();
         top = std::make_unique<VMarkoRvCore>();
+        if (args.vcd_dump.has_value()) {
+            vcd_context = std::make_unique<VerilatedVcdC>();
+            Verilated::traceEverOn(true);
+            top->trace(vcd_context.get(), 0);
+            vcd_context->open(args.vcd_dump.value().c_str());
+        }
         top->clock = 0;
         top->reset = 0;
-
-        slaves.register_slave(std::make_shared<VirtualCLINT>(0x02000000));
-        slaves.register_slave(std::make_shared<VirtualRAM>  (0x00001000, args.rom_path, CFG_ROM_SIZE));
-        slaves.register_slave(std::make_shared<VirtualRAM>  (0x80000000, args.ram_path, CFG_RAM_SIZE));
-        slaves.register_slave(std::make_shared<VirtualUart> (0x10000000));
+        clint_id = slaves.register_slave(std::make_shared<VirtualCLINT> (0x02000000));
+        plic_id  =  slaves.register_slave(std::make_shared<VirtualPLIC> (0x0C000000));
+        rom_id   =  slaves.register_slave(std::make_shared<VirtualRAM>  (0x01000000, args.rom_path, CFG_ROM_SIZE));
+        ram_id   =  slaves.register_slave(std::make_shared<VirtualRAM>  (0x80000000, args.ram_path, CFG_RAM_SIZE));
+        uart_id  =  slaves.register_slave(std::make_shared<VirtualUart> (0x10000000, 0x0a));
+        std::dynamic_pointer_cast<VirtualUart>(slaves.get_slave(uart_id))->set_interrupt_controller(std::dynamic_pointer_cast<VirtualPLIC>(slaves.get_slave(plic_id)));
 
         if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64, &capstone_handle) != CS_ERR_OK) {
             throw std::runtime_error("Capstone engine failed to init.");
@@ -184,7 +194,7 @@ public:
     void run_simulation(parsedArgs args) {
         uint64_t clock_cnt = 0;
         axiSignal axi;
-        DpiManager& dpi = DpiManager::getInstance();
+        DpiManager& dpi = DpiManager::get_instance();
 
         while (!Verilated::gotFinish() && clock_cnt < args.max_clock) {
             // Reset handling
@@ -195,8 +205,11 @@ public:
             }
 
             // Debug output
-            if (args.verbose)
-                cycle_verbose(clock_cnt, top->io_pc, top->io_instrNow);
+            if (args.verbose) {
+                auto pc = dpi.curr_pc;
+                auto raw_instr = dpi.fetching_instr;
+                cycle_verbose(clock_cnt, pc, raw_instr);
+            }
             if (args.rob_debug)
                 dpi.print_rob();
             if (args.rs_debug)
@@ -210,6 +223,8 @@ public:
             context->timeInc(1);
             top->clock = 1;
             top->eval();
+            if (args.vcd_dump.has_value())
+                vcd_context->dump(clock_cnt * 2);
             init_stimulus(top);
 
             if (!top->reset) {
@@ -224,8 +239,14 @@ public:
             context->timeInc(1);
             top->clock = 0;
             top->eval();
+            if (args.vcd_dump.has_value())
+                vcd_context->dump(clock_cnt * 2 + 1);
 
             clock_cnt++;
+        }
+
+        if (args.vcd_dump.has_value()) {
+            vcd_context->close();
         }
 
         if (args.ram_dump.has_value()) {
@@ -235,8 +256,14 @@ public:
 
 private:
     std::unique_ptr<VerilatedContext> context;
+    std::unique_ptr<VerilatedVcdC> vcd_context;
     std::unique_ptr<VMarkoRvCore> top;
     VirtualAxiSlaves slaves;
+    uint64_t clint_id;
+    uint64_t plic_id;
+    uint64_t rom_id;
+    uint64_t ram_id;
+    uint64_t uart_id;
 
     void save_ram_dump(const std::string& dump_path) {
         std::ofstream dump_file(dump_path, std::ios::out | std::ios::binary);
@@ -245,7 +272,7 @@ private:
             return;
         }
 
-        auto ram = std::dynamic_pointer_cast<VirtualRAM>(slaves.get_slave(2));
+        auto ram = std::dynamic_pointer_cast<VirtualRAM>(slaves.get_slave(ram_id));
         if (!ram) {
             std::cerr << "Can't dump ram.\n";
             return;

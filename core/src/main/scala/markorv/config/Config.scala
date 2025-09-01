@@ -66,6 +66,7 @@ case class CacheConfig(
 
 case class CoreConfig(
     simulate: Boolean,
+    resetVector: Int,
     fetchQueueSize: Int,
     axiConfig: AxiConfig,
     icacheConfig: CacheConfig,

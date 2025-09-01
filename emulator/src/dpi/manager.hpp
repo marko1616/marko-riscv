@@ -194,7 +194,10 @@ static std::array<RegisterEntry, CFG_RF_SIZE> rf_data;
 
 class DpiManager {
 public:
-    static DpiManager& getInstance() {
+    uint64_t curr_pc;
+    std::optional<uint32_t> fetching_instr;
+
+    static DpiManager& get_instance() {
         static DpiManager instance;
         return instance;
     }

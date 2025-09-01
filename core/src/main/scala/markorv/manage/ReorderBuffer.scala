@@ -55,6 +55,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
 
         // Status signals
         // ========================
+        val empty = Output(Bool())
         val full = Output(Bool())
     })
 
@@ -68,6 +69,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     val full = ptrMatch && mayFull
     val empty = ptrMatch && !mayFull
 
+    io.empty := empty
     io.full := full
 
     nextBuffer := buffer

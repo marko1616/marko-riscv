@@ -14,4 +14,4 @@ end:
 
     .section .data
 string:
-    .asciz "Hello, World!\n"
+    .asciz "Hello, World!\r\n"

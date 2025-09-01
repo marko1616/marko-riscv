@@ -8,6 +8,7 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
             ("rom-path", "Path to ROM payload", cxxopts::value<std::string>())
             ("ram-path", "Path to RAM payload", cxxopts::value<std::string>())
             ("ram-dump", "Dump the memory after the run is complete", cxxopts::value<std::string>())
+            ("vcd-dump", "Dump the waveform after the run is complete", cxxopts::value<std::string>())
             ("max-clock", "Maximum clock cycles to simulate (hex value)", cxxopts::value<std::string>()->default_value(std::to_string(CFG_DEFAULT_MAX_CLOCK)))
             ("verbose", "Enable verbose output")
             ("d,debug", "Enable debug options (comma separated: axi,rob,rs,rt,rf)", cxxopts::value<std::vector<std::string>>())
@@ -31,6 +32,10 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
 
         if (result.count("ram-dump")) {
             args.ram_dump = result["ram-dump"].as<std::string>();
+        }
+
+        if (result.count("vcd-dump")) {
+            args.vcd_dump = result["vcd-dump"].as<std::string>();
         }
 
         if (result.count("max-clock")) {

@@ -11,6 +11,9 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
         val req = new IOInterface()(ioConfig, false)
         val axi = new AxiInterface(axiConfig)
     })
+    val maxAxSize = (log2Ceil(axiConfig.dataWidth) - 3).U
+    val hasResp = RegInit(false.B)
+    val hasFailed = RegInit(false.B)
 
     val burstLen = ioConfig.burstLen(axiConfig.dataWidth)
     class ReadState extends Bundle {
@@ -56,9 +59,13 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
             // Valid can't be related to ready
             io.axi.ar.valid := true.B
             io.axi.ar.bits.addr := channel.params.bits.addr
-            io.axi.ar.bits.size := channel.params.bits.size
+            if (burstLen != 0) {
+                io.axi.ar.bits.size := maxAxSize
+            } else {
+                io.axi.ar.bits.size := channel.params.bits.size
+            }
             io.axi.ar.bits.burst := "b01".U
-            io.axi.ar.bits.cache := "b0000".U
+            io.axi.ar.bits.cache := "b0011".U
             io.axi.ar.bits.id := id.U
             io.axi.ar.bits.len := burstLen.U
             io.axi.ar.bits.lock := (if(ioConfig.atomicity) channel.params.bits.lock.get else 0.U)
@@ -77,7 +84,12 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
         }
         when(rstate.work) {
             io.axi.r.ready := true.B
+
             when(io.axi.r.valid) {
+                hasResp := true.B
+                when(io.axi.r.bits.resp =/= 0.U) {
+                    hasFailed := true.B
+                }
                 when(io.axi.r.bits.last) {
                     // Should always be ready here
                     channel.resp.valid := true.B
@@ -110,9 +122,13 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
             // Valid can't be related to ready
             io.axi.aw.valid := true.B
             io.axi.aw.bits.addr := channel.params.bits.addr
-            io.axi.aw.bits.size := channel.params.bits.size
+            if (burstLen != 0) {
+                io.axi.aw.bits.size := maxAxSize
+            } else {
+                io.axi.aw.bits.size := channel.params.bits.size
+            }
             io.axi.aw.bits.burst := "b01".U
-            io.axi.aw.bits.cache := "b0000".U
+            io.axi.aw.bits.cache := "b0011".U
             io.axi.aw.bits.id := id.U
             io.axi.aw.bits.len := burstLen.U
             io.axi.aw.bits.lock := (if(ioConfig.atomicity) channel.params.bits.lock.get else 0.U)
@@ -135,7 +151,7 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
             if(burstLen != 0) {
                 val last = wstate.bptr.get === burstLen.U
                 io.axi.w.bits.last := last
-                io.axi.w.bits.data := wtemp >> (wstate.bptr.get * ioConfig.dataWidth.U)
+                io.axi.w.bits.data := wtemp >> (wstate.bptr.get * axiConfig.dataWidth.U)
                 io.axi.w.bits.strb := ~(0.U((axiConfig.dataWidth/8).W))
 
                 when(io.axi.w.ready) {

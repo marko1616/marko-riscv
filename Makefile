@@ -6,8 +6,8 @@ ASM_TEST_DIR   = tests/asmtests/src
 CAPSTONE_DIR   = $(shell realpath libs/capstone)
 CXXOPTS_DIR    = $(shell realpath libs/cxxopts)
 BOOSTPFR_DIR   = $(shell realpath libs/pfr)
-GENERATED_DIR  = $(shell realpath generated)
-VERIFICATION_DIR = $(shell realpath generated/verification)
+GENERATED_DIR  = $(shell realpath core/generated)
+VERIFICATION_DIR = $(shell realpath core/generated/verification)
 
 ASM_SRCS = $(shell find $(ASM_TEST_DIR) -name '*.S')
 OBJS     = $(ASM_SRCS:.S=.o)
@@ -33,17 +33,22 @@ init:
 	git submodule update --init --recursive
 	$(MAKE) -C "$(CAPSTONE_DIR)" -j $(NPROC)
 
+build-core:
+	python3 scripts/gen_config.py
+	cd core && mill -i markorv.runMain markorv.Main
+
 build-simulator:
 	python3 scripts/gen_config.py
-	mill -i markorv.runMain markorv.Main
-	verilator --cc -j $(NPROC) generated/MarkoRvCore.sv -I"$(GENERATED_DIR)" -I"$(VERIFICATION_DIR)" --exe \
+	cd core && mill -i markorv.runMain markorv.Main
+	verilator --cc -j $(NPROC) core/generated/MarkoRvCore.sv -I"$(GENERATED_DIR)" -I"$(VERIFICATION_DIR)" --exe \
 		$(wildcard emulator/src/*.cpp) \
 		$(wildcard emulator/src/dpi/*.cpp) \
 		$(wildcard emulator/src/slaves/*.cpp) \
 		--build \
+		--trace \
 		-CFLAGS  "-g $(CXX_SANITIZE_FLAGS) -I$(CAPSTONE_DIR)/include -I$(CXXOPTS_DIR)/include -I$(BOOSTPFR_DIR)/include -Iinclude -std=c++23" \
 		-LDFLAGS "$(LD_SANITIZE_FLAGS) -L$(CAPSTONE_DIR) -lcapstone" \
-		--MAKEFLAGS "CXX=clang LINK=clang OPT=-O3" # Clang is almost 5 times faster
+		--MAKEFLAGS "CXX=clang++ LINK=clang++ OPT=-O3" # Clang is almost 5 times faster
 
 build-test-elves: $(ELFS)
 
@@ -55,4 +60,4 @@ build-sim-rom:
 
 clean-all:
 	rm -f $(OBJS) $(ELFS)
-	rm -rf out obj_dir generated
+	rm -rf obj_dir core/out core/generated

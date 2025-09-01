@@ -12,6 +12,7 @@ struct parsedArgs {
     std::string ram_path;
     std::string rom_path;
     std::optional<std::string> ram_dump;
+    std::optional<std::string> vcd_dump;
     uint64_t max_clock = CFG_DEFAULT_MAX_CLOCK;
     bool verbose = false;
     bool axi_debug = false;

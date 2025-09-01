@@ -15,6 +15,10 @@ TASKS = [
         "desc": "Initialize git submodules and build the Capstone disassembly library."
     },
     {
+        "name": "build-core",
+        "desc": "Build the RISC-V core using mill."
+    },
+    {
         "name": "build-simulator",
         "desc": "Build the RISC-V emulator using mill and Verilator with C++ sources."
     },

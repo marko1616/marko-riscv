@@ -15,10 +15,8 @@ import markorv.manage._
 class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val axi = new AxiInterface(c.axiConfig)
-        val time = Input(UInt(64.W))
-        val pc = Output(UInt(64.W))
-        val instrNow = Output(UInt(64.W))
 
+        val meip = Input(Bool())
         val mtip = Input(Bool())
         val msip = Input(Bool())
     })
@@ -60,7 +58,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     // Module Connections
     // ==================
     // AXI Bus Interface
-    axiCtrl.io.instrFetch.read.get.params.bits.size := (log2Ceil(c.axiConfig.addrWidth)-3).U
+    axiCtrl.io.instrFetch.read.get.params.bits.size := 3.U
     axiCtrl.io.instrFetch.read.get.params.valid     <> iCache.io.outReadReq.valid
     axiCtrl.io.instrFetch.read.get.params.ready     <> iCache.io.outReadReq.ready
     axiCtrl.io.instrFetch.read.get.params.bits.addr <> iCache.io.outReadReq.bits
@@ -77,7 +75,6 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // Exception & Flush Control
     val flush = exceptionUnit.io.flush | rob.io.flush
-    exceptionUnit.io.outerInt := false.B
 
     exceptionUnit.io.pc <> ifu.io.getPc
     exceptionUnit.io.privilege <> misc.io.getPrivilege
@@ -85,6 +82,10 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     exceptionUnit.io.exceptionRetInfo <> csrFile.io.exceptionRetInfo
     exceptionUnit.io.mstatus <> csrFile.io.mstatus
     exceptionUnit.io.mie <> csrFile.io.mie
+    exceptionUnit.io.robEmpty <> rob.io.empty
+    exceptionUnit.io.meip <> io.meip
+    exceptionUnit.io.mtip <> io.mtip
+    exceptionUnit.io.msip <> io.msip
 
     rob.io.exceptionRet <> csrFile.io.exceptionRet
 
@@ -102,7 +103,6 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     ifu.io.flush := flush
     ifu.io.invalidDrop <> decoder.io.invalidDrop
     ifu.io.fetchBundle <> ifq.io.fetchBundle
-    ifu.io.fetchHlt <> exceptionUnit.io.fetchHlt
     ifu.io.flushPc := MuxCase(0.U, Seq(
         exceptionUnit.io.flush -> exceptionUnit.io.flushPc,
         rob.io.flush -> rob.io.flushPc
@@ -139,6 +139,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     issuer.io.regStates <> regFile.io.getStates
     issuer.io.renameTailIndex <> renameTable.io.tailIndex
     issuer.io.renameTable <> renameTable.io.tailEntry
+    issuer.io.interruptHlt <> exceptionUnit.io.interruptHlt
 
     // Reservation Station Interface
     reservStation.io.robHeadIndex <> rob.io.headIndex
@@ -184,7 +185,6 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // CSR and Privilege
     csrFile.io.retireEvent := rob.io.retireEvent
-    csrFile.io.time <> io.time
     csrFile.io.csrio <> misc.io.csrio
     csrFile.io.privilege <> misc.io.getPrivilege
 
@@ -194,14 +194,10 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // AMO
     lsu.io.invalidateReserved := rob.io.exceptionRet
-
-    // Debug Outputs
-    io.pc := ifu.io.instrBundle.bits.pc
-    io.instrNow := Mux(ifu.io.instrBundle.valid,ifu.io.instrBundle.bits.instr.rawBits,0.U)
 }
 
 object Main extends App {
-    val configPath = if (args.nonEmpty) args(0) else "assets/core_config.json"
+    val configPath = if (args.nonEmpty) args(0) else "../assets/core_config.json"
     ConfigLoader.loadCoreConfigFromFile(configPath) match {
         case Right(config) =>
             ChiselStage.emitSystemVerilogFile(

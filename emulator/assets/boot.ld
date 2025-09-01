@@ -5,11 +5,11 @@ ENTRY(_start)
 SECTIONS
 {
     /* ROM address */
-    .text 0x00001000 : {
+    .text 0x01000000 : {
         *(.text)
     }
 
-    .data 0x00001400 : {
+    .data 0x01000400 : {
         *(.data)
     }
 }

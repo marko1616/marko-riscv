@@ -36,4 +36,4 @@ stack_bottom:
 message_prefix:
     .asciz "Hello from marko-riscv at time: \0"
 message_suffix:
-    .asciz "\n\0"
+    .asciz "\r\n\0"

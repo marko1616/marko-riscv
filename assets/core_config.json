@@ -1,5 +1,6 @@
 {
     "simulate": true,
+    "resetVector": 16777216,
     "fetchQueueSize": 4,
     "axiConfig": {
         "addrWidth": 64,
@@ -8,8 +9,8 @@
     },
     "icacheConfig": {
         "addrWidth": 64,
-        "wayNum": 2,
-        "setNum": 4,
+        "wayNum": 1,
+        "setNum": 2,
         "offsetBits": 6
     },
     "robSize": 16,

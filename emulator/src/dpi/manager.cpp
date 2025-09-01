@@ -54,6 +54,20 @@ void update_rf(const svOpenArrayHandle regs_handle, const svOpenArrayHandle stat
     }
 }
 
+void update_pc(uint64_t pc) {
+    DpiManager& dpi_manager = DpiManager::get_instance();
+    dpi_manager.curr_pc = pc;
+}
+
+void update_fetching_instr(bool valid, uint32_t instr) {
+    DpiManager& dpi_manager = DpiManager::get_instance();
+    if (valid) {
+        dpi_manager.fetching_instr = instr;
+    } else {
+        dpi_manager.fetching_instr = std::nullopt;
+    }
+}
+
 } // extern "C"
 
 void DpiManager::print_rob() {

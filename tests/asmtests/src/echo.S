@@ -7,7 +7,7 @@ UART_THR        = 0x00
 UART_IER        = 0x01
 UART_LSR        = 0x05
 
-UART_IRQ        = 10
+UART_IRQ        = 0x0a
 
 PLIC_BASE       = 0x0C000000
 PLIC_PRIORITY   = PLIC_BASE + 0x0000

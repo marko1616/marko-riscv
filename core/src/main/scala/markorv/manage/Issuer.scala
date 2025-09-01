@@ -42,6 +42,7 @@ class Issuer(implicit val c: CoreConfig) extends Module {
 
         // Event signals
         // ========================
+        val interruptHlt = Input(Bool())
         val issueEvent = Valid(new IssueEvent)
         val outfire = Output(Bool())
     })
@@ -88,7 +89,7 @@ class Issuer(implicit val c: CoreConfig) extends Module {
     }
 
     // ROB Request
-    val robReqValid = io.issueTask.valid && io.rsReq.ready && (noHazard || hazardResolved)
+    val robReqValid = io.issueTask.valid && io.rsReq.ready && (noHazard || hazardResolved) && ~io.interruptHlt
     io.robReq.valid := robReqValid
     io.robReq.bits := 0.U.asTypeOf(new ROBAllocReq)
     io.robReq.bits.exu := exu
