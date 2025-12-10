@@ -10,7 +10,7 @@ import markorv.frontend.DecodedParams
 import markorv.ControlStatusRegistersIO
 import markorv.manage.RegisterCommit
 import markorv.manage.EXUParams
-import markorv.manage.DisconEventEnum
+import markorv.manage.DisconEventType
 
 object CsrOperation extends ChiselEnum {
     val csrrw = Value("h1".U)
@@ -44,11 +44,14 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
         val getPrivilege = Output(UInt(2.W))
         val setPrivilege = Flipped(Decoupled(UInt(2.W)))
 
-        val icacheInvalidate = Output(Bool())
-        val icacheInvalidateOutfire = Input(Bool())
+        val icacheInvalidateAll = Output(Bool())
+        val icacheInvalidateAllOutfire = Input(Bool())
+        val dcacheCleanAll = Output(Bool())
+        val dcacheCleanAllOutfire = Input(Bool())
     })
     // M-mode by default on reset
     val privilegeReg = RegInit(3.U(2.W))
+    val isFenceiCleanDcacheStage = RegInit(true.B)
     val opcode = io.miscInstr.bits.miscOpcode
     val params = io.miscInstr.bits.params
 
@@ -72,7 +75,8 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
 
     io.getPrivilege := privilegeReg
     io.setPrivilege.ready := true.B
-    io.icacheInvalidate := false.B
+    io.icacheInvalidateAll := false.B
+    io.dcacheCleanAll := false.B
 
     when(validOp) {
         when(validCsrOp) {
@@ -106,21 +110,21 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                 }
                 is(SystemOperation.ecall) {
                     io.commit.valid := true.B
-                    io.commit.bits.disconType := DisconEventEnum.instrException
+                    io.commit.bits.disconType := DisconEventType.instrException
                     io.commit.bits.trap := true.B
                     io.commit.bits.cause := 11.U
                     io.outfire := true.B
                 }
                 is(SystemOperation.ebreak) {
                     io.commit.valid := true.B
-                    io.commit.bits.disconType := DisconEventEnum.instrException
+                    io.commit.bits.disconType := DisconEventType.instrException
                     io.commit.bits.trap := true.B
                     io.commit.bits.cause := 3.U
                     io.outfire := true.B
                 }
                 is(SystemOperation.mret) {
                     io.commit.valid := true.B
-                    io.commit.bits.disconType := DisconEventEnum.excepReturn
+                    io.commit.bits.disconType := DisconEventType.excepReturn
                     io.commit.bits.xret := true.B
                     io.outfire := true.B
                 }
@@ -131,13 +135,21 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
             switch(memOp) {
                 is(MemoryOperation.fenceI) {
                     io.miscInstr.ready := false.B
-                    io.icacheInvalidate := true.B
-                    when(io.icacheInvalidateOutfire) {
-                        io.outfire := true.B
-                        io.commit.valid := true.B
-                        io.commit.bits.disconType := DisconEventEnum.instrSync
-                        io.commit.bits.recover := true.B
-                        io.commit.bits.recoverPc := params.source1
+                    when(isFenceiCleanDcacheStage) {
+                        io.dcacheCleanAll := true.B
+                        when(io.dcacheCleanAllOutfire) {
+                            isFenceiCleanDcacheStage := false.B
+                        }
+                    }.otherwise {
+                        io.icacheInvalidateAll := true.B
+                        when(io.icacheInvalidateAllOutfire) {
+                            io.outfire := true.B
+                            io.commit.valid := true.B
+                            io.commit.bits.disconType := DisconEventType.instrSync
+                            io.commit.bits.recover := true.B
+                            io.commit.bits.recoverPc := params.source1
+                            isFenceiCleanDcacheStage := true.B
+                        }
                     }
                 }
             }

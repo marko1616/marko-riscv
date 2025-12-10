@@ -1,0 +1,79 @@
+simulate: true
+resetVector: 0x1000000
+fetchQueueSize: 4
+
+axiConfig:
+  addrWidth: 64
+  dataWidth: 64
+  idWidth: 2
+
+icacheConfig:
+  addrWidth: 64
+  wayNum: 1
+  setNum: 2
+  offsetBits: 6
+
+dcacheConfig:
+  addrWidth: 64
+  wayNum: 1
+  setNum: 2
+  offsetBits: 6
+
+dirLoadStoreIoConfig:
+  read: true
+  write: true
+  atomicity: true
+  addrWidth: 64
+  dataWidth: 64
+
+robSize: 16
+rsSize: 16
+renameTableSize: 16
+regFileSize: 64
+
+pma:
+pma:
+  # ROM: 32KB @ 0x01000000
+  - addrLow:  0x01000000
+    addrHigh: 0x01007FFF
+    r: true
+    w: false
+    x: true
+    c: true
+    a: false
+
+  # CLINT: 64KB @ 0x02000000
+  - addrLow:  0x02000000
+    addrHigh: 0x0200FFFF
+    r: true
+    w: true
+    x: false
+    c: false
+    a: true
+
+  # PLIC: 64MB @ 0x0C000000
+  - addrLow:  0x0C000000
+    addrHigh: 0x0FFFFFFF
+    r: true
+    w: true
+    x: false
+    c: false
+    a: true
+
+  # UART: 4KB @ 0x10000000
+  - addrLow:  0x10000000
+    addrHigh: 0x10000FFF
+    r: true
+    w: true
+    x: false
+    c: false
+    a: false
+
+  # RAM: 8MB @ 0x80000000
+  - addrLow:  0x80000000
+    addrHigh: 0x807FFFFF
+    r: true
+    w: true
+    x: true
+    c: true
+    a: true

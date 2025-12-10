@@ -19,6 +19,9 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
         val meip = Input(Bool())
         val mtip = Input(Bool())
         val msip = Input(Bool())
+
+        val dcacheCleanReq = if(c.simulate) Some(Flipped(Decoupled(new CacheCleanReq))) else None
+        val dcacheCleanResp = if(c.simulate) Some(Output(Bool())) else None
     })
 
     // Submodule Instantiations
@@ -28,6 +31,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // Cache
     val iCache = Module(new InstrCache()(c.icacheConfig))
+    val dCache = Module(new DataCache()(c.icacheConfig))
 
     // Frontend Pipeline
     val ipu = Module(new InstrPrefetchUnit)
@@ -58,20 +62,32 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     // Module Connections
     // ==================
     // AXI Bus Interface
-    axiCtrl.io.instrFetch.read.get.params.bits.size := 3.U
-    axiCtrl.io.instrFetch.read.get.params.valid     <> iCache.io.outReadReq.valid
-    axiCtrl.io.instrFetch.read.get.params.ready     <> iCache.io.outReadReq.ready
-    axiCtrl.io.instrFetch.read.get.params.bits.addr <> iCache.io.outReadReq.bits
-    axiCtrl.io.instrFetch.read.get.resp.valid       <> iCache.io.outReadData.valid
-    axiCtrl.io.instrFetch.read.get.resp.ready       <> iCache.io.outReadData.ready
-    axiCtrl.io.instrFetch.read.get.resp.bits.data   <> iCache.io.outReadData.bits
+    // TODO: Handle AXI error
+    axiCtrl.io.instrFetch <> iCache.io.ioInterface
+    axiCtrl.io.dcacheLoadStore <> dCache.io.ioInterface
 
-    lsu.io.interface <> axiCtrl.io.loadStore
+    lsu.io.dirLoadStore <> axiCtrl.io.dirLoadStore
     io.axi <> axiCtrl.io.axi
 
     // Cache
-    iCache.io.invalidate <> misc.io.icacheInvalidate
-    iCache.io.invalidateOutfire <> misc.io.icacheInvalidateOutfire
+    iCache.io.invalidateAll <> misc.io.icacheInvalidateAll
+    iCache.io.invalidateAllOutfire <> misc.io.icacheInvalidateAllOutfire
+    dCache.io.cleanAll <> misc.io.dcacheCleanAll
+    dCache.io.cleanAllOutfire <> misc.io.dcacheCleanAllOutfire
+    // TODO Dcache invalidation
+    dCache.io.invalidateAll := false.B
+    dCache.io.cacheInterface.readReq <> lsu.io.cacheReadReq
+    dCache.io.cacheInterface.readResp <> lsu.io.cacheReadResp
+    dCache.io.cacheInterface.writeReq <> lsu.io.cacheWriteReq
+    dCache.io.cacheInterface.writeResp <> lsu.io.cacheWriteResp
+    // TODO Zicbom
+    if (c.simulate) {
+        dCache.io.cacheInterface.cleanReq <> io.dcacheCleanReq.get
+        dCache.io.cacheInterface.cleanResp <> io.dcacheCleanResp.get
+    } else {
+        dCache.io.cacheInterface.cleanReq.valid := false.B
+        dCache.io.cacheInterface.cleanReq.bits.addr := 0.U
+    }
 
     // Exception & Flush Control
     val flush = exceptionUnit.io.flush | rob.io.flush
@@ -91,8 +107,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // Frontend Pipeline Connections
     ipu.io.flush := flush
-    ipu.io.readAddr <> iCache.io.inReadReq
-    ipu.io.readData <> iCache.io.inReadData
+    ipu.io.cacheInterface <> iCache.io.cacheInterface
     ipu.io.transactionAddr <> iCache.io.transactionAddr
 
     ifq.io.flush := flush
@@ -197,7 +212,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 }
 
 object Main extends App {
-    val configPath = if (args.nonEmpty) args(0) else "../assets/core_config.json"
+    val configPath = if (args.nonEmpty) args(0) else "../assets/core_config.yaml"
     ConfigLoader.loadCoreConfigFromFile(configPath) match {
         case Right(config) =>
             ChiselStage.emitSystemVerilogFile(

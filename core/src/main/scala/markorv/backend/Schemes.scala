@@ -11,7 +11,7 @@ import markorv.manage.CommitWithDiscon
 import markorv.manage.CommitWithTrap
 import markorv.manage.CommitWithRecover
 import markorv.manage.CommitWithXret
-import markorv.manage.DisconEventEnum
+import markorv.manage.DisconEventType
 
 object EXUEnum extends ChiselEnum {
     val alu, bru, lsu, mdu, misc = Value

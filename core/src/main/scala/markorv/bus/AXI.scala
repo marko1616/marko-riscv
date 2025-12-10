@@ -4,6 +4,8 @@ import chisel3._
 import chisel3.util._
 
 import markorv.utils.ChiselUtils._
+import markorv.utils.ConfigUtils._
+import markorv.cache.CacheType
 import markorv.config._
 
 class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) extends Module {
@@ -209,15 +211,8 @@ class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int) extends Module {
             io.axiBus.r.ready := io.axiChannel(i).r.ready
         }
     }
-    // Caution: Although it's logically correct to OR all `b.ready` signals as a single response for `axiBus.b.ready`,
-    // this design assumes that the correct target channel (identified by `b.bits.id`) will always assert `ready` immediately.
-    // However, this may cause simulation mismatch or real hardware issues:
-    //
-    // 1. In simulation (zero-delay model), receiving `valid` and `id` first, and *then* routing `ready` based on `id` can work.
-    //    But this breaks the AXI handshake protocol timing, where both `valid` and `ready` must be stable in the same cycle.
-    //
-    // 2. In real hardware, routing `ready` based on `id` after seeing `valid` introduces at least one cycle of delay.
-    //    This delay may violate the protocol or reduce throughput if the slave expects immediate `ready` after asserting `valid`.
+    // Caution: Although it's logically correct to OR all `r.ready` signals as a single response for `axiBus.r.ready`,
+    // this design assumes that the correct target channel (identified by `r.bits.id`) will always assert `ready` immediately.
     io.axiBus.r.ready := io.axiChannel.map(_.r.ready).reduce(_ || _)
 
     // Write channels
@@ -242,25 +237,29 @@ class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int) extends Module {
         io.axiChannel(i).b.bits  := io.axiBus.b.bits
         io.axiChannel(i).b.valid := io.axiBus.b.valid && (io.axiBus.b.bits.id === i.U)
     }
-    // For the same reason as above
+
     io.axiBus.b.ready := io.axiChannel.map(_.b.ready).reduce(_ || _)
 }
 
-class AxiCtrl(implicit val config: CoreConfig) extends Module {
+class AxiCtrl(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
-        val instrFetch = new IOInterface()(config.fetchIoConfig,false)
-        val loadStore = new IOInterface()(config.lsuIoConfig,false)
-        val axi = new AxiInterface(config.axiConfig)
+        val dirLoadStore = new IOInterface()(c.dirLoadStoreIoConfig,false)
+        val instrFetch = new IOInterface()(getCacheIoConfig(c.icacheConfig, CacheType.Icache),false)
+        val dcacheLoadStore = new IOInterface()(getCacheIoConfig(c.dcacheConfig, CacheType.Dcache),false)
+        val axi = new AxiInterface(c.axiConfig)
     })
 
-    val instrFetchHandler = Module(new AXIHandler(config.axiConfig, config.fetchIoConfig, 0))
-    val loadStoreHandler = Module(new AXIHandler(config.axiConfig, config.lsuIoConfig, 1))
+    val dirLoadStoreHandler = Module(new AXIHandler(c.axiConfig, c.dirLoadStoreIoConfig, 1))
+    val instrFetchHandler = Module(new AXIHandler(c.axiConfig, getCacheIoConfig(c.icacheConfig, CacheType.Icache), 0))
+    val dcacheLoadStoreHandler = Module(new AXIHandler(c.axiConfig, getCacheIoConfig(c.dcacheConfig, CacheType.Dcache), 2))
     instrFetchHandler.io.req <> io.instrFetch
-    loadStoreHandler.io.req <> io.loadStore
+    dirLoadStoreHandler.io.req <> io.dirLoadStore
+    dcacheLoadStoreHandler.io.req <> io.dcacheLoadStore
 
-    val axiRouter = Module(new AxiRouter(config.axiConfig, 2))
+    val axiRouter = Module(new AxiRouter(c.axiConfig, 3))
 
     axiRouter.io.axiChannel(0) <> instrFetchHandler.io.axi
-    axiRouter.io.axiChannel(1) <> loadStoreHandler.io.axi
+    axiRouter.io.axiChannel(1) <> dirLoadStoreHandler.io.axi
+    axiRouter.io.axiChannel(2) <> dcacheLoadStoreHandler.io.axi
     io.axi <> axiRouter.io.axiBus
 }

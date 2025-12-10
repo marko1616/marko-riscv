@@ -9,7 +9,7 @@ import markorv.frontend.DecodedParams
 import markorv.frontend.PhyRegRequests
 import markorv.backend.EXUEnum
 
-object DisconEventEnum extends ChiselEnum {
+object DisconEventType extends ChiselEnum {
     val interrupt      = Value  // External Asynchronous Interrupt
     val instrException = Value  // Synchronous Instruction Exception (e.g. syscall, illegal instr)
     val instrRedirect  = Value  // Control-Flow Redirection by jalr
@@ -41,7 +41,7 @@ class RegisterCommit(implicit val c: CoreConfig) extends Bundle {
 }
 
 class ROBDisconField extends Bundle {
-    val disconType = new DisconEventEnum.Type
+    val disconType = new DisconEventType.Type
 
     val trap  = Bool()
     val cause = UInt(16.W)
@@ -103,7 +103,7 @@ class CommitEvent(implicit val c: CoreConfig) extends Bundle {
 }
 
 class DisconEvent(implicit val c: CoreConfig) extends Bundle {
-    val disconType  = new DisconEventEnum.Type
+    val disconType  = new DisconEventType.Type
 
     val prdValid = Bool()
     val prd = UInt(log2Ceil(c.regFileSize).W)
@@ -162,7 +162,7 @@ abstract class BaseCommitBundle(implicit val c: CoreConfig) extends Bundle {
 }
 
 trait CommitWithDiscon extends Bundle {
-    val disconType = new DisconEventEnum.Type
+    val disconType = new DisconEventType.Type
 }
 
 trait CommitWithTrap extends Bundle {

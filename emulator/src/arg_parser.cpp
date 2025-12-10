@@ -12,6 +12,7 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
             ("max-clock", "Maximum clock cycles to simulate (hex value)", cxxopts::value<std::string>()->default_value(std::to_string(CFG_DEFAULT_MAX_CLOCK)))
             ("verbose", "Enable verbose output")
             ("d,debug", "Enable debug options (comma separated: axi,rob,rs,rt,rf)", cxxopts::value<std::vector<std::string>>())
+            ("cleanup-dcache", "Clean certain addrs(comma separated) of dcache data at end of simulation", cxxopts::value<std::vector<uint64_t>>())
             ("help", "Print usage information");
 
         auto result = options.parse(argc, argv);
@@ -62,6 +63,10 @@ int parse_args(int argc, char **argv, parsedArgs &args) {
                     std::cerr << "Warning: Unknown debug flag: " << flag << std::endl;
                 }
             }
+        }
+
+        if(result.count("cleanup-dcache")) {
+            args.cleanup_dcache_addrs = result["cleanup-dcache"].as<std::vector<uint64_t>>();
         }
 
         std::cout << std::format("ROM payload path: {}\n", args.rom_path);

@@ -8,7 +8,7 @@ import markorv.config._
 import markorv.frontend.DecodedParams
 import markorv.manage.RegisterCommit
 import markorv.manage.EXUParams
-import markorv.manage.DisconEventEnum
+import markorv.manage.DisconEventType
 
 class BranchUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
@@ -55,7 +55,7 @@ class BranchUnit(implicit val c: CoreConfig) extends Module {
 
     io.commit.valid := io.branchInstr.valid
     io.commit.bits.data := Mux(funct.in(BranchFunct.jal, BranchFunct.jalr), params.pc + 4.U, 0.U)
-    io.commit.bits.disconType := Mux(funct === BranchFunct.jalr, DisconEventEnum.instrRedirect, DisconEventEnum.branchMispred)
+    io.commit.bits.disconType := Mux(funct === BranchFunct.jalr, DisconEventType.instrRedirect, DisconEventType.branchMispred)
     io.commit.bits.recover := recover
     io.commit.bits.recoverPc := Mux(funct === BranchFunct.jalr, jalrPc, branchPc)
     io.outfire := io.branchInstr.valid

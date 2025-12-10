@@ -20,6 +20,7 @@ struct parsedArgs {
     bool rs_debug = false;
     bool rt_debug = false;
     bool rf_debug = false;
+    std::vector<uint64_t> cleanup_dcache_addrs;
 };
 
 // Returns 0 on success, 1 on error

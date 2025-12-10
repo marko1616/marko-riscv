@@ -4,7 +4,7 @@ import scala.io.Source
 
 import io.circe._
 import io.circe.generic.semiauto._
-import io.circe.parser._
+import io.circe.yaml.parser
 
 import chisel3._
 import chisel3.util._
@@ -54,6 +54,7 @@ case class CacheConfig(
     require(offsetBits >= 0, "offsetBits must be non-negative")
 
     def setBits: Int = log2Ceil(setNum)
+    def wayBits: Int = log2Ceil(wayNum)
     def indexBits: Int = this.setBits + this.offsetBits
     def tagBits: Int = this.addrWidth - this.indexBits
     def dataBytes: Int = 1 << this.offsetBits
@@ -64,18 +65,33 @@ case class CacheConfig(
     def offsetMask: UInt = (~(0.U(addrWidth.W))) << this.offsetBits
 }
 
+case class PmaConfig(
+    addrLow: BigInt,
+    addrHigh: BigInt,
+    r: Boolean,
+    w: Boolean,
+    x: Boolean,
+    c: Boolean,
+    a: Boolean
+) {
+    require(addrLow >= 0, "addrLow must be non-negative")
+    require(addrHigh >= 0, "addrHigh must be non-negative")
+    require(addrLow <= addrHigh, "addrLow must be less than or equal to addrHigh")
+}
+
 case class CoreConfig(
     simulate: Boolean,
     resetVector: Int,
     fetchQueueSize: Int,
     axiConfig: AxiConfig,
     icacheConfig: CacheConfig,
+    dcacheConfig: CacheConfig,
+    dirLoadStoreIoConfig: IOConfig,
     robSize: Int,
     rsSize: Int,
     renameTableSize: Int,
     regFileSize: Int,
-    fetchIoConfig: IOConfig,
-    lsuIoConfig: IOConfig
+    pma: List[PmaConfig]
 ) {
     private def isPowerOf2(x: Int): Boolean = (x > 0) && ((x & (x - 1)) == 0)
 
@@ -84,17 +100,24 @@ case class CoreConfig(
     require(isPowerOf2(renameTableSize), "RenameTable size must be a positive power of 2")
     require(isPowerOf2(regFileSize), "Physical register number must be a positive power of 2")
     require(regFileSize >= 32, "Physical register number must be at least 32")
+
+    pma.combinations(2).foreach {
+        case List(a, b) =>
+            require(a.addrHigh < b.addrLow || b.addrHigh < a.addrLow, s"PMA regions overlap: $a and $b")
+        case _ => // This case will never happen given combinations(2)
+    }
 }
 
 object ConfigLoader {
     implicit val ioConfigDecoder: Decoder[IOConfig] = deriveDecoder
     implicit val axiConfigDecoder: Decoder[AxiConfig] = deriveDecoder
     implicit val cacheConfigDecoder: Decoder[CacheConfig] = deriveDecoder
+    implicit val pmaConfigDecoder: Decoder[PmaConfig] = deriveDecoder
     implicit val coreConfigDecoder: Decoder[CoreConfig] = deriveDecoder
 
     def loadCoreConfigFromFile(path: String): Either[Error, CoreConfig] = {
         val source = Source.fromFile(path)
         val content = try source.mkString finally source.close()
-        decode[CoreConfig](content)
+        parser.decode[CoreConfig](content)
     }
 }
