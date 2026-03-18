@@ -11,7 +11,6 @@ class InstrDecoder extends Module {
         val instrBundle = Flipped(Decoupled(new InstrDecodeBundle))
         val issueTask = Decoupled(new IssueTask)
 
-        val invalidDrop = Output(Bool())
         val outfire = Output(Bool())
     })
 
@@ -86,15 +85,18 @@ class InstrDecoder extends Module {
             }
         }
     }
+    when(io.instrBundle.valid && !validInstr) {
+        opcodes.miscOpcode.fromIllegal(instr, lregReq, params, pc)
+        exu := EXUEnum.misc
+    }
 
     // Commit task
-    io.instrBundle.ready := false.B
+    io.instrBundle.ready := io.issueTask.ready
     io.outfire := false.B
-    io.invalidDrop := false.B
     io.issueTask.valid := false.B
     io.issueTask.bits := new IssueTask().zero
 
-    when(validInstr && io.instrBundle.valid && io.issueTask.ready) {
+    when(io.instrBundle.valid && io.issueTask.ready) {
         issueTask.params := params
         issueTask.exu := exu
         issueTask.lregReq := lregReq
@@ -103,13 +105,5 @@ class InstrDecoder extends Module {
         io.issueTask.bits := issueTask
         io.instrBundle.ready := true.B
         io.outfire := true.B
-    }
-
-    when(!validInstr) {
-        io.instrBundle.ready := io.issueTask.ready
-        when(io.instrBundle.valid) {
-            io.invalidDrop := true.B
-            io.outfire := true.B
-        }
     }
 }

@@ -91,6 +91,7 @@ object SystemOpMap extends ChiselEnum {
 }
 
 class ALUOpcode extends Bundle {
+    // Notice ALU operation should always be valid as register rename will always assume ALU instruction won't cause exception.
     val op32 = Bool()
     val sraSub = Bool()
     val funct3 = UInt(3.W)
@@ -175,7 +176,9 @@ class ALUOpcode extends Bundle {
 
         val (_, isValidNorm) = ALUFunct3Norm.safe(instr.funct3)
         val (_, isValidSubSra) = ALUFunct3SubSra.safe(instr.funct3)
-        valid := Mux(this.sraSub, isValidSubSra, isValidNorm)
+        val isValidFunct7 = instr.funct7 === "b0000000".U || instr.funct7 === "b0100000".U
+
+        valid := Mux(this.sraSub, isValidSubSra, isValidNorm) && isValidFunct7
 
         regReq.lrs1 := instr.rs1
         regReq.lrs2 := instr.rs2
@@ -193,7 +196,9 @@ class ALUOpcode extends Bundle {
 
         val (_, isValidNorm) = ALUFunct3Norm.safe(instr.funct3)
         val (_, isValidSubSra) = ALUFunct3SubSra.safe(instr.funct3)
-        valid := Mux(this.sraSub, isValidSubSra, isValidNorm)
+        val isValidFunct7 = instr.funct7 === "b0000000".U || instr.funct7 === "b0100000".U
+
+        valid := Mux(this.sraSub, isValidSubSra, isValidNorm) && isValidFunct7
 
         regReq.lrs1 := instr.rs1
         regReq.lrs2 := instr.rs2
@@ -321,6 +326,7 @@ class LSUCommit(implicit c: CoreConfig)
     with CommitWithDiscon with CommitWithTrap
 
 class MDUOpcode extends Bundle {
+    // Notice MDU operation should always be valid as register rename will always assume MDU instruction won't cause exception.
     val op32 = Bool()
     val funct3 = UInt(3.W)
 
@@ -412,12 +418,25 @@ class MISCOpcode extends Bundle {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
-        when(instr.imm12 ## instr.rs1 ## instr.funct3 ## instr.rd === "h20".U) {
+        when(instr.funct3 === 0.U) {
+            // fence
+            valid := true.B
+            params.source1 := pc + 4.U
+            this.miscMemFunct := 1.U
+        }
+
+        when(instr.funct3 === 1.U) {
             // fence.i
             valid := true.B
             params.source1 := pc + 4.U
             this.miscMemFunct := 2.U
         }
+        valid
+    }
+
+    def fromIllegal(rawInstr: Instruction, _regReq: LogicRegRequests, _params: DecodedParams, _pc: UInt): Bool = {
+        val valid = WireInit(true.B)
+        this.miscSysFunct := 5.U
         valid
     }
 }

@@ -23,6 +23,7 @@ object SystemOperation extends ChiselEnum {
     val ebreak = Value("h2".U)
     val wfi = Value("h3".U)
     val mret = Value("h4".U)
+    val illegalInstr = Value("h5".U)
 }
 
 object MemoryOperation extends ChiselEnum {
@@ -80,6 +81,9 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
 
     when(validOp) {
         when(validCsrOp) {
+            // TODO: implement CSR exception.
+            // a) Illegal instruction if trying to write read-only CSR or access CSR with insufficient privilege except for CSRRSI and CSRRCI, if the uimm[4:0] field is zero.
+            // b) Check if r/w side effect is correctly handled.
             val csrSrc1 = params.source1
             val csrAddr = params.source2
             io.csrio.readEn := opcode.miscCsrFunct(3)
@@ -128,11 +132,23 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                     io.commit.bits.xret := true.B
                     io.outfire := true.B
                 }
+                is(SystemOperation.illegalInstr) {
+                    io.commit.valid := true.B
+                    io.commit.bits.disconType := DisconEventType.instrException
+                    io.commit.bits.trap := true.B
+                    io.commit.bits.cause := 2.U
+                    io.outfire := true.B
+                }
             }
         }
 
         when(validMemOp) {
             switch(memOp) {
+                // Currently there is no reordered load/store command so there is no need for fence instruction.
+                is(MemoryOperation.fence) {
+                    io.outfire := true.B
+                    io.commit.valid := true.B
+                }
                 is(MemoryOperation.fenceI) {
                     io.miscInstr.ready := false.B
                     when(isFenceiCleanDcacheStage) {

@@ -21,7 +21,6 @@ class InstrFetchUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val fetchBundle = Flipped(Decoupled(new FetchQueueEntities))
         val instrBundle = Decoupled(new InstrDecodeBundle)
-        val invalidDrop = Input(Bool())
 
         val getPc = Output(UInt(64.W))
         val flush = Input(Bool())

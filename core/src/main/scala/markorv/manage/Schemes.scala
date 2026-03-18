@@ -41,7 +41,7 @@ class RegisterCommit(implicit val c: CoreConfig) extends Bundle {
 }
 
 class ROBDisconField extends Bundle {
-    val disconType = new DisconEventType.Type
+    val disconType = new DisconEventType.Type // Reserve for statistics CSR and debugging.
 
     val trap  = Bool()
     val cause = UInt(16.W)

@@ -9,13 +9,13 @@ axiConfig:
 
 icacheConfig:
   addrWidth: 64
-  wayNum: 1
+  wayNum: 2
   setNum: 2
   offsetBits: 6
 
 dcacheConfig:
   addrWidth: 64
-  wayNum: 1
+  wayNum: 2
   setNum: 2
   offsetBits: 6
 
@@ -31,7 +31,6 @@ rsSize: 16
 renameTableSize: 16
 regFileSize: 64
 
-pma:
 pma:
   # ROM: 32KB @ 0x01000000
   - addrLow:  0x01000000

@@ -116,7 +116,6 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     ifq.io.pc <> ifu.io.getPc
 
     ifu.io.flush := flush
-    ifu.io.invalidDrop <> decoder.io.invalidDrop
     ifu.io.fetchBundle <> ifq.io.fetchBundle
     ifu.io.flushPc := MuxCase(0.U, Seq(
         exceptionUnit.io.flush -> exceptionUnit.io.flushPc,
