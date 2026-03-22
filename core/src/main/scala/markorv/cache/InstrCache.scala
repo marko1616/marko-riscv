@@ -14,7 +14,6 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
         val cacheInterface = new IcacheInterface
         val ioInterface = new IOInterface()(getCacheIoConfig(c, CacheType.Icache),true)
 
-        val transactionAddr = Output(UInt(64.W))
         val invalidateAll = Input(Bool())
         val invalidateAllOutfire = Output(Bool())
     })
@@ -43,7 +42,6 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     io.cacheInterface.readResp.bits := new CacheReadResp().zero
     io.ioInterface.read.get.params.valid := false.B
     io.ioInterface.read.get.params.bits := new ReadParams()(using getCacheIoConfig(c, CacheType.Dcache)).zero
-    io.transactionAddr := readAddr
 
     io.invalidateAllOutfire := false.B
 
@@ -55,8 +53,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
             when(io.cacheInterface.readReq.valid) {
                 readAddr := io.cacheInterface.readReq.bits.addr
                 state := State.statRead
-            }
-            when(io.invalidateAll) {
+            }.elsewhen(io.invalidateAll) {
                 invalidateAllSetIdx := 0.U
                 state := State.statInvalidate
             }

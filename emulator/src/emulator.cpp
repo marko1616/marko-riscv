@@ -160,8 +160,7 @@ void cycle_verbose(uint64_t cycle, uint64_t pc, std::optional<uint32_t> raw_inst
 
 void init_stimulus(const std::unique_ptr<VMarkoRvCore> &top) {
     clear_axi(top);
-    top->io_dcacheCleanReq_valid = false;
-    top->io_dcacheCleanReq_bits_addr = 0;
+    top->io_dcacheCleanAllReq = false;
 }
 
 class SimulationManager {
@@ -198,8 +197,7 @@ public:
         axiSignal axi;
         DpiManager& dpi = DpiManager::get_instance();
 
-        uint64_t cleanup_dcache_at = args.max_clock - args.cleanup_dcache_addrs.size() * DCACHE_CLEANUP_TIME_PER_ADDR;
-        uint64_t cleanup_dcache_ptr = 0;
+        uint64_t cleanup_dcache_at = args.max_clock - args.cleanup_dcache_addrs.size() * DCACHE_CLEANUP_TIME;
         while (!Verilated::gotFinish() && clock_cnt < args.max_clock) {
             // Reset handling
             if (clock_cnt < 4) {
@@ -227,15 +225,11 @@ public:
             context->timeInc(1);
             top->clock = 1;
             top->eval();
-            if (args.vcd_dump.has_value())
-                vcd_context->dump(clock_cnt * 2);
+            if (args.vcd_dump.has_value() && static_cast<int64_t>(args.max_clock) - clock_cnt <= VCD_DUMP_MAX)
+                vcd_context->dump((static_cast<int64_t>(clock_cnt) - args.max_clock + VCD_DUMP_MAX) * 2);
             init_stimulus(top);
-            if (top->io_dcacheCleanReq_valid) {
-                cleanup_dcache_ptr++;
-            }
-            if (clock_cnt > cleanup_dcache_at && cleanup_dcache_ptr < args.cleanup_dcache_addrs.size()) {
-                top->io_dcacheCleanReq_valid = true;
-                top->io_dcacheCleanReq_bits_addr = args.cleanup_dcache_addrs[cleanup_dcache_ptr];
+            if (clock_cnt > cleanup_dcache_at) {
+                top->io_dcacheCleanAllReq = true;   
             }
 
             if (!top->reset) {
@@ -250,8 +244,8 @@ public:
             context->timeInc(1);
             top->clock = 0;
             top->eval();
-            if (args.vcd_dump.has_value())
-                vcd_context->dump(clock_cnt * 2 + 1);
+            if (args.vcd_dump.has_value() && static_cast<int64_t>(args.max_clock) - clock_cnt <= VCD_DUMP_MAX)
+                vcd_context->dump((static_cast<int64_t>(clock_cnt) - args.max_clock + VCD_DUMP_MAX) * 2 + 1);
 
             clock_cnt++;
         }

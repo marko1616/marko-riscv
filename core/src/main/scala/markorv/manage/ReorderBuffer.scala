@@ -185,5 +185,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
         for((e,i) <- buffer.zipWithIndex) {
             debugger.call(e, i.U(32.W))
         }
+
+        val retEntry = nextBuffer(deqPtr)
     }
 }

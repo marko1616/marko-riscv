@@ -82,15 +82,11 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     when(validOp) {
         when(validCsrOp) {
             // TODO: implement CSR exception.
-            // a) Illegal instruction if trying to write read-only CSR or access CSR with insufficient privilege except for CSRRSI and CSRRCI, if the uimm[4:0] field is zero.
             // b) Check if r/w side effect is correctly handled.
             val csrSrc1 = params.source1
             val csrAddr = params.source2
             io.csrio.readEn := opcode.miscCsrFunct(3)
             io.csrio.writeEn := opcode.miscCsrFunct(2)
-
-            val isCsrReadOnly = csrAddr(11, 10) === 3.U
-            val hasPrivilege = privilegeReg > csrAddr(9, 8)
 
             io.csrio.readAddr := csrAddr
             val csrData = io.csrio.readData
@@ -102,14 +98,23 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                 CsrOperation.csrrc -> (csrData & ~csrSrc1)
             ))
 
-            io.commit.valid := true.B
-            io.commit.bits.data := csrData
-            io.outfire := true.B
+            when(io.csrio.illegal) {
+                io.commit.valid := true.B
+                io.commit.bits.disconType := DisconEventType.instrException
+                io.commit.bits.trap := true.B
+                io.commit.bits.cause := 2.U
+                io.outfire := true.B
+            }.otherwise {
+                io.commit.valid := true.B
+                io.commit.bits.data := csrData
+                io.outfire := true.B
+            }
         }
 
         when(validSysOp) {
             switch(sysOp) {
                 is(SystemOperation.wfi) {
+                    io.commit.valid := true.B
                     io.outfire := true.B // wfi treated as NOP
                 }
                 is(SystemOperation.ecall) {

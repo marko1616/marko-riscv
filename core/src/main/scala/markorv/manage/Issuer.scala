@@ -72,8 +72,8 @@ class Issuer(implicit val c: CoreConfig) extends Module {
 
     // Hazard Detection
     val warHazard = io.rsRegReqBits(origPrd)
-    val wawHazard = (io.regStates(origPrd) =/= PhyRegState.Allocated && prdValid) || io.robMayDison
-    val hasHazard = warHazard || wawHazard
+    val wawHazard = (io.regStates(origPrd) =/= PhyRegState.Allocated && prdValid)
+    val hasHazard = warHazard || wawHazard || io.robMayDison
     val noHazard = !hasHazard
 
     // Rename Logic

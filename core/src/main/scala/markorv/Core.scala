@@ -11,6 +11,7 @@ import markorv.backend._
 import markorv.bus._
 import markorv.cache._
 import markorv.manage._
+import markorv.utils._
 
 class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
@@ -20,8 +21,8 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
         val mtip = Input(Bool())
         val msip = Input(Bool())
 
-        val dcacheCleanReq = if(c.simulate) Some(Flipped(Decoupled(new CacheCleanReq))) else None
-        val dcacheCleanResp = if(c.simulate) Some(Output(Bool())) else None
+        val dcacheCleanAllReq = if(c.simulate) Some(Input(Bool())) else None
+        val dcacheCleanAllResp = if(c.simulate) Some(Output(Bool())) else None
     })
 
     // Submodule Instantiations
@@ -69,6 +70,9 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     lsu.io.dirLoadStore <> axiCtrl.io.dirLoadStore
     io.axi <> axiCtrl.io.axi
 
+    // Exception & Flush Control
+    val flush = exceptionUnit.io.flush | rob.io.flush
+
     // Cache
     iCache.io.invalidateAll <> misc.io.icacheInvalidateAll
     iCache.io.invalidateAllOutfire <> misc.io.icacheInvalidateAllOutfire
@@ -80,19 +84,17 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     dCache.io.cacheInterface.readResp <> lsu.io.cacheReadResp
     dCache.io.cacheInterface.writeReq <> lsu.io.cacheWriteReq
     dCache.io.cacheInterface.writeResp <> lsu.io.cacheWriteResp
+    dCache.io.cacheInterface.cleanReq <> lsu.io.cacheCleanReq
+    dCache.io.cacheInterface.cleanResp <> lsu.io.cacheCleanResp
+    dCache.io.cacheInterface.invalidateReq <> lsu.io.cacheInvalidateReq
+    dCache.io.cacheInterface.invalidateResp <> lsu.io.cacheInvalidateResp
     // TODO Zicbom
-    if (c.simulate) {
-        dCache.io.cacheInterface.cleanReq <> io.dcacheCleanReq.get
-        dCache.io.cacheInterface.cleanResp <> io.dcacheCleanResp.get
-    } else {
-        dCache.io.cacheInterface.cleanReq.valid := false.B
-        dCache.io.cacheInterface.cleanReq.bits.addr := 0.U
+    if(c.simulate) {
+        dCache.io.cleanAll <> (io.dcacheCleanAllReq.get || misc.io.dcacheCleanAll)
+        dCache.io.cleanAllOutfire <> io.dcacheCleanAllResp.get
     }
 
-    // Exception & Flush Control
-    val flush = exceptionUnit.io.flush | rob.io.flush
-
-    exceptionUnit.io.pc <> ifu.io.getPc
+    exceptionUnit.io.pc <> ifu.io.pc
     exceptionUnit.io.privilege <> misc.io.getPrivilege
     exceptionUnit.io.setException <> csrFile.io.setException
     exceptionUnit.io.exceptionRetInfo <> csrFile.io.exceptionRetInfo
@@ -108,12 +110,11 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     // Frontend Pipeline Connections
     ipu.io.flush := flush
     ipu.io.cacheInterface <> iCache.io.cacheInterface
-    ipu.io.transactionAddr <> iCache.io.transactionAddr
 
     ifq.io.flush := flush
     ifq.io.fetchPc <> ipu.io.fetchPc
     ifq.io.cachelineRead <> ipu.io.fetched
-    ifq.io.pc <> ifu.io.getPc
+    ifq.io.pc <> ifu.io.pc
 
     ifu.io.flush := flush
     ifu.io.fetchBundle <> ifq.io.fetchBundle

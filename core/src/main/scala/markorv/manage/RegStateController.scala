@@ -30,13 +30,11 @@ class RegStateController(implicit val c: CoreConfig) extends Module {
 
     // Default assignment
     val nextStates = WireInit(io.getStates)
-    var updateValid = false.B
 
     // Handle issue event
     when(io.issueEvent.valid && io.issueEvent.bits.prdValid) {
         val prd = io.issueEvent.bits.prd
         nextStates(prd) := PhyRegState.Occupied
-        updateValid = true.B
     }
 
     // Handle commit events
@@ -44,7 +42,6 @@ class RegStateController(implicit val c: CoreConfig) extends Module {
         when(commitEvent.valid && commitEvent.bits.prdValid) {
             val prd = commitEvent.bits.prd
             nextStates(prd) := PhyRegState.Committed
-            updateValid = true.B
         }
     }
 
@@ -56,7 +53,6 @@ class RegStateController(implicit val c: CoreConfig) extends Module {
         when(prd =/= prevprd) {
             nextStates(prevprd) := PhyRegState.Free
         }
-        updateValid = true.B
     }
 
     // Handle discontinue (rollback)
@@ -70,6 +66,6 @@ class RegStateController(implicit val c: CoreConfig) extends Module {
         io.setStates.valid := true.B
     }.otherwise {
         io.setStates.bits := nextStates
-        io.setStates.valid := updateValid
+        io.setStates.valid := true.B
     }
 }

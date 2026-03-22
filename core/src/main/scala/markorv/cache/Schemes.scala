@@ -57,6 +57,10 @@ class CacheCleanReq extends Bundle {
     val addr = UInt(64.W)
 }
 
+class CacheInvalidateReq extends Bundle {
+    val addr = UInt(64.W)
+}
+
 class DcacheInterface(implicit val c: CacheConfig) extends Bundle {
     val readReq = Flipped(Decoupled(new CacheReadReq()))
     val readResp = Decoupled(new CacheReadResp())
@@ -64,4 +68,6 @@ class DcacheInterface(implicit val c: CacheConfig) extends Bundle {
     val writeResp = Decoupled(new CacheWriteResp())
     val cleanReq = Flipped(Decoupled(new CacheCleanReq()))
     val cleanResp = Output(Bool())
+    val invalidateReq = Flipped(Decoupled(new CacheInvalidateReq()))
+    val invalidateResp = Output(Bool())
 }

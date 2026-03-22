@@ -137,6 +137,7 @@ class Booth4 extends Module {
     when(io.flush) {
         accumulator := 0.S
         state := 0.U
+        returnFlag := false.B
     }
 }
 
@@ -148,9 +149,9 @@ class NonRestoringDivider extends Module {
         val flush = Input(Bool())
     })
     object DividerState extends ChiselEnum {
-        val statIdle    = Value
-        val statCompute = Value
-        val statFinish  = Value
+        val sIdle    = Value
+        val sCompute = Value
+        val sFinish  = Value
     }
     val sign = io.src.bits.sign
     val rawDividend = io.src.bits.src1
@@ -163,14 +164,14 @@ class NonRestoringDivider extends Module {
     val remainder = RegInit(0.S(65.W))
     val divisorShift = RegInit(0.U(6.W))
 
-    val state = RegInit(DividerState.statIdle)
-    val idle = state === DividerState.statIdle
+    val state = RegInit(DividerState.sIdle)
+    val idle = state === DividerState.sIdle
     io.idle := idle
     io.src.ready := idle
-    io.result.valid := state === DividerState.statFinish
+    io.result.valid := state === DividerState.sFinish
     io.result.bits := new DivideResult().zero
 
-    when(state === DividerState.statIdle) {
+    when(state === DividerState.sIdle) {
         val divisionByZero = divisor === 0.U
         val divisorLargerThanDividend = divisor > dividend
         when(io.src.valid) {
@@ -188,32 +189,32 @@ class NonRestoringDivider extends Module {
                 val dividendLeadingZero = CountLeadingZeros(dividend)
                 val divisorLeadingZero = CountLeadingZeros(divisor)
                 divisorShift := divisorLeadingZero - dividendLeadingZero
-                state := DividerState.statCompute
+                state := DividerState.sCompute
             }
         }
-    }.elsewhen(state === DividerState.statCompute) {
+    }.elsewhen(state === DividerState.sCompute) {
         val shiftedDivisor = divisor << divisorShift
         val shiftedQuotient = 1.U << divisorShift
         val isRemainderNeg = remainder < 0.S
         remainder := Mux(isRemainderNeg, remainder+shiftedDivisor.zexts(65), remainder-shiftedDivisor.zexts(65))
         quotient := Mux(isRemainderNeg, quotient-shiftedQuotient, quotient+shiftedQuotient)
         when(divisorShift === 0.U) {
-            state := DividerState.statFinish
+            state := DividerState.sFinish
         }.otherwise {
             divisorShift := divisorShift - 1.U
         }
-    }.elsewhen(state === DividerState.statFinish) {
+    }.elsewhen(state === DividerState.sFinish) {
         val negRemainder = remainder < 0.S
         val adjustedRemainder = Mux(negRemainder, remainder+divisor.zexts(65), remainder).asUInt
         val adjustedQuotient = Mux(negRemainder, quotient-1.U, quotient)
         io.result.valid := true.B
         io.result.bits.quotient := Mux(rawDividendSign =/= rawDivisorSign, adjustedQuotient.neg ,adjustedQuotient)
         io.result.bits.remainder := Mux(sign && rawDividendSign, adjustedRemainder.neg, adjustedRemainder)
-        state := DividerState.statIdle
+        state := DividerState.sIdle
     }
 
     when(io.flush) {
-        state := DividerState.statIdle
+        state := DividerState.sIdle
     }
 }
 
@@ -243,6 +244,7 @@ class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
     val divider = Module(new NonRestoringDivider)
     val mulCache = RegInit((new MultiplyCache).zero)
     val divCache = RegInit((new DivideCache).zero)
+    val isInit = WireInit(false.B)
     val isDiv = opcode.funct3(2)
     val op32 = opcode.op32
 
@@ -250,7 +252,6 @@ class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
     val op32Funct3 = opcode.getFunct3Op32()
 
     io.outfire := false.B
-    io.muInstr.ready := io.commit.ready && booth4.io.idle && divider.io.idle
     io.commit.valid := false.B
     io.commit.bits := new MDUCommit().zero
     io.commit.bits.robIndex := params.robIndex
@@ -280,6 +281,7 @@ class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
 
         when(io.muInstr.valid) {
             when(!divCacheAvailable) {
+                isInit := true.B
                 val src1 = Wire(UInt(64.W))
                 val src2 = Wire(UInt(64.W))
 
@@ -299,6 +301,7 @@ class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
         }
 
         when(divider.io.result.valid || (io.muInstr.valid && divCacheAvailable)) {
+            isInit := false.B
             io.outfire := true.B
             io.commit.valid := true.B
             val result = Mux(divider.io.result.valid, divider.io.result.bits, divCache.result)
@@ -338,6 +341,7 @@ class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
         )
         when(io.muInstr.valid) {
             when(!mulCacheAvailable) {
+                isInit := true.B
                 booth4.io.src.valid := true.B
                 booth4.io.src.bits.sign := sign
                 val src1 = Wire(UInt(64.W))
@@ -356,6 +360,7 @@ class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
             }
         }
         when(booth4.io.result.valid || (io.muInstr.valid && mulCacheAvailable)) {
+            isInit := false.B
             io.outfire := true.B
             io.commit.valid := true.B
             val result = Mux(booth4.io.result.valid, booth4.io.result.bits, mulCache.result)
@@ -372,4 +377,6 @@ class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
             }
         }
     }
+
+    io.muInstr.ready := io.commit.ready && booth4.io.idle && divider.io.idle && ~isInit
 }

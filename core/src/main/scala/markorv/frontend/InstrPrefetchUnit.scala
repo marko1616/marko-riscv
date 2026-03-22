@@ -14,82 +14,130 @@ object FetchTarget extends ChiselEnum {
 
 class CacheLine(implicit val config: CoreConfig) extends Bundle {
     val valid = Bool()
-    val addr = UInt(64.W)
-    val data = UInt((8 * config.icacheConfig.dataBytes).W)
+    val addr  = UInt(64.W)
+    val data  = UInt((8 * config.icacheConfig.dataBytes).W)
 }
 
 class InstrPrefetchUnit(implicit val config: CoreConfig) extends Module {
     val io = IO(new Bundle {
-        val fetchPc = Input(UInt(64.W))
-        val fetched = Decoupled(UInt((8 * config.icacheConfig.dataBytes).W))
-
+        val fetchPc        = Input(UInt(64.W))
+        val fetched        = Decoupled(UInt((8 * config.icacheConfig.dataBytes).W))
         val cacheInterface = Flipped(new IcacheInterface()(config.icacheConfig))
-        val transactionAddr = Input(UInt(64.W))
-
-        val flush = Input(Bool())
+        val flush          = Input(Bool())
     })
+
+    object State extends ChiselEnum {
+        val sIdle, sWaitResp, sDrain = Value
+    }
+
     val currCacheline = RegInit(new CacheLine().zero)
     val prefCacheline = RegInit(new CacheLine().zero)
+    val state         = RegInit(State.sIdle)
 
-    val maskedPc = io.fetchPc & config.icacheConfig.offsetMask
+    val pendingAddr   = Reg(UInt(64.W))
+    val pendingTarget = Reg(FetchTarget())
 
-    val currValid = currCacheline.valid && currCacheline.addr === maskedPc
-    val prefValid = prefCacheline.valid && prefCacheline.addr === maskedPc
+    val cachelineBytes = config.icacheConfig.dataBytes
+    val maskedPc       = io.fetchPc & config.icacheConfig.offsetMask
+    val nextLinePc     = maskedPc + cachelineBytes.U
 
+    val currValid   = currCacheline.valid && currCacheline.addr === maskedPc
+    val prefValid   = prefCacheline.valid && prefCacheline.addr === maskedPc
     val fetchTarget = Mux(currValid, FetchTarget.pref, FetchTarget.curr)
 
-    io.fetched.valid := false.B
-    io.fetched.bits := 0.U
-    
-    // Default Interface Values
-    io.cacheInterface.readReq.valid := false.B
-    io.cacheInterface.readReq.bits := new CacheReadReq().zero
+    io.fetched.valid                 := false.B
+    io.fetched.bits                  := 0.U
+    io.cacheInterface.readReq.valid  := false.B
+    io.cacheInterface.readReq.bits   := new CacheReadReq().zero
     io.cacheInterface.readResp.ready := false.B
 
-    switch(fetchTarget) {
-        is(FetchTarget.curr) {
-            when(prefValid) {
-                // Swap current and prefetch lines, and use prefetched data
-                currCacheline := prefCacheline
-                prefCacheline.valid := false.B
+    switch(state) {
+        is(State.sIdle) {
+            switch(fetchTarget) {
+                is(FetchTarget.curr) {
+                    when(prefValid) {
+                        currCacheline := prefCacheline
+                        prefCacheline.valid := false.B
 
-                io.fetched.valid := true.B
-                io.fetched.bits := prefCacheline.data
-            }.otherwise {
-                io.cacheInterface.readReq.valid := true.B
-                io.cacheInterface.readReq.bits.addr := maskedPc
-                io.cacheInterface.readResp.ready := true.B
+                        io.fetched.valid := true.B
+                        io.fetched.bits  := prefCacheline.data
+                    }.otherwise {
+                        io.cacheInterface.readReq.valid     := true.B
+                        io.cacheInterface.readReq.bits.addr := maskedPc
 
-                // Check validity and address match
-                val readValid = io.cacheInterface.readResp.valid && io.transactionAddr === maskedPc
-                when(readValid) {
+                        when(io.cacheInterface.readReq.ready) {
+                            pendingAddr   := maskedPc
+                            pendingTarget := FetchTarget.curr
+                            state         := State.sWaitResp
+                        }
+                    }
+                }
+                is(FetchTarget.pref) {
                     io.fetched.valid := true.B
-                    io.fetched.bits := io.cacheInterface.readResp.bits.data
+                    io.fetched.bits  := currCacheline.data
 
-                    currCacheline.valid := true.B
-                    currCacheline.addr := maskedPc
-                    currCacheline.data := io.cacheInterface.readResp.bits.data
+                    // Speculatively prefetch the next sequential cacheline
+                    val needPrefetch = !prefCacheline.valid ||
+                                       prefCacheline.addr =/= nextLinePc
+
+                    when(needPrefetch) {
+                        io.cacheInterface.readReq.valid     := true.B
+                        io.cacheInterface.readReq.bits.addr := nextLinePc
+
+                        when(io.cacheInterface.readReq.ready) {
+                            pendingAddr   := nextLinePc
+                            pendingTarget := FetchTarget.pref
+                            state         := State.sWaitResp
+                        }
+                    }
                 }
             }
         }
-        is(FetchTarget.pref) {
-            io.fetched.valid := true.B
-            io.fetched.bits := currCacheline.data
 
-            val nextPc = maskedPc + (1.U << config.icacheConfig.offsetBits)
-            val needPrefetch = !prefCacheline.valid || prefCacheline.addr =/= nextPc
+        is(State.sWaitResp) {
+            io.cacheInterface.readResp.ready := true.B
 
-            when(needPrefetch) {
-                io.cacheInterface.readReq.valid := true.B
-                io.cacheInterface.readReq.bits.addr := nextPc
-                io.cacheInterface.readResp.ready := true.B
+            val pendingStale = Mux(
+                pendingTarget === FetchTarget.curr,
+                pendingAddr =/= maskedPc,
+                pendingAddr =/= nextLinePc
+            )
 
-                val readValid = io.cacheInterface.readResp.valid && io.transactionAddr === nextPc
-                when(readValid) {
+            when(currValid) {
+                io.fetched.valid := true.B
+                io.fetched.bits  := currCacheline.data
+            }
+
+            when(io.cacheInterface.readResp.valid) {
+                val respData = io.cacheInterface.readResp.bits.data
+
+                when(pendingStale) {
                     prefCacheline.valid := true.B
-                    prefCacheline.addr := nextPc
-                    prefCacheline.data := io.cacheInterface.readResp.bits.data
+                    prefCacheline.addr  := pendingAddr
+                    prefCacheline.data  := respData
+                }.otherwise {
+                    when(pendingTarget === FetchTarget.curr) {
+                        currCacheline.valid := true.B
+                        currCacheline.addr  := pendingAddr
+                        currCacheline.data  := respData
+
+                        io.fetched.valid := true.B
+                        io.fetched.bits  := respData
+                    }.otherwise {
+                        prefCacheline.valid := true.B
+                        prefCacheline.addr  := pendingAddr
+                        prefCacheline.data  := respData
+                    }
                 }
+                state := State.sIdle
+            }
+        }
+
+        is(State.sDrain) {
+            io.cacheInterface.readResp.ready := true.B
+
+            when(io.cacheInterface.readResp.valid) {
+                state := State.sIdle
             }
         }
     }
@@ -97,5 +145,12 @@ class InstrPrefetchUnit(implicit val config: CoreConfig) extends Module {
     when(io.flush) {
         currCacheline.valid := false.B
         prefCacheline.valid := false.B
+        io.cacheInterface.readReq.valid := false.B
+
+        when(state === State.sWaitResp && !io.cacheInterface.readResp.valid) {
+            state := State.sDrain
+        }.otherwise {
+            state := State.sIdle
+        }
     }
 }

@@ -50,9 +50,20 @@ int VirtualRAM::init_ram(const std::string& file_path, uint64_t size) {
     if (elf.get_machine_type() != ELF::MachineType::EM_RISCV)
         throw std::runtime_error("ELF machine type must be EM_RISCV");
 
+    auto header = elf.get_header_64();
+    bool is_pie = (static_cast<int>(header.e_type) == 3);
+
+    uint64_t elf_base = UINT64_MAX;
     for (const auto& ph : elf.get_program_headers_64()) {
         if (ph.p_type != ELF::SegmentType::PT_LOAD) continue;
-        uint64_t target_addr = ph.p_paddr - this->base_addr;
+        if (ph.p_paddr < elf_base) elf_base = ph.p_paddr;
+    }
+    if (elf_base == UINT64_MAX) elf_base = 0;
+    uint64_t load_offset = is_pie ? elf_base : this->base_addr;
+
+    for (const auto& ph : elf.get_program_headers_64()) {
+        if (ph.p_type != ELF::SegmentType::PT_LOAD) continue;
+        uint64_t target_addr = ph.p_paddr - load_offset;
         if (target_addr >= this->size)
             throw std::runtime_error(std::format("Target address({:x}) is out of bounds", target_addr));
         if (ph.p_filesz > this->size - target_addr)

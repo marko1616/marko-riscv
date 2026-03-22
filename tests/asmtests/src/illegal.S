@@ -4,9 +4,9 @@ _start:
     j main
 
 trap_handler:
-    csrrw t0, mepc, zero
+    csrr t0, mepc
     addi t0, t0, 4
-    csrrw zero, mepc, t0
+    csrw mepc, t0
     mret
 
 main:

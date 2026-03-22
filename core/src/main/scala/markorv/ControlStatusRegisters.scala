@@ -3,6 +3,7 @@ package markorv
 import chisel3._
 import chisel3.util._
 
+import markorv.ControlStatusRegistersConstants._
 import markorv.utils.ChiselUtils._
 import markorv.config._
 import markorv.exception._
@@ -53,39 +54,11 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         }
     }
 
-    // Unprivileged Counter/Timers(URO)
-    val CYCLE_ADDR = "hc00".U(12.W)
-    val TIME_ADDR = "hc01".U(12.W)
-    val INSTRET_ADDR = "hc02".U(12.W)
-
-    // Machine infomations(MRO).
-    val MVENDORID_ADDR = "hf11".U(12.W)
-    val MARCHID_ADDR = "hf12".U(12.W)
-    val MIMPID_ADDR = "hf13".U(12.W)
-    val MHARTID_ADDR = "hf14".U(12.W)
-    val MCONFIGPTR_ADDR = "hf15".U(12.W)
-
-    // Machine trap setup(MRW).
-    val MSTATUS_ADDR = "h300".U(12.W)
-    val MISA_ADDR = "h301".U(12.W)
-    val MEDELEG_ADDR = "h302".U(12.W)
-    val MIDELEG_ADDR = "h303".U(12.W)
-    val MIE_ADDR = "h304".U(12.W)
-    val MTVEC_ADDR = "h305".U(12.W)
-    val MCOUNTEREN_ADDR = "h306".U(12.W)
-
-    // Machine trap handling
-    val MSCRATCH_ADDR = "h340".U(12.W)
-    val MEPC_ADDR = "h341".U(12.W)
-    val MCAUSE_ADDR = "h342".U(12.W)
-    val MTVAL_ADDR = "h343".U(12.W)
-    val MIP_ADDR = "h344".U(12.W)
-
     val cycle = RegInit(0.U(64.W))
     val instRetire = RegInit(0.U(64.W))
 
     val mstatus = RegInit(0.U(64.W))
-    val misa = RegInit("h8000000000000100".U(64.W))
+    val misa = RegInit("h8000000000141101".U(64.W))
     val medeleg = RegInit(0.U(64.W))
     val mideleg = RegInit(0.U(64.W))
     val mie = RegInit(0.U(64.W))
@@ -149,6 +122,8 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             readCsr(mtvec, "b11".U)
         }.elsewhen(io.csrio.readAddr === MCOUNTEREN_ADDR) {
             readCsr(mcounteren, "b11".U)
+        }.elsewhen(io.csrio.readAddr === MCOUNTINHIBIT_ADDR) {
+            readCsr(0.U, "b11".U)
         }.elsewhen(io.csrio.readAddr === MSCRATCH_ADDR) {
             readCsr(mscratch, "b11".U)
         }.elsewhen(io.csrio.readAddr === MEPC_ADDR) {
@@ -159,16 +134,17 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             readCsr(mtval, "b11".U)
         }.elsewhen(io.csrio.readAddr === MIP_ADDR) {
             // TODO
+        }.otherwise {
+            io.csrio.illegal := true.B
         }
     }
 
     when(io.csrio.writeEn) {
         when(io.csrio.writeAddr === MSTATUS_ADDR) {
-            // write mask shown that which fields is implemented.
-            val writeMask = "h00000000000000aa".U
+            val writeMask = "h00000000000018aa".U
             writeCsr(mstatus, writeMask & io.csrio.writeData, "b11".U)
         }.elsewhen(io.csrio.writeAddr === MISA_ADDR) {
-            // Can't write this to switch func for now.
+            // Can't write this for now.
         }.elsewhen(io.csrio.writeAddr === MEDELEG_ADDR) {
             // TODO S mode
             writeCsr(medeleg, io.csrio.writeData, "b11".U)
@@ -183,6 +159,8 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             writeCsr(mtvec, writeMask & io.csrio.writeData, "b11".U)
         }.elsewhen(io.csrio.writeAddr === MCOUNTEREN_ADDR) {
             writeCsr(mcounteren, io.csrio.writeData, "b11".U)
+        }.elsewhen(io.csrio.readAddr === MCOUNTINHIBIT_ADDR) {
+            // Not implemented, hardcoded to 0, so ignore write.
         }.elsewhen(io.csrio.writeAddr === MSCRATCH_ADDR) {
             writeCsr(mscratch, io.csrio.writeData, "b11".U)
         }.elsewhen(io.csrio.writeAddr === MEPC_ADDR) {
@@ -194,6 +172,8 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             writeCsr(mtval, io.csrio.writeData, "b11".U)
         }.elsewhen(io.csrio.writeAddr === MIP_ADDR) {
             // TODO
+        }.otherwise {
+            io.csrio.illegal := true.B
         }
     }
 
@@ -241,6 +221,6 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
 
         retException.privilege := privilege
         retException.exceptionPc := mepc
-        mstatus := Cat(mstatus(63,4), mpie, mstatus(2), spie, mstatus(0))
+        mstatus := Cat(mstatus(63, 13), 0.U(2.W), mstatus(10, 8), 1.U(1.W), mstatus(6), spie, mstatus(4), mpie, mstatus(2), spie, mstatus(0))
     }
 }

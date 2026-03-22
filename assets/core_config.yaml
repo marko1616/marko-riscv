@@ -68,9 +68,9 @@ pma:
     c: false
     a: false
 
-  # RAM: 8MB @ 0x80000000
+  # RAM: 64MB @ 0x80000000
   - addrLow:  0x80000000
-    addrHigh: 0x807FFFFF
+    addrHigh: 0x83FFFFFF
     r: true
     w: true
     x: true

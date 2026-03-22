@@ -22,7 +22,7 @@ class InstrFetchUnit(implicit val c: CoreConfig) extends Module {
         val fetchBundle = Flipped(Decoupled(new FetchQueueEntities))
         val instrBundle = Decoupled(new InstrDecodeBundle)
 
-        val getPc = Output(UInt(64.W))
+        val pc = Output(UInt(64.W))
         val flush = Input(Bool())
         val flushPc = Input(UInt(64.W))
     })
@@ -38,7 +38,7 @@ class InstrFetchUnit(implicit val c: CoreConfig) extends Module {
     io.instrBundle.bits.pc := pc
 
     io.fetchBundle.ready := io.instrBundle.ready
-    io.getPc := pc
+    io.pc := pc
 
     val fetchValid = io.fetchBundle.valid && io.instrBundle.ready
     when(fetchValid) {
