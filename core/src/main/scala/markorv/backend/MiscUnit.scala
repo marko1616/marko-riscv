@@ -121,7 +121,11 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                     io.commit.valid := true.B
                     io.commit.bits.disconType := DisconEventType.instrException
                     io.commit.bits.trap := true.B
-                    io.commit.bits.cause := 11.U
+                    io.commit.bits.cause := MuxLookup(privilegeReg, 2.U)(Seq(
+                        0.U -> 8.U, // U-mode ecall
+                        1.U -> 9.U, // S-mode ecall
+                        3.U -> 11.U // M-mode ecall
+                    ))
                     io.outfire := true.B
                 }
                 is(SystemOperation.ebreak) {

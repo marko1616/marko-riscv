@@ -239,6 +239,8 @@ public:
                 if (args.axi_debug)
                     axi_debug(axi);
                 set_axi(top, axi);
+
+                top->io_time = slaves.get_slave(clint_id)->read(MTIME_OFFSET, 8);
             }
 
             context->timeInc(1);

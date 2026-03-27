@@ -18,11 +18,6 @@ uint64_t VirtualCLINT::read(uint64_t addr, uint8_t size) {
 }
 
 void VirtualCLINT::write(uint64_t addr, uint64_t data, uint8_t size, uint8_t strb) {
-    if(addr == MTIME_OFFSET) {
-        mtime = data;
-        return;
-    }
-
     if(addr == MTIMECMP_OFFSET) {
         mtimecmp = data;
         return;
@@ -37,7 +32,10 @@ void VirtualCLINT::write(uint64_t addr, uint64_t data, uint8_t size, uint8_t str
 }
 
 void VirtualCLINT::step(const std::unique_ptr<VMarkoRvCore> &top) {
-    mtime++;
+    auto now = std::chrono::steady_clock::now();
+    mtime = std::chrono::duration_cast<std::chrono::microseconds>(
+        now.time_since_epoch()
+    ).count();
 
     if (mtime >= mtimecmp)
         top->io_mtip = 1;

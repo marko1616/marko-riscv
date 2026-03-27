@@ -2,6 +2,7 @@
 #include <iostream>
 #include <ranges>
 #include <cstdint>
+#include <chrono>
 
 #include "slave.hpp"
 

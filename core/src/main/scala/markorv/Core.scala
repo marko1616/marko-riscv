@@ -21,6 +21,8 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
         val mtip = Input(Bool())
         val msip = Input(Bool())
 
+        val time = Input(UInt(64.W))
+
         val dcacheCleanAllReq = if(c.simulate) Some(Input(Bool())) else None
         val dcacheCleanAllResp = if(c.simulate) Some(Output(Bool())) else None
     })
@@ -202,6 +204,12 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     csrFile.io.retireEvent := rob.io.retireEvent
     csrFile.io.csrio <> misc.io.csrio
     csrFile.io.privilege <> misc.io.getPrivilege
+
+    csrFile.io.meip <> io.meip
+    csrFile.io.mtip <> io.mtip
+    csrFile.io.msip <> io.msip
+
+    csrFile.io.time <> io.time
 
     rob.io.trap <> exceptionUnit.io.trap
     rob.io.exceptionRet <> exceptionUnit.io.exceptionRet

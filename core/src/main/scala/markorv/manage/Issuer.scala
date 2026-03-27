@@ -77,7 +77,7 @@ class Issuer(implicit val c: CoreConfig) extends Module {
     val noHazard = !hasHazard
 
     // Rename Logic
-    val needRename = io.issueTask.valid && renameReady && hasHazard && prdValid && !io.robFull
+    val needRename = io.issueTask.valid && renameReady && hasHazard && prdValid && !io.robFull && ~io.interruptHlt
     val hazardResolved = WireDefault(false.B)
     val prd = WireDefault(origPrd)
 
