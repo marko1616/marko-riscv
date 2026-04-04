@@ -5,7 +5,7 @@ import chisel3.util._
 
 import markorv.utils.ChiselUtils._
 import markorv.config._
-import markorv.exception._
+import markorv.trap._
 import markorv.manage.RetireEvent
 
 class ControlStatusRegistersIO extends Bundle {
@@ -23,24 +23,37 @@ class ControlStatusRegistersIO extends Bundle {
 class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val csrio          = new ControlStatusRegistersIO
-        val setException   = new ExceptionHandleInterface
+        val handleTrap     = new TrapHandleInterface
 
         val privilege      = Input(UInt(2.W))
 
-        val exceptionRet     = Input(Bool())
-        val exceptionRetInfo = Output(new ExceptionState)
+        val trapRet        = Flipped(Valid(new TrapReturnType.Type))
+        val trapRetInfo    = Output(new TrapState)
 
         val mstatus = Output(UInt(64.W))
         val mie     = Output(UInt(64.W))
+        val medeleg = Output(UInt(64.W))
+        val mideleg = Output(UInt(64.W))
+        val sie     = Output(UInt(64.W))
 
         val meip = Input(Bool())
         val mtip = Input(Bool())
         val msip = Input(Bool())
+        val seip = Output(Bool())
+        val stip = Output(Bool())
+        val ssip = Output(Bool())
+
+        val mepc = Output(UInt(64.W))
+        val sepc = Output(UInt(64.W))
 
         val time = Input(UInt(64.W))
 
         val retireEvent = Flipped(Valid(new RetireEvent))
     })
+
+    val seip = WireInit(false.B)
+    val stip = WireInit(false.B)
+    val ssip = WireInit(false.B)
 
     // Unprivileged Counter/Timers (URO)
     val csrCycle   = new CSRCycle
@@ -52,7 +65,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     val csrMarchid    = new CSRMarchID
     val csrMimpid     = new CSRMimpID
     val csrMhartid    = new CSRMhartID
-    val csrMconfigptr = new CSRMConfigPtr
+    val CSRMconfigPtr = new CSRMconfigPtr
 
     // Machine Trap Setup (MRW)
     val csrMstatus    = new CSRMstatus
@@ -69,31 +82,76 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     // Machine Trap Handling (MRW)
     val csrMscratch = new CSRMscratch
     val csrMepc     = new CSRMEPC
-    val csrMcause   = new CSRMCause
+    val csrMcause   = new CSRMcause
     val csrMtval    = new CSRMtval
-    val csrMip      = new CSRMip(io.msip, io.mtip, io.meip)
+    val csrMip      = new CSRMip(io.msip, io.mtip, io.meip, stip, false.B)
+
+    // Machine Configuration(MRW)
+    val csrMenvcfg = new CSRMenvcfg
+
+    // Supervisor Trap Setup (SRW)
+    val csrSstatus = new CSRSstatus(csrMstatus)
+    val csrSie     = new CSRSie(csrMie)
+    val csrStvec   = new CSRStvec
+    val csrScounteren = new CSRScounteren
+
+    // Supervisor Configuration (SRW)
+    val csrSenvcfg = new CSRSenvcfg
+    
+    // Supervisor Trap Handling (SRW)
+    val csrSscratch = new CSRSscratch
+    val csrSepc     = new CSRSepc
+    val csrScause   = new CSRScause
+    val csrStval    = new CSRStval
+    val csrSip      = new CSRSip(csrMip)
+
+    // Supervisor Protection and Translation (SRW)
+    val csrSatp = new CSRSatp
+
+    // Supervisor Timer Compare (SRW)
+    val csrStimecmp = new CSRStimecmp
 
     // All CSRs for address dispatch
     val allCSRs: Seq[CSR] = Seq(
         csrCycle, csrTime, csrInstret,
-        csrMvendorid, csrMarchid, csrMimpid, csrMhartid, csrMconfigptr,
+        csrMvendorid, csrMarchid, csrMimpid, csrMhartid, CSRMconfigPtr,
         csrMstatus, csrMisa, csrMedeleg, csrMideleg,
         csrMie, csrMtvec, csrMcounteren,
         csrMcountinhibit,
-        csrMscratch, csrMepc, csrMcause, csrMtval, csrMip
+        csrMscratch, csrMepc, csrMcause, csrMtval, csrMip,
+        csrMenvcfg,
+        csrSstatus, csrSie, csrStvec, csrScounteren,
+        csrSenvcfg,
+        csrSscratch, csrSepc, csrScause, csrStval, csrSip,
+        csrSatp,
+        csrStimecmp
     )
 
     // Defaults
     io.csrio.readData := 0.U
     io.csrio.illegal  := false.B
-    io.mstatus        := csrMstatus.read(csrMstatus.addr)
-    io.mie            := csrMie.read(csrMie.addr)
+    io.mstatus        := csrMstatus.read
+    io.mie            := csrMie.read
+    io.medeleg        := csrMedeleg.read
+    io.mideleg        := csrMideleg.read
+    io.sie            := csrSie.read
+    io.mepc           := csrMepc.field.read
+    io.sepc           := csrSepc.field.read
 
     // Counter Logic
     csrCycle.field.reg := csrCycle.field.reg + 1.U
-    when(io.retireEvent.valid && ~io.retireEvent.bits.isTrap) {
+    when(io.retireEvent.valid && ~io.retireEvent.bits.isException) {
         csrInstret.field.reg := csrInstret.field.reg + 1.U
     }
+
+    // Supervisor interrupt logic
+    seip := csrSip.seipField.read
+    stip := (csrStimecmp.cmpField.read <= io.time) && csrMenvcfg.stceField.read.asBool
+    ssip := csrSip.ssipField.read
+
+    io.seip := seip
+    io.stip := stip
+    io.ssip := ssip
 
     def addrPrivilege(addr: UInt): UInt = addr(9, 8)
     def isReadOnly(addr: UInt): Bool = addr(11, 10) === "b11".U
@@ -102,11 +160,28 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         val priv = Wire(UInt(2.W))
         priv := addrPrivilege(addr)
         when(addr === csrCycle.addr) {
-            priv := Mux(csrMcounteren.cyField.read.asBool, "b00".U, "b11".U)
+            priv := MuxLookup(csrScounteren.cyField.read ## csrMcounteren.cyField.read, "b11".U)(Seq(
+                "b00".U -> "b11".U,
+                "b01".U -> "b01".U,
+                "b10".U -> "b11".U,
+                "b11".U -> "b00".U
+            ))
         }.elsewhen(addr === csrTime.addr) {
-            priv := Mux(csrMcounteren.tmField.read.asBool, "b00".U, "b11".U)
+            priv := MuxLookup(csrScounteren.tmField.read ## csrMcounteren.tmField.read, "b11".U)(Seq(
+                "b00".U -> "b11".U,
+                "b01".U -> "b01".U,
+                "b10".U -> "b11".U,
+                "b11".U -> "b00".U
+            ))
         }.elsewhen(addr === csrInstret.addr) {
-            priv := Mux(csrMcounteren.irField.read.asBool, "b00".U, "b11".U)
+            priv := MuxLookup(csrScounteren.irField.read ## csrMcounteren.irField.read, "b11".U)(Seq(
+                "b00".U -> "b11".U,
+                "b01".U -> "b01".U,
+                "b10".U -> "b11".U,
+                "b11".U -> "b00".U
+            ))
+        }.elsewhen(addr === csrStimecmp.addr) {
+            priv := Mux(csrMcounteren.tmField.read.asBool && csrMenvcfg.stceField.read.asBool, 1.U, 3.U)
         }
         priv
     }
@@ -118,7 +193,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             when(io.csrio.readAddr === csr.addr) {
                 matched := true.B
                 when(effectivePrivilege(io.csrio.readAddr) <= io.privilege) {
-                    io.csrio.readData := csr.read(io.csrio.readAddr)
+                    io.csrio.readData := csr.read
                 }.otherwise {
                     io.csrio.illegal := true.B
                 }
@@ -139,7 +214,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
                     // Writes to read-only CSRs raise illegal
                     io.csrio.illegal := true.B
                 }.elsewhen(effectivePrivilege(io.csrio.writeAddr) <= io.privilege) {
-                    csr.write(io.csrio.writeAddr, io.csrio.writeData)
+                    csr.write(io.csrio.writeData)
                 }.otherwise {
                     io.csrio.illegal := true.B
                 }
@@ -150,67 +225,106 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         }
     }
 
-    // Exception Set
-    val setException   = io.setException
-    val exceptionInfo  = setException.exceptionInfo
-    val set            = setException.set
-    setException.exceptionHandler := 0.U
-    setException.privilege        := 0.U
+    // Trap Set
+    val handleTrap = io.handleTrap
+    val trapInfo   = handleTrap.trapInfo
+    val set        = handleTrap.set
+    handleTrap.trapHandler := 0.U
+    handleTrap.privilege   := 0.U
 
     when(set) {
-        val privilege    = exceptionInfo.state.privilege
-        val exceptionPc  = exceptionInfo.state.exceptionPc
-        val interruption = exceptionInfo.interruption
-        val causeCode    = exceptionInfo.causeCode
+        val privilege    = trapInfo.state.privilege
+        val trapPc       = trapInfo.state.trapPc
+        val xtval        = trapInfo.state.xtval
+        val interruption = trapInfo.interruption
+        val causeCode    = trapInfo.causeCode
+
+        val doTrapDeleg = ~interruption && csrMedeleg.read(causeCode(5,0)) && (privilege <= 1.U)
+        val doIntDeleg  = interruption && csrMideleg.read(causeCode(5,0)) && (privilege <= 1.U)
+        val doDeleg = doTrapDeleg || doIntDeleg
 
         val oldMIE = csrMstatus.mieField.reg
         val oldSIE = csrMstatus.sieField.reg
 
-        csrMstatus.mpieField.reg := oldMIE
-        csrMstatus.spieField.reg := oldSIE
-        csrMstatus.mieField.reg  := 0.U
-        csrMstatus.sieField.reg  := 0.U
+        when(doDeleg) {
+            // Delegated to S-mode
+            csrSstatus.spieField.write(oldSIE)
+            csrSstatus.sieField.write(0.U)
 
-        csrMstatus.mppField.reg := privilege
+            csrSstatus.sppField.write(privilege(0))
 
-        csrMepc.field.reg := exceptionPc
+            csrSepc.field.write(trapPc)
 
-        csrMcause.interruptField.reg := interruption
-        csrMcause.codeField.reg      := causeCode
+            csrScause.interruptField.write(interruption)
+            csrScause.codeField.write(causeCode)
 
-        val base = Cat(csrMtvec.baseField.reg, 0.U(2.W))
-        val mode = csrMtvec.modeField.reg
+            val base = Cat(csrStvec.baseField.read, 0.U(2.W))
+            val mode = csrStvec.modeField.read
 
-        when(mode === 0.U) {
-            // Direct
-            setException.exceptionHandler := base
-        }.elsewhen(mode === 1.U) {
-            // Vectored
-            setException.exceptionHandler := base + (causeCode << 2.U)
+            when(mode === 0.U) {
+                // Direct
+                handleTrap.trapHandler := base
+            }.elsewhen(mode === 1.U) {
+                // Vectored
+                handleTrap.trapHandler := Mux(interruption, base + (causeCode << 2.U), base)
+            }
+
+            csrStval.stvalField.write(xtval)
+            handleTrap.privilege := 1.U
+        }.otherwise {
+            // Handled in M-mode
+            csrMstatus.mpieField.write(oldMIE)
+            csrMstatus.mieField.write(0.U)
+
+            csrMstatus.mppField.write(privilege)
+
+            csrMepc.field.write(trapPc)
+
+            csrMcause.interruptField.write(interruption)
+            csrMcause.codeField.write(causeCode)
+
+            val base = Cat(csrMtvec.baseField.read, 0.U(2.W))
+            val mode = csrMtvec.modeField.read
+
+            when(mode === 0.U) {
+                // Direct
+                handleTrap.trapHandler := base
+            }.elsewhen(mode === 1.U) {
+                // Vectored
+                handleTrap.trapHandler := Mux(interruption, base + (causeCode << 2.U), base)
+            }
+
+            csrMtval.mtvalField.write(xtval)
+            handleTrap.privilege := 3.U
         }
-
-        // TODO: trap delegate
-        setException.privilege := 3.U
     }
 
-    // Exception Return
-    val retException = io.exceptionRetInfo
-    val ret          = io.exceptionRet
-    retException := new ExceptionState().zero
+    // Trap Return
+    val retTrap = io.trapRetInfo
+    val ret     = io.trapRet.valid
+    retTrap := new TrapState().zero
 
-    when(ret) {
-        val oldMPP  = csrMstatus.mppField.reg
-        val oldMPIE = csrMstatus.mpieField.reg
-        val oldSPIE = csrMstatus.spieField.reg
+    when(ret && io.trapRet.bits === TrapReturnType.mret) {
+        val oldMPP  = csrMstatus.mppField.read
+        val oldMPIE = csrMstatus.mpieField.read
 
-        retException.privilege    := oldMPP
-        retException.exceptionPc  := csrMepc.field.reg
+        retTrap.privilege := oldMPP
+        retTrap.trapPc    := csrMepc.field.read
 
-        csrMstatus.mieField.reg  := oldMPIE
-        csrMstatus.sieField.reg  := oldSPIE
+        csrMstatus.mieField.write(oldMPIE)
 
-        csrMstatus.mpieField.reg := 1.U
-        csrMstatus.spieField.reg := oldSPIE
-        csrMstatus.mppField.reg  := 0.U
+        csrMstatus.mpieField.write(1.U)
+        csrMstatus.mppField.write(0.U)
+    }.elsewhen(ret && io.trapRet.bits === TrapReturnType.sret) {
+        val oldSPP  = csrSstatus.sppField.read
+        val oldSPIE = csrSstatus.spieField.read
+
+        retTrap.privilege := 0.U(1.W) ## oldSPP
+        retTrap.trapPc    := csrSepc.field.read
+
+        csrSstatus.sieField.write(oldSPIE)
+
+        csrSstatus.spieField.write(1.U)
+        csrSstatus.sppField.write(0.U)
     }
 }

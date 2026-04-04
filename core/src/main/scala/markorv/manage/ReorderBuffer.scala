@@ -6,7 +6,7 @@ import chisel3.util.circt.dpi._
 
 import markorv.utils.ChiselUtils._
 import markorv.backend.EXUEnum
-import markorv.exception._
+import markorv.trap._
 import markorv.config._
 
 class ReorderBufferDebug extends DPIClockedVoidFunctionImport {
@@ -48,15 +48,20 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
         val rtRmLastCkpt = Output(Bool())
         val rtRestoreIndex = Valid(UInt(renameIndexWidth.W))
 
-        // Exception signals
+        // Trap signals
         // ========================
-        val trap = Decoupled(new TrapInfo)
-        val exceptionRet = Output(Bool())
+        val exception = Valid(new ExceptionInfo)
+        val trapRet = Valid(new TrapReturnType.Type)
 
         // Status signals
         // ========================
         val empty = Output(Bool())
         val full = Output(Bool())
+
+        // Interrupt signal
+        // ========================
+        val interruptHlt = Input(Bool())
+        val interruptXepc = Valid(UInt(64.W))
     })
 
     val nextBuffer = Wire(Vec(c.robSize, new ROBEntry))
@@ -68,9 +73,14 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     val ptrMatch = enqPtr === deqPtr
     val full = ptrMatch && mayFull
     val empty = ptrMatch && !mayFull
+    val interrupteventPc = RegInit(0.U(64.W))
 
     io.empty := empty
     io.full := full
+    io.interruptXepc.valid := false.B
+    io.interruptXepc.bits := 0.U
+    io.exception.bits.xepc := 0.U
+    io.exception.bits.xtval := 0.U
 
     nextBuffer := buffer
     io.headIndex := deqPtr
@@ -85,14 +95,16 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     for (commit <- io.commits) {
         when (commit.valid) {
             nextBuffer(commit.bits.robIndex).commited := true.B
-            nextBuffer(commit.bits.robIndex).fCtrl := commit.bits.fCtrl
+            when(commit.bits.fCtrl.discon) {
+                nextBuffer(commit.bits.robIndex).fCtrl := commit.bits.fCtrl
+            }
         }
     }
 
     // Retirement logic
     val retireValid = !empty && nextBuffer(deqPtr).commited
     io.retireEvent.valid := retireValid
-    io.retireEvent.bits.isTrap := false.B
+    io.retireEvent.bits.isException := false.B
     io.retireEvent.bits.prdValid := nextBuffer(deqPtr).prdValid
     io.retireEvent.bits.prd := nextBuffer(deqPtr).prd
     io.retireEvent.bits.prevprd := nextBuffer(deqPtr).prevprd
@@ -116,35 +128,37 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
         nextBuffer(enqPtr).prdValid := io.allocReq.bits.prdValid
         nextBuffer(enqPtr).prd := io.allocReq.bits.prd
         nextBuffer(enqPtr).prevprd := io.allocReq.bits.prevprd
-        nextBuffer(enqPtr).pc := io.allocReq.bits.pc
         nextBuffer(enqPtr).renameCkptIndex := io.allocReq.bits.renameCkptIndex
 
         nextBuffer(enqPtr).commited := false.B
         nextBuffer(enqPtr).fCtrl := new ROBDisconField().zero
+        nextBuffer(enqPtr).fCtrl.eventPc := io.allocReq.bits.eventPc
 
         enqPtr := enqPtr + 1.U
         mayFull := true.B
     }
 
     // Branch & fence.i recover
-    val recoverRequired = retireValid && nextBuffer(deqPtr).fCtrl.recover
+    val recoverRequired = retireValid && nextBuffer(deqPtr).fCtrl.discon && (nextBuffer(deqPtr).fCtrl.disconType === DisconEventType.branchMispred || nextBuffer(deqPtr).fCtrl.disconType === DisconEventType.instrSync)
     io.flush := recoverRequired
-    io.flushPc := nextBuffer(deqPtr).fCtrl.recoverPc
+    io.flushPc := nextBuffer(deqPtr).fCtrl.eventPc
 
-    // Trap
-    val trapRequired = retireValid && nextBuffer(deqPtr).fCtrl.trap
-    io.trap.valid := trapRequired
-    io.trap.bits.cause := nextBuffer(deqPtr).fCtrl.cause
-    io.trap.bits.xepc := nextBuffer(deqPtr).pc
-    when(trapRequired) {
-        io.retireEvent.bits.isTrap := true.B
+    // Exception handling
+    val exceptionRequired = retireValid && nextBuffer(deqPtr).fCtrl.discon && nextBuffer(deqPtr).fCtrl.disconType === DisconEventType.instrException
+    io.exception.valid := exceptionRequired
+    io.exception.bits.cause := nextBuffer(deqPtr).fCtrl.cause
+    when(exceptionRequired) {
+        io.exception.bits.xepc := nextBuffer(deqPtr).fCtrl.eventPc
+        io.exception.bits.xtval := nextBuffer(deqPtr).fCtrl.xtval
+        io.retireEvent.bits.isException := true.B
     }
 
     // Exception return
-    val exceptionRetRequired = retireValid && nextBuffer(deqPtr).fCtrl.xret
-    io.exceptionRet := exceptionRetRequired
+    val trapRetRequired = retireValid && nextBuffer(deqPtr).fCtrl.discon && nextBuffer(deqPtr).fCtrl.disconType === DisconEventType.excepReturn
+    io.trapRet.valid := trapRetRequired
+    io.trapRet.bits := nextBuffer(deqPtr).fCtrl.xretType
 
-    val disconEventValid = recoverRequired || trapRequired || exceptionRetRequired
+    val disconEventValid = recoverRequired || exceptionRequired || trapRetRequired
     val disconType = nextBuffer(deqPtr).fCtrl.disconType
     io.disconEvent.valid := disconEventValid
     io.disconEvent.bits.disconType := disconType
@@ -168,12 +182,18 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     io.rtRestoreIndex.bits := 0.U
     io.rtRmLastCkpt := false.B
     when(retireValid) {
+        interrupteventPc := nextBuffer(deqPtr).fCtrl.eventPc
         when(disconEventValid) {
             io.rtRestoreIndex.valid := true.B
             io.rtRestoreIndex.bits := nextBuffer(deqPtr).renameCkptIndex
         } otherwise {
             io.rtRmLastCkpt := nextBuffer(deqPtr).renameCkptIndex =/= lastRtCkptIndex
         }
+    }
+
+    when(io.interruptHlt && empty) {
+        io.interruptXepc.valid := true.B
+        io.interruptXepc.bits := interrupteventPc
     }
 
     // Update buffer

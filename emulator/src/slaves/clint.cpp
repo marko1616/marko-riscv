@@ -1,6 +1,6 @@
 #include "clint.hpp"
 
-VirtualCLINT::VirtualCLINT(uint64_t base_addr) : Slave(base_addr) {
+VirtualCLINT::VirtualCLINT(uint64_t base_addr, double timer_scale, bool stable_clock) : Slave(base_addr), timer_scale(timer_scale), stable_clock(stable_clock) {
     range = std::ranges::iota_view<uint64_t, uint64_t>(0x0, 0xc0000);
 }
 
@@ -33,9 +33,18 @@ void VirtualCLINT::write(uint64_t addr, uint64_t data, uint8_t size, uint8_t str
 
 void VirtualCLINT::step(const std::unique_ptr<VMarkoRvCore> &top) {
     auto now = std::chrono::steady_clock::now();
-    mtime = std::chrono::duration_cast<std::chrono::microseconds>(
-        now.time_since_epoch()
-    ).count();
+    if (stable_clock) {
+        mtime_accumulator += timer_scale;
+        uint64_t increment = static_cast<uint64_t>(mtime_accumulator);
+        mtime += increment;
+        mtime_accumulator -= static_cast<double>(increment);
+    } else {
+        mtime = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                now.time_since_epoch()
+            ).count() * timer_scale
+        );
+    }
 
     if (mtime >= mtimecmp)
         top->io_mtip = 1;

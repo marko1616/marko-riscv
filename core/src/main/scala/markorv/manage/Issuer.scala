@@ -91,12 +91,12 @@ class Issuer(implicit val c: CoreConfig) extends Module {
     // ROB Request
     val robReqValid = io.issueTask.valid && io.rsReq.ready && (noHazard || hazardResolved) && ~io.interruptHlt
     io.robReq.valid := robReqValid
-    io.robReq.bits := 0.U.asTypeOf(new ROBAllocReq)
+    io.robReq.bits := new ROBAllocReq().zero
     io.robReq.bits.exu := exu
     io.robReq.bits.prdValid := prdValid
     io.robReq.bits.prd := prd
     io.robReq.bits.prevprd := origPrd
-    io.robReq.bits.pc := params.pc
+    io.robReq.bits.eventPc := task.predPc
     io.robReq.bits.renameCkptIndex := Mux(hazardResolved, io.renameTailIndex + 1.U, io.renameTailIndex)
 
     // RS Request
@@ -107,7 +107,7 @@ class Issuer(implicit val c: CoreConfig) extends Module {
     issueParams.source2 := params.source2
 
     io.rsReq.valid := io.robResp.valid
-    io.rsReq.bits := 0.U.asTypeOf(new ReservationStationEntry)
+    io.rsReq.bits := new ReservationStationEntry().zero
     io.rsReq.bits.valid := true.B
     io.rsReq.bits.exu := exu
     io.rsReq.bits.opcodes := task.opcodes
@@ -127,7 +127,7 @@ class Issuer(implicit val c: CoreConfig) extends Module {
 
     // Event
     io.issueEvent.valid := io.robResp.valid
-    io.issueEvent.bits := 0.U.asTypeOf(new IssueEvent)
+    io.issueEvent.bits := new IssueEvent().zero
     io.issueEvent.bits.prdValid := prdValid
     io.issueEvent.bits.prd := prd
 }

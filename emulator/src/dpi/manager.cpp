@@ -68,37 +68,132 @@ void update_fetching_instr(bool valid, uint32_t instr) {
     }
 }
 
+void fire_issue_event(const svBitVecVal* entry) {
+    auto in = bytes_to_struct<IssueEventInput>(entry);
+    DpiManager::get_instance().fire_issue(IssueEvent{
+        .prd_valid = static_cast<bool>(in.prd_valid),
+        .prd       = static_cast<rf_index_t>(in.prd.value)
+    });
+}
+
+void fire_commit_event(const svBitVecVal* entry) {
+    auto in = bytes_to_struct<CommitEventInput>(entry);
+    DpiManager::get_instance().fire_commit(CommitEvent{
+        .prd_valid = static_cast<bool>(in.prd_valid),
+        .prd       = static_cast<rf_index_t>(in.prd.value)
+    });
+}
+
+void fire_discon_event(const svBitVecVal* entry) {
+    auto in = bytes_to_struct<DisconEventInput>(entry);
+    DpiManager::get_instance().fire_discon(DisconEvent{
+        .discon_type       = static_cast<DisconEventEnum::Type>(in.discon_type.value),
+        .prd_valid         = static_cast<bool>(in.prd_valid),
+        .prd               = static_cast<rf_index_t>(in.prd.value),
+        .prevprd           = static_cast<rf_index_t>(in.prevprd.value),
+        .rename_ckpt_index = static_cast<rt_index_t>(in.rename_ckpt_index.value)
+    });
+}
+
+void fire_retire_event(const svBitVecVal* entry) {
+    auto in = bytes_to_struct<RetireEventInput>(entry);
+    DpiManager::get_instance().fire_retire(RetireEvent{
+        .is_exception = static_cast<bool>(in.is_exception),
+        .prd_valid    = static_cast<bool>(in.prd_valid),
+        .prd          = static_cast<rf_index_t>(in.prd.value),
+        .prevprd      = static_cast<rf_index_t>(in.prevprd.value),
+    });
+}
+
 } // extern "C"
 
 void DpiManager::print_rob() {
-    std::cout << "\n===== Reorder Buffer Status =====\n";
-    std::cout << std::format("{:<5} {:<8} {:<8} {:<16} {:<10} {:<10} {:<10} {:<8}\n",
-                            "Idx", "Valid", "Commit", "PC", "PRD", "Prev_PRD", "EXU", "Recovery");
+    std::cout << "\n===== Reorder Buffer (ROB) Detailed Status =====\n";
+
+    std::cout << std::format(
+        "{:<5} {:<6} {:<8} {:<18} {:<6} {:<8} {:<8} {:<6} {:<8}\n",
+        "Idx", "Valid", "Commit", "PC",
+        "EXU", "PRD", "PrevPRD", "PRDok", "CkptIdx");
+    std::cout << std::string(70, '-') << "\n";
+
+    int valid_count   = 0;
+    int commit_count  = 0;
+    int discon_count = 0;
 
     for (size_t i = 0; i < CFG_ROB_SIZE; ++i) {
-        const auto& entry = rob_data[i];
-        std::string exu_type;
-        switch (entry.exu) {
-            case EXUEnum::ALU: exu_type = "ALU"; break;
-            case EXUEnum::BRU: exu_type = "BRU"; break;
-            case EXUEnum::LSU: exu_type = "LSU"; break;
-            case EXUEnum::MDU: exu_type = "MDU"; break;
-            case EXUEnum::MISC: exu_type = "MISC"; break;
-            default: exu_type = "UNKNOWN"; break;
-        }
-        std::cout << "exu_type:" << static_cast<uint64_t>(entry.exu) << "\n";
+        const auto& e  = rob_data[i];
+        const auto& fc = e.f_ctrl;
 
-        std::cout << std::format("{:<5x} {:<8} {:<8} {:#016x} {:<10} {:<10} {:<10} {:<8}\n",
-                                i,
-                                entry.valid ? "Y" : "N",
-                                entry.commited ? "Y" : "N",
-                                entry.pc.value,
-                                entry.prd_valid ? std::format("{:#x}", entry.prd.value) : "-",
-                                entry.prd_valid ? std::format("{:#x}", entry.prev_prd.value) : "-",
-                                exu_type,
-                                entry.f_ctrl.recover ? "Y" : "N");
+        // EXU type string
+        std::string exu_str;
+        switch (static_cast<uint8_t>(e.exu)) {
+            case EXUEnum::ALU:  exu_str = "ALU";  break;
+            case EXUEnum::BRU:  exu_str = "BRU";  break;
+            case EXUEnum::LSU:  exu_str = "LSU";  break;
+            case EXUEnum::MDU:  exu_str = "MDU";  break;
+            case EXUEnum::MISC: exu_str = "MISC"; break;
+            default:            exu_str = std::format("?{:#x}", static_cast<uint8_t>(e.exu)); break;
+        }
+
+        // Accumulate stats
+        if (e.valid)    ++valid_count;
+        if (e.commited) ++commit_count;
+        if (fc.discon) ++discon_count;
+
+        // Main summary line
+        std::cout << std::format(
+            "{:<5x} {:<6} {:<8} {:<6} {:<8} {:<8} {:<6} {:#x}\n",
+            i,
+            e.valid    ? "Y" : "N",
+            e.commited ? "Y" : "N",
+            exu_str,
+            e.prd_valid ? std::format("{:#x}", static_cast<uint16_t>(e.prd.value))      : "-",
+            e.prd_valid ? std::format("{:#x}", static_cast<uint16_t>(e.prev_prd.value)) : "-",
+            e.prd_valid ? "Y" : "N",
+            static_cast<uint8_t>(e.rename_ckpt_index.value));
+
+        // flowCtrl detail block (only printed when relevant)
+        bool has_fc = fc.discon;
+        if (has_fc) {
+            std::cout << "  +-- flowCtrl ----------------------------------------------------\n";
+
+            if (fc.discon) {
+                std::cout << std::format(
+                    "  |  discon      : Y  ->  recover_pc = {:#018x}\n"
+                    "  |  trap        : Y\n"
+                    "  |    cause     : {:#x}\n"
+                    "  |    xtval     : {:#018x}\n"
+                    "  |  xret        : Y  type={} ({})  xepc={:#018x}\n",
+                    fc.recover_pc.value,
+                    static_cast<int16_t>(fc.cause.value),
+                    fc.xtval.value,
+                    static_cast<uint8_t>(fc.xret_type),
+                    fc.xret_type ? "MRET" : "SRET",
+                    fc.xepc.value);
+            } else {
+                std::cout << "  |  discon      : N\n";
+            }
+
+            std::string discon_str;
+            switch (static_cast<uint8_t>(fc.discon_type.value)) {
+                case 0:  discon_str = "INTERRUPT";       break;  // External Async Interrupt
+                case 1:  discon_str = "INSTR_EXCEPTION"; break;  // Sync Exception (syscall/illegal)
+                case 2:  discon_str = "INSTR_REDIRECT";  break;  // jalr redirect
+                case 3:  discon_str = "BRANCH_MISPRED";  break;  // Branch misprediction flush
+                case 4:  discon_str = "INSTR_SYNC";      break;  // fence.i etc.
+                case 5:  discon_str = "EXCEP_RETURN";    break;  // xret
+                default: discon_str = std::format("?{:#x}", static_cast<uint8_t>(fc.discon_type.value)); break;
+            }
+            std::cout << std::format("  |  discon_type  : {}\n", discon_str);
+            std::cout << "  +----------------------------------------------------------------\n";
+        }
     }
-    std::cout << "================================\n";
+
+    std::cout << std::string(70, '=') << "\n";
+    std::cout << std::format(
+        "  Summary | valid={:<4} committed={:<4} discon={:<4} | total={}\n",
+        valid_count, commit_count, discon_count, CFG_ROB_SIZE);
+    std::cout << std::string(70, '=') << "\n\n";
 }
 
 void DpiManager::print_rs() {

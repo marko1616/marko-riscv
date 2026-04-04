@@ -12,6 +12,7 @@
 #include "slaves/plic.hpp"
 #include "slaves/virtual_ram.hpp"
 #include "slaves/virtual_uart.hpp"
+#include "input_manager.hpp"
 #include "dpi/manager.hpp"
 
 csh capstone_handle;
@@ -55,7 +56,6 @@ void read_axi(const std::unique_ptr<VMarkoRvCore> &top, axiSignal &axi) {
     // Read data signals (Slave->Master)
     axi.rready  = top->io_axi_r_ready;
 }
-
 
 void set_axi(const std::unique_ptr<VMarkoRvCore> &top, const axiSignal &axi) {
     // Write response
@@ -132,30 +132,31 @@ void axi_debug(const axiSignal& axi) {
                              axi.rvalid, axi.rready, axi.rdata, axi.rresp);
 }
 
-void cycle_verbose(uint64_t cycle, uint64_t pc, std::optional<uint32_t> raw_instr) {
-    uint8_t raw_code[4] = {0};
-    std::cout << std::format("Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Asm: ",cycle, pc, raw_instr.value_or(0));
-
+std::string cycle_verbose(uint64_t cycle, uint64_t pc, std::optional<uint32_t> raw_instr) {
+    std::string result = std::format("Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Asm: ",
+                                     cycle, pc, raw_instr.value_or(0));
     if (!raw_instr) {
-        std::cout << "null" << std::endl;
-        return;
+        result += "null\n";
+        return result;
     }
 
-    for(int i=0;i<4;i++) {
-        raw_code[i] = static_cast<uint8_t>(raw_instr.value() >> 8*i);
+    uint8_t raw_code[4] = {0};
+    for (int i = 0; i < 4; i++) {
+        raw_code[i] = static_cast<uint8_t>(raw_instr.value() >> (8 * i));
     }
 
     cs_insn *instr;
-    uint64_t count;
-    count = cs_disasm(capstone_handle, raw_code, 4, pc, 0, &instr);
-	if (count > 0) {
-		for (int i = 0;i<count;i++) {
-			std::cout << instr[i].mnemonic << " " << instr[i].op_str << std::endl;
-		}
-		cs_free(instr, count);
-	} else {
-		std::cout << "invalid" << std::endl;
+    uint64_t count = cs_disasm(capstone_handle, raw_code, 4, pc, 0, &instr);
+    if (count > 0) {
+        for (uint64_t i = 0; i < count; i++) {
+            result += std::string(instr[i].mnemonic) + " " + instr[i].op_str + "\n";
+        }
+        cs_free(instr, count);
+    } else {
+        result += "invalid\n";
     }
+
+    return result;
 }
 
 void init_stimulus(const std::unique_ptr<VMarkoRvCore> &top) {
@@ -163,25 +164,45 @@ void init_stimulus(const std::unique_ptr<VMarkoRvCore> &top) {
     top->io_dcacheCleanAllReq = false;
 }
 
+struct CycleSnapshot {
+    std::string cycle_info;
+};
+
 class SimulationManager {
 public:
     SimulationManager(parsedArgs& args) {
         context = std::make_unique<VerilatedContext>();
         top = std::make_unique<VMarkoRvCore>();
+        input_manager = std::make_unique<InputManager>();
+
         if (args.vcd_dump.has_value()) {
             vcd_context = std::make_unique<VerilatedVcdC>();
             Verilated::traceEverOn(true);
             top->trace(vcd_context.get(), 0);
             vcd_context->open(args.vcd_dump.value().c_str());
         }
+
         top->clock = 0;
         top->reset = 0;
-        clint_id = slaves.register_slave(std::make_shared<VirtualCLINT> (0x02000000));
-        plic_id  =  slaves.register_slave(std::make_shared<VirtualPLIC> (0x0C000000));
-        rom_id   =  slaves.register_slave(std::make_shared<VirtualRAM>  (0x01000000, args.rom_path, CFG_ROM_SIZE));
-        ram_id   =  slaves.register_slave(std::make_shared<VirtualRAM>  (0x80000000, args.ram_path, CFG_RAM_SIZE));
-        uart_id  =  slaves.register_slave(std::make_shared<VirtualUart> (0x10000000, 0x0a));
-        std::dynamic_pointer_cast<VirtualUart>(slaves.get_slave(uart_id))->set_interrupt_controller(std::dynamic_pointer_cast<VirtualPLIC>(slaves.get_slave(plic_id)));
+
+        clint_id = slaves.register_slave(std::make_shared<VirtualCLINT>(0x02000000, args.timer_scale, args.stable_clock));
+        plic_id  = slaves.register_slave(std::make_shared<VirtualPLIC>(0x0C000000));
+        rom_id   = slaves.register_slave(std::make_shared<VirtualRAM>(0x01000000, CFG_ROM_SIZE));
+        ram_id   = slaves.register_slave(std::make_shared<VirtualRAM>(0x80000000, CFG_RAM_SIZE));
+        uart_id  = slaves.register_slave(std::make_shared<VirtualUart>(0x10000000, 0x0a));
+
+        uart_ = std::dynamic_pointer_cast<VirtualUart>(slaves.get_slave(uart_id));
+        uart_->set_interrupt_controller(
+            std::dynamic_pointer_cast<VirtualPLIC>(slaves.get_slave(plic_id)));
+
+        auto rom = std::dynamic_pointer_cast<VirtualRAM>(slaves.get_slave(rom_id));
+        auto ram = std::dynamic_pointer_cast<VirtualRAM>(slaves.get_slave(ram_id));
+        if (!rom || !ram) {
+            throw std::runtime_error("Failed to get VirtualRAM instance");
+        }
+
+        load_payloads(rom, args.rom_payloads, "ROM");
+        load_payloads(ram, args.ram_payloads, "RAM");
 
         if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64, &capstone_handle) != CS_ERR_OK) {
             throw std::runtime_error("Capstone engine failed to init.");
@@ -189,73 +210,83 @@ public:
     }
 
     ~SimulationManager() {
-        top->final(); // Ensure top is finalized before destruction
+        top->final();
     }
 
     void run_simulation(parsedArgs args) {
         uint64_t clock_cnt = 0;
         axiSignal axi;
         DpiManager& dpi = DpiManager::get_instance();
+        register_event_breakpoints(args, dpi);
 
         uint64_t cleanup_dcache_at = args.max_clock - args.cleanup_dcache_addrs.size() * DCACHE_CLEANUP_TIME;
+
         while (!Verilated::gotFinish() && clock_cnt < args.max_clock) {
-            // Reset handling
             if (clock_cnt < 4) {
                 top->reset = 1;
             } else {
                 top->reset = 0;
             }
 
-            // Debug output
-            if (args.verbose) {
-                auto pc = dpi.curr_pc;
-                auto raw_instr = dpi.fetching_instr;
-                cycle_verbose(clock_cnt, pc, raw_instr);
-            }
-            if (args.rob_debug)
-                dpi.print_rob();
-            if (args.rs_debug)
-                dpi.print_rs();
-            if (args.rt_debug)
-                dpi.print_rt();
-            if (args.rf_debug)
-                dpi.print_rf();
-
-            // Posedge and Negedge clock simulation
-            context->timeInc(1);
-            top->clock = 1;
-            top->eval();
-            if (args.vcd_dump.has_value() && static_cast<int64_t>(args.max_clock) - clock_cnt <= VCD_DUMP_MAX)
-                vcd_context->dump((static_cast<int64_t>(clock_cnt) - args.max_clock + VCD_DUMP_MAX) * 2);
-            init_stimulus(top);
-            if (clock_cnt > cleanup_dcache_at) {
-                top->io_dcacheCleanAllReq = true;   
+            if (auto_pause_pending_.exchange(false, std::memory_order_relaxed)) {
+                std::cerr << std::format(
+                    "[AUTO-PAUSE] Event breakpoint hit at cycle=0x{:x} pc=0x{:x}\r\n",
+                    clock_cnt, dpi.curr_pc);
+                input_manager->force_pause();
             }
 
-            if (!top->reset) {
-                std::memset(&axi, 0, sizeof(axiSignal));
-                read_axi(top, axi);
-                slaves.sim_step(top, axi);
-                if (args.axi_debug)
-                    axi_debug(axi);
-                set_axi(top, axi);
+            auto enqueue = [this](uint8_t ch) { uart_->enqueue_char(ch); };
+            input_manager->poll(enqueue);
 
-                top->io_time = slaves.get_slave(clint_id)->read(MTIME_OFFSET, 8);
+            while (input_manager->is_paused()) {
+                print_all_debug(clock_cnt, dpi, axi);
+                std::string cycle_info = cycle_verbose(clock_cnt, dpi.curr_pc, dpi.fetching_instr);
+
+                std::cerr << "[PAUSED cycle=0x" << std::hex << clock_cnt << std::dec
+                          << "] s/Enter=step  c=continue  q=quit  Ctrl+A h=help\r\n";
+
+                auto action = input_manager->wait_paused(enqueue);
+                switch (action) {
+                    case InputManager::PauseAction::Step:
+                        replay_buffer_.push_back({cycle_info});
+                        execute_one_cycle(clock_cnt, args, dpi, axi);
+                        clock_cnt++;
+                        continue;
+                    case InputManager::PauseAction::Resume:
+                        break;
+                    case InputManager::PauseAction::Quit:
+                        std::cerr << "\r\nQuit from debug pause.\r\n";
+                        goto simulation_end;
+                }
+                break;
             }
 
-            context->timeInc(1);
-            top->clock = 0;
-            top->eval();
-            if (args.vcd_dump.has_value() && static_cast<int64_t>(args.max_clock) - clock_cnt <= VCD_DUMP_MAX)
-                vcd_context->dump((static_cast<int64_t>(clock_cnt) - args.max_clock + VCD_DUMP_MAX) * 2 + 1);
+            {
+                bool verbose = args.verbose || input_manager->is_force_verbose();
+                std::string cycle_info = cycle_verbose(clock_cnt, dpi.curr_pc, dpi.fetching_instr);
+                replay_buffer_.push_back({cycle_info});
+                if (replay_buffer_.size() > REPLAY_BUFFER_SIZE) {
+                    replay_buffer_.pop_front();
+                }
+                if (verbose) {
+                    auto pc = dpi.curr_pc;
+                    auto raw_instr = dpi.fetching_instr;
+                    std::cout << cycle_info;
+                }
+                if (args.rob_debug) dpi.print_rob();
+                if (args.rs_debug)  dpi.print_rs();
+                if (args.rt_debug)  dpi.print_rt();
+                if (args.rf_debug)  dpi.print_rf();
+            }
 
+            execute_one_cycle(clock_cnt, args, dpi, axi);
             clock_cnt++;
         }
 
+    simulation_end:
         if (args.vcd_dump.has_value()) {
             vcd_context->close();
         }
-
         if (args.ram_dump.has_value()) {
             save_ram_dump(args.ram_dump.value());
         }
@@ -265,12 +296,71 @@ private:
     std::unique_ptr<VerilatedContext> context;
     std::unique_ptr<VerilatedVcdC> vcd_context;
     std::unique_ptr<VMarkoRvCore> top;
+    std::unique_ptr<InputManager> input_manager;
     VirtualAxiSlaves slaves;
+    std::shared_ptr<VirtualUart> uart_;
     uint64_t clint_id;
     uint64_t plic_id;
     uint64_t rom_id;
     uint64_t ram_id;
     uint64_t uart_id;
+
+    std::atomic<bool> auto_pause_pending_{false}; // Possible accessed by DPI callbacks in other threads
+    std::deque<CycleSnapshot> replay_buffer_;
+
+    // Execute one posedge+negedge simulation cycle (does NOT increment clock_cnt)
+    void execute_one_cycle(uint64_t clock_cnt, const parsedArgs& args,
+                           DpiManager& dpi, axiSignal& axi) {
+        context->timeInc(1);
+        top->clock = 1;
+        top->eval();
+
+        if (args.vcd_dump.has_value() &&
+            static_cast<int64_t>(args.max_clock) - clock_cnt <= VCD_DUMP_MAX) {
+            vcd_context->dump(
+                (static_cast<int64_t>(clock_cnt) - args.max_clock + VCD_DUMP_MAX) * 2);
+        }
+
+        init_stimulus(top);
+
+        if (clock_cnt > args.max_clock - args.cleanup_dcache_addrs.size() * DCACHE_CLEANUP_TIME) {
+            top->io_dcacheCleanAllReq = true;
+        }
+
+        if (!top->reset) {
+            std::memset(&axi, 0, sizeof(axiSignal));
+            read_axi(top, axi);
+            slaves.sim_step(top, axi);
+            if (args.axi_debug) axi_debug(axi);
+            set_axi(top, axi);
+            top->io_time = slaves.get_slave(clint_id)->read(MTIME_OFFSET, 8);
+        }
+
+        context->timeInc(1);
+        top->clock = 0;
+        top->eval();
+
+        if (args.vcd_dump.has_value() &&
+            static_cast<int64_t>(args.max_clock) - clock_cnt <= VCD_DUMP_MAX) {
+            vcd_context->dump(
+                (static_cast<int64_t>(clock_cnt) - args.max_clock + VCD_DUMP_MAX) * 2 + 1);
+        }
+    }
+
+    // Print all debug information (used in pause mode)
+    void print_all_debug(uint64_t clock_cnt, DpiManager& dpi, const axiSignal& axi) {
+        std::cout << "\r\n===================================\r\n";
+        for (const auto& snapshot : replay_buffer_) {
+            std::cout << snapshot.cycle_info;
+        }
+        replay_buffer_.clear();
+        dpi.print_rob();
+        dpi.print_rs();
+        dpi.print_rt();
+        dpi.print_rf();
+        axi_debug(axi);
+        std::cout << "===================================\r\n";
+    }
 
     void save_ram_dump(const std::string& dump_path) {
         std::ofstream dump_file(dump_path, std::ios::out | std::ios::binary);
@@ -288,10 +378,83 @@ private:
         dump_file.write(reinterpret_cast<const char*>(ram->ram), ram->size);
         dump_file.close();
     }
+
+    static bool filter_matches(const std::map<std::string, uint64_t>& filters,
+                                const std::string& key, uint64_t actual_value)
+    {
+        auto it = filters.find(key);
+        if (it == filters.end()) return true;
+        return it->second == actual_value;
+    }
+
+    static void load_payloads(const std::shared_ptr<VirtualRAM>& mem,
+                              const std::vector<PayloadSpec>& payloads,
+                              const std::string& mem_name)
+    {
+        for (const auto& payload : payloads) {
+            if (payload.type == PayloadType::Elf) {
+                std::cout << std::format("Loading {} ELF: {}\n", mem_name, payload.file_path);
+                mem->load_elf(payload.file_path);
+            } else {
+                std::cout << std::format("Loading {} BIN: {} @ {:#x}\n",
+                                         mem_name,
+                                         payload.file_path,
+                                         payload.addr.value());
+                mem->load_bin(payload.file_path, payload.addr.value());
+            }
+        }
+    }
+
+    void register_event_breakpoints(const parsedArgs& args, DpiManager& dpi)
+    {
+        for (const auto& bp : args.event_breakpoints) {
+
+            if (bp.event_type == "issue") {
+                dpi.on_issue([this, bp](const IssueEvent& e) {
+                    if (filter_matches(bp.filters, "prd_valid", e.prd_valid) &&
+                        filter_matches(bp.filters, "prd",       e.prd))
+                    {
+                        auto_pause_pending_.store(true, std::memory_order_relaxed);
+                    }
+                });
+
+            } else if (bp.event_type == "commit") {
+                dpi.on_commit([this, bp](const CommitEvent& e) {
+                    if (filter_matches(bp.filters, "prd_valid", e.prd_valid) &&
+                        filter_matches(bp.filters, "prd",       e.prd))
+                    {
+                        auto_pause_pending_.store(true, std::memory_order_relaxed);
+                    }
+                });
+
+            } else if (bp.event_type == "discon") {
+                dpi.on_discon([this, bp](const DisconEvent& e) {
+                    if (filter_matches(bp.filters, "discon_type",       e.discon_type) &&
+                        filter_matches(bp.filters, "prd_valid",         e.prd_valid) &&
+                        filter_matches(bp.filters, "prd",               e.prd) &&
+                        filter_matches(bp.filters, "prevprd",           e.prevprd) &&
+                        filter_matches(bp.filters, "rename_ckpt_index", e.rename_ckpt_index))
+                    {
+                        auto_pause_pending_.store(true, std::memory_order_relaxed);
+                    }
+                });
+
+            } else if (bp.event_type == "retire") {
+                dpi.on_retire([this, bp](const RetireEvent& e) {
+                    if (filter_matches(bp.filters, "is_exception", e.is_exception) &&
+                        filter_matches(bp.filters, "prd_valid",    e.prd_valid) &&
+                        filter_matches(bp.filters, "prd",          e.prd) &&
+                        filter_matches(bp.filters, "prevprd",      e.prevprd))
+                    {
+                        auto_pause_pending_.store(true, std::memory_order_relaxed);
+                    }
+                });
+            }
+        }
+    }
 };
 
-int main(int argc, char **argv, char **env)
-{
+int main(int argc, char **argv, char **env) {
     Verilated::commandArgs(argc, argv);
 
     parsedArgs args;

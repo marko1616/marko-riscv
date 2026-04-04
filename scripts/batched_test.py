@@ -39,7 +39,7 @@ TEST_CASES = [
             "rv64ui-p-lui",
             "rv64ui-p-lw",
             "rv64ui-p-lwu",
-#           "rv64ui-p-ma_data", Don't support miss aligned data op yet
+#           "rv64ui-p-ma_data", Don't support zicclsm yet.
             "rv64ui-p-or",
             "rv64ui-p-ori",
             "rv64ui-p-sb",
@@ -104,6 +104,14 @@ TEST_CASES = [
             "rv64um-p-remu",
             "rv64um-p-remuw",
             "rv64um-p-remw",
+# S Mode
+#           "rv64si-p-csr", Don't support PMP yet.
+#           "rv64si-p-dirty", Don't support PMP yet.
+#           "rv64si-p-icache-alias", Don't support PMP yet.
+#           "rv64si-p-ma_fetch", Don't support zicclsm yet.
+            "rv64si-p-sbreak",
+            "rv64si-p-scall",
+            "rv64si-p-wfi",
 ]
 
 parser = argparse.ArgumentParser()
@@ -128,8 +136,8 @@ def run_test(case_name):
     ram_dump_path = BASE_PATH / "tests" / f"{case_name}.ram_dump.bin"
     command = [
         str(EMULATOR_PATH),
-        "--rom-path", str(ROM_PATH),
-        "--ram-path", str(TESTS_PATH / case_name),
+        "--rom-load", f"elf:{ROM_PATH}",
+        "--ram-load", f"elf:{TESTS_PATH / case_name}",
         "--max-clock", "10000",
         "--ram-dump", str(ram_dump_path),
         "--cleanup-dcache", str(tohost_addr)

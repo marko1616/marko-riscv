@@ -1,33 +1,47 @@
 /dts-v1/;
 
 / {
+    model = "marko-riscv";
+    compatible = "riscv-virtio";
     #address-cells = <2>;
     #size-cells = <2>;
-    compatible = "riscv-virtio";
-    model = "marko-riscv";
 
-    memory@80000000 {
-        device_type = "memory";
-        reg = <0x00 0x80000000 0x00 0x10000000>;
+    /* ----------------------------------------------------------------
+     *  Boot Configuration
+     * ---------------------------------------------------------------- */
+    chosen {
+        bootargs = "root=/dev/vda rw console=ttyS0";
+        stdout-path = &uart0;
     };
 
+    /* ----------------------------------------------------------------
+     *  System Memory — 64 MiB @ 0x8000_0000
+     * ---------------------------------------------------------------- */
+    memory@80000000 {
+        device_type = "memory";
+        reg = <0x0 0x80000000 0x0 0x4000000>;
+    };
+
+    /* ----------------------------------------------------------------
+     *  CPUs
+     * ---------------------------------------------------------------- */
     cpus {
         #address-cells = <2>;
         #size-cells = <0>;
-        timebase-frequency = <1000000>; // 1MHz
+        timebase-frequency = <1000000>; /* 1 MHz */
 
         cpu0: cpu@0 {
             device_type = "cpu";
             reg = <0x0 0x0>;
             status = "okay";
             compatible = "riscv";
-            riscv,isa = "rv64ima_zicsr";
+            riscv,isa = "rv64ima_zicsr_zicntr_zifenceI_sstc";
             mmu-type = "riscv,sv48";
 
-            cpu0intc: interrupt-controller {
+            cpu0_intc: interrupt-controller {
+                #interrupt-cells = <1>;
                 compatible = "riscv,cpu-intc";
                 interrupt-controller;
-                #interrupt-cells = <1>;
             };
         };
 
@@ -40,34 +54,47 @@
         };
     };
 
-    chosen {
-        bootargs = "console=ttyS0 earlycon=sbi";
-        stdout-path = &uart0;
-    };
-
+    /* ----------------------------------------------------------------
+     *  SoC Peripherals
+     * ---------------------------------------------------------------- */
     soc {
         #address-cells = <2>;
         #size-cells = <2>;
         compatible = "simple-bus";
-
         ranges;
 
+        /* ---------- CLINT — Core Local Interrupter ---------- */
+        clint: clint@2000000 {
+            compatible = "riscv,clint0";
+            reg = <0x0 0x2000000 0x0 0x10000>;
+            interrupts-extended = <
+                &cpu0_intc 3    /* M-mode software interrupt */
+                &cpu0_intc 7    /* M-mode timer interrupt    */
+            >;
+        };
+
+        /* ---------- PLIC — Platform-Level Interrupt Controller ---------- */
+        plic: plic@c000000 {
+            #interrupt-cells = <1>;
+            #address-cells = <0>;
+            compatible = "riscv,plic0";
+            reg = <0x0 0xc000000 0x0 0x210000>;
+            interrupt-controller;
+            riscv,ndev = <32>;
+            interrupts-extended = <
+                &cpu0_intc 11   /* M-mode external interrupt */
+                &cpu0_intc 9    /* S-mode external interrupt */
+            >;
+        };
+
+        /* ---------- UART0 — NS16550A Serial Controller ---------- */
         uart0: uart@10000000 {
             compatible = "ns16550a";
             reg = <0x0 0x10000000 0x0 0x100>;
-            clock-frequency = <0x08>;
+            clock-frequency = <1843200>;
+            interrupt-parent = <&plic>;
+            interrupts = <10>;
             status = "okay";
-        };
-
-        clint: clint@2000000 {
-            compatible = "sifive,clint0", "riscv,clint0";
-            reg = <0x0 0x2000000 0x0 0x10000>;
-            status = "okay";
-
-            interrupts-extended = <
-                &cpu0intc 3   // msip
-                &cpu0intc 7   // mtip
-            >;
         };
     };
 };

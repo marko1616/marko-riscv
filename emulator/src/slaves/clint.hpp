@@ -12,12 +12,15 @@
 
 class VirtualCLINT : public Slave {
 public:
-    explicit VirtualCLINT(uint64_t base_addr);
+    explicit VirtualCLINT(uint64_t base_addr, double timer_scale, bool stable_clock);
 
     uint64_t read(uint64_t addr, uint8_t size) override;
     void write(uint64_t addr, uint64_t data, uint8_t size, uint8_t strb) override;
     void step(const std::unique_ptr<VMarkoRvCore> &top) override;
 private:
+    double timer_scale = 0.0;
+    bool stable_clock = false;
+    double mtime_accumulator = 0.0;
     uint64_t mtime = 0;
     uint64_t mtimecmp = 0;
     uint32_t msip = 0;

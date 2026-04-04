@@ -78,10 +78,9 @@ class InstrDecoder extends Module {
         when(io.instrBundle.valid && (opcode === entry.opcode) && entry.matchFn(instr)) {
             validInstr := entry.handler(instr, lregReq, params, pc)
             exu := entry.unit
-
+            issueTask.predPc := predPc
             when(entry.unit === EXUEnum.bru) {
                 issueTask.predTaken := predTaken
-                issueTask.predPc := predPc
             }
         }
     }

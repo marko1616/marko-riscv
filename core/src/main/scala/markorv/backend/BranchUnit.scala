@@ -55,8 +55,8 @@ class BranchUnit(implicit val c: CoreConfig) extends Module {
 
     io.commit.valid := io.branchInstr.valid
     io.commit.bits.data := Mux(funct.in(BranchFunct.jal, BranchFunct.jalr), params.pc + 4.U, 0.U)
-    io.commit.bits.disconType := Mux(funct === BranchFunct.jalr, DisconEventType.instrRedirect, DisconEventType.branchMispred)
-    io.commit.bits.recover := recover
-    io.commit.bits.recoverPc := Mux(funct === BranchFunct.jalr, jalrPc, branchPc)
+    io.commit.bits.discon := recover
+    io.commit.bits.disconType := DisconEventType.branchMispred
+    io.commit.bits.eventPc := Mux(funct === BranchFunct.jalr, jalrPc, branchPc)
     io.outfire := io.branchInstr.valid
 }

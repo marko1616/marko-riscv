@@ -47,12 +47,7 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
         regWrite.bits.addr := robReadEntry.prd
         regWrite.bits.data := in.bits.data
 
-        if (in.bits.isInstanceOf[CommitWithTrap]) {
-            val t = in.bits.asInstanceOf[CommitWithTrap]
-            commitEvent.valid := in.valid && t.trap
-        } else {
-            commitEvent.valid := in.valid
-        }
+        commitEvent.valid := in.valid
         commitEvent.bits.prdValid := robReadEntry.prdValid
         commitEvent.bits.prd      := robReadEntry.prd
 
@@ -64,22 +59,21 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
 
         if (in.bits.isInstanceOf[CommitWithDiscon]) {
             val d = in.bits.asInstanceOf[CommitWithDiscon]
+            fCtrl.discon := d.discon
             fCtrl.disconType := d.disconType
         }
-        if (in.bits.isInstanceOf[CommitWithTrap]) {
-            val t = in.bits.asInstanceOf[CommitWithTrap]
-            fCtrl.trap := t.trap
+        if (in.bits.isInstanceOf[CommitWithException]) {
+            val t = in.bits.asInstanceOf[CommitWithException]
             fCtrl.cause := t.cause
             fCtrl.xtval := t.xtval
         }
         if (in.bits.isInstanceOf[CommitWithRecover]) {
             val r = in.bits.asInstanceOf[CommitWithRecover]
-            fCtrl.recover := r.recover
-            fCtrl.recoverPc := r.recoverPc
+            fCtrl.eventPc := r.eventPc
         }
         if (in.bits.isInstanceOf[CommitWithXret]) {
             val x = in.bits.asInstanceOf[CommitWithXret]
-            fCtrl.xret := x.xret
+            fCtrl.xretType := x.xretType
         }
     }
 }

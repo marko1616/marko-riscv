@@ -2,6 +2,7 @@ package markorv
 
 import chisel3._
 import chisel3.util._
+import chisel3.util.circt.dpi._
 import _root_.circt.stage.ChiselStage
 
 import markorv.utils.ChiselUtils._
@@ -11,7 +12,28 @@ import markorv.backend._
 import markorv.bus._
 import markorv.cache._
 import markorv.manage._
+import markorv.trap._
 import markorv.utils._
+
+class IssueEventDPI extends DPIClockedVoidFunctionImport {
+    val functionName = "fire_issue_event"
+    override val inputNames = Some(Seq("entry"))
+}
+
+class CommitEventDPI extends DPIClockedVoidFunctionImport {
+    val functionName = "fire_commit_event"
+    override val inputNames = Some(Seq("entry"))
+}
+
+class DisconEventDPI extends DPIClockedVoidFunctionImport {
+    val functionName = "fire_discon_event"
+    override val inputNames = Some(Seq("entry"))
+}
+
+class RetireEventDPI extends DPIClockedVoidFunctionImport {
+    val functionName = "fire_retire_event"
+    override val inputNames = Some(Seq("entry"))
+}
 
 class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
@@ -60,7 +82,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // CSR & Trap controller.
     val csrFile = Module(new ControlStatusRegisters)
-    val exceptionUnit = Module(new ExceptionUnit)
+    val trapUnit = Module(new TrapUnit)
 
     // Module Connections
     // ==================
@@ -73,7 +95,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     io.axi <> axiCtrl.io.axi
 
     // Exception & Flush Control
-    val flush = exceptionUnit.io.flush | rob.io.flush
+    val flush = trapUnit.io.flush | rob.io.flush
 
     // Cache
     iCache.io.invalidateAll <> misc.io.icacheInvalidateAll
@@ -96,18 +118,25 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
         dCache.io.cleanAllOutfire <> io.dcacheCleanAllResp.get
     }
 
-    exceptionUnit.io.pc <> ifu.io.pc
-    exceptionUnit.io.privilege <> misc.io.getPrivilege
-    exceptionUnit.io.setException <> csrFile.io.setException
-    exceptionUnit.io.exceptionRetInfo <> csrFile.io.exceptionRetInfo
-    exceptionUnit.io.mstatus <> csrFile.io.mstatus
-    exceptionUnit.io.mie <> csrFile.io.mie
-    exceptionUnit.io.robEmpty <> rob.io.empty
-    exceptionUnit.io.meip <> io.meip
-    exceptionUnit.io.mtip <> io.mtip
-    exceptionUnit.io.msip <> io.msip
-
-    rob.io.exceptionRet <> csrFile.io.exceptionRet
+    trapUnit.io.pc <> ifu.io.pc
+    trapUnit.io.privilege <> misc.io.getPrivilege
+    trapUnit.io.handleTrap <> csrFile.io.handleTrap
+    trapUnit.io.trapRetInfo <> csrFile.io.trapRetInfo
+    trapUnit.io.mstatus <> csrFile.io.mstatus
+    trapUnit.io.mie <> csrFile.io.mie
+    trapUnit.io.sie <> csrFile.io.sie
+    trapUnit.io.medeleg <> csrFile.io.medeleg
+    trapUnit.io.mideleg <> csrFile.io.mideleg
+    trapUnit.io.interruptXepc <> rob.io.interruptXepc
+    trapUnit.io.interruptHlt <> rob.io.interruptHlt
+    trapUnit.io.meip <> io.meip
+    trapUnit.io.mtip <> io.mtip
+    trapUnit.io.msip <> io.msip
+    trapUnit.io.seip <> csrFile.io.seip
+    trapUnit.io.stip <> csrFile.io.stip
+    trapUnit.io.ssip <> csrFile.io.ssip
+    
+    rob.io.trapRet <> csrFile.io.trapRet
 
     // Frontend Pipeline Connections
     ipu.io.flush := flush
@@ -121,7 +150,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     ifu.io.flush := flush
     ifu.io.fetchBundle <> ifq.io.fetchBundle
     ifu.io.flushPc := MuxCase(0.U, Seq(
-        exceptionUnit.io.flush -> exceptionUnit.io.flushPc,
+        trapUnit.io.flush -> trapUnit.io.flushPc,
         rob.io.flush -> rob.io.flushPc
     ))
 
@@ -156,7 +185,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     issuer.io.regStates <> regFile.io.getStates
     issuer.io.renameTailIndex <> renameTable.io.tailIndex
     issuer.io.renameTable <> renameTable.io.tailEntry
-    issuer.io.interruptHlt <> exceptionUnit.io.interruptHlt
+    issuer.io.interruptHlt <> trapUnit.io.interruptHlt
 
     // Reservation Station Interface
     reservStation.io.robHeadIndex <> rob.io.headIndex
@@ -204,6 +233,8 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     csrFile.io.retireEvent := rob.io.retireEvent
     csrFile.io.csrio <> misc.io.csrio
     csrFile.io.privilege <> misc.io.getPrivilege
+    csrFile.io.mepc <> misc.io.mepc
+    csrFile.io.sepc <> misc.io.sepc
 
     csrFile.io.meip <> io.meip
     csrFile.io.mtip <> io.mtip
@@ -211,12 +242,38 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     csrFile.io.time <> io.time
 
-    rob.io.trap <> exceptionUnit.io.trap
-    rob.io.exceptionRet <> exceptionUnit.io.exceptionRet
-    misc.io.setPrivilege <> exceptionUnit.io.setPrivilege
+    rob.io.exception <> trapUnit.io.exception
+    rob.io.trapRet <> trapUnit.io.trapRet
+    misc.io.setPrivilege <> trapUnit.io.setPrivilege
 
     // AMO
-    lsu.io.invalidateReserved := rob.io.exceptionRet
+    lsu.io.invalidateReserved <> rob.io.trapRet.valid
+
+    if (c.simulate) {
+        val issueEventDPI = new IssueEventDPI
+        when(issuer.io.issueEvent.valid) {
+            issueEventDPI.call(
+                issuer.io.issueEvent.bits
+            )
+        }
+
+        for (commitEvent <- commitUnit.io.commitEvents) {
+            val commitEventDPI = new CommitEventDPI
+            when(commitEvent.valid) {
+                commitEventDPI.call(commitEvent.bits)
+            }
+        }
+
+        val disconEventDPI = new DisconEventDPI
+        when(rob.io.disconEvent.valid) {
+            disconEventDPI.call(rob.io.disconEvent.bits)
+        }
+
+        val retireEventDPI = new RetireEventDPI
+        when(rob.io.retireEvent.valid) {
+            retireEventDPI.call(rob.io.retireEvent.bits)
+        }
+    }
 }
 
 object Main extends App {

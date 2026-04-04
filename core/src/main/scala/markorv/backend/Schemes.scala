@@ -8,7 +8,7 @@ import markorv.config._
 import markorv.frontend._
 import markorv.manage.BaseCommitBundle
 import markorv.manage.CommitWithDiscon
-import markorv.manage.CommitWithTrap
+import markorv.manage.CommitWithException
 import markorv.manage.CommitWithRecover
 import markorv.manage.CommitWithXret
 import markorv.manage.DisconEventType
@@ -86,6 +86,7 @@ object LSUOpcode extends ChiselEnum {
 object SystemOpMap extends ChiselEnum {
     val ecall = Value("h000000".U)
     val ebreak = Value("h002000".U)
+    val sret = Value("h204000".U)
     val wfi = Value("h20a000".U)
     val mret = Value("h604000".U)
 }
@@ -323,7 +324,7 @@ class LoadStoreOpcode extends Bundle {
 
 class LSUCommit(implicit c: CoreConfig)
     extends BaseCommitBundle
-    with CommitWithDiscon with CommitWithTrap
+    with CommitWithDiscon with CommitWithException with CommitWithRecover
 
 class MDUOpcode extends Bundle {
     // Notice MDU operation should always be valid as register rename will always assume MDU instruction won't cause exception.
@@ -382,11 +383,14 @@ class MISCOpcode extends Bundle {
     val miscSysFunct = UInt(3.W)
     val miscMemFunct = UInt(2.W)
 
+    val rawInstr = UInt(32.W)
+
     def fromSys(rawInstr: Instruction, regReq: LogicRegRequests, params: DecodedParams, _pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
 
         val csrType = instr.funct3(1,0)
+        this.rawInstr := rawInstr.asUInt
         when(csrType =/= 0.U) {
             val isImm = instr.funct3(2)
             val isCsrrw = csrType === 1.U
@@ -408,7 +412,8 @@ class MISCOpcode extends Bundle {
                 SystemOpMap.ecall -> 1.U,
                 SystemOpMap.ebreak -> 2.U,
                 SystemOpMap.wfi -> 3.U,
-                SystemOpMap.mret -> 4.U
+                SystemOpMap.mret -> 4.U,
+                SystemOpMap.sret -> 5.U,
             )),0.U)
         }
         valid
@@ -417,6 +422,7 @@ class MISCOpcode extends Bundle {
     def fromMISCMem(rawInstr: Instruction, _regReq: LogicRegRequests, params: DecodedParams, pc: UInt): Bool = {
         val instr = rawInstr.asTypeOf(new ITypeInstruction)
         val valid = WireInit(false.B)
+        this.rawInstr := rawInstr.asUInt
 
         when(instr.funct3 === 0.U) {
             // fence
@@ -436,11 +442,12 @@ class MISCOpcode extends Bundle {
 
     def fromIllegal(rawInstr: Instruction, _regReq: LogicRegRequests, _params: DecodedParams, _pc: UInt): Bool = {
         val valid = WireInit(true.B)
-        this.miscSysFunct := 5.U
+        this.rawInstr := rawInstr.asUInt
+        this.miscSysFunct := 6.U
         valid
     }
 }
 
 class MISCCommit(implicit c: CoreConfig)
     extends BaseCommitBundle
-    with CommitWithDiscon with CommitWithTrap with CommitWithRecover with CommitWithXret
+    with CommitWithDiscon with CommitWithException with CommitWithRecover with CommitWithXret

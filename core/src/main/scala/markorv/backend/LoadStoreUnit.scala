@@ -254,17 +254,19 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
             val pmaCheckSucc = pmaChecker.io.attr.a
             when(~pmaCheckSucc) {
                 io.commit.valid := true.B
+                io.commit.bits.discon := true.B
                 io.commit.bits.disconType := DisconEventType.instrException
-                io.commit.bits.trap := true.B
-                io.commit.bits.cause := 7.U
+                io.commit.bits.eventPc := params.pc
                 io.commit.bits.xtval := addr
+                io.commit.bits.cause := 7.U
                 opFired := true.B
             }.elsewhen(~alignedCheckSucc) {
                 io.commit.valid := true.B
+                io.commit.bits.discon := true.B
                 io.commit.bits.disconType := DisconEventType.instrException
-                io.commit.bits.trap := true.B
-                io.commit.bits.cause := 6.U
+                io.commit.bits.eventPc := params.pc
                 io.commit.bits.xtval := addr
+                io.commit.bits.cause := 6.U
                 opFired := true.B
             }.otherwise {
                 when(pmaChecker.io.attr.c) {
@@ -288,17 +290,19 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
                 val pmaCheckSucc = pmaChecker.io.attr.r
                 when(~pmaCheckSucc) {
                     io.commit.valid := true.B
+                    io.commit.bits.discon := true.B
                     io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.trap := true.B
-                    io.commit.bits.cause := 5.U
+                    io.commit.bits.eventPc := params.pc
                     io.commit.bits.xtval := addr
+                    io.commit.bits.cause := 5.U
                     opFired := true.B
                 }.elsewhen(~alignedCheckSucc) {
                     io.commit.valid := true.B
+                    io.commit.bits.discon := true.B
                     io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.trap := true.B
-                    io.commit.bits.cause := 4.U
+                    io.commit.bits.eventPc := params.pc
                     io.commit.bits.xtval := addr
+                    io.commit.bits.cause := 4.U
                     opFired := true.B
                 }.otherwise {
                     when(pmaChecker.io.attr.c) {
@@ -327,17 +331,19 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
                 val pmaCheckSucc = pmaChecker.io.attr.w
                 when(~pmaCheckSucc) {
                     io.commit.valid := true.B
+                    io.commit.bits.discon := true.B
                     io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.trap := true.B
-                    io.commit.bits.cause := 7.U
+                    io.commit.bits.eventPc := params.pc
                     io.commit.bits.xtval := addr
+                    io.commit.bits.cause := 7.U
                     opFired := true.B
                 }.elsewhen(~alignedCheckSucc) {
                     io.commit.valid := true.B
+                    io.commit.bits.discon := true.B
                     io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.trap := true.B
-                    io.commit.bits.cause := 6.U
+                    io.commit.bits.eventPc := params.pc
                     io.commit.bits.xtval := addr
+                    io.commit.bits.cause := 6.U
                     opFired := true.B
                 }.otherwise {
                     when(pmaChecker.io.attr.c) {

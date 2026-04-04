@@ -8,11 +8,11 @@ import markorv.frontend.OpcodeBundle
 import markorv.frontend.DecodedParams
 import markorv.frontend.PhyRegRequests
 import markorv.backend.EXUEnum
+import markorv.trap.TrapReturnType
 
 object DisconEventType extends ChiselEnum {
     val interrupt      = Value  // External Asynchronous Interrupt
     val instrException = Value  // Synchronous Instruction Exception (e.g. syscall, illegal instr)
-    val instrRedirect  = Value  // Control-Flow Redirection by jalr
     val branchMispred  = Value  // Pipeline flush due to Branch Misprediction
     val instrSync      = Value  // Pipeline Synchronization/Flush due to Instruction Side-effects (e.g. fence.i)
     val excepReturn    = Value  // Return from Exception Handler by xret
@@ -41,16 +41,16 @@ class RegisterCommit(implicit val c: CoreConfig) extends Bundle {
 }
 
 class ROBDisconField extends Bundle {
+    val discon = Bool()
     val disconType = new DisconEventType.Type // Reserve for statistics CSR and debugging.
 
-    val trap  = Bool()
+    val exception  = Bool()
     val cause = UInt(16.W)
     val xtval = UInt(64.W)
     val xepc  = UInt(64.W)
-    val xret  = Bool()
+    val xretType = new TrapReturnType.Type
 
-    val recover   = Bool()
-    val recoverPc = UInt(64.W)
+    val eventPc = UInt(64.W)
 }
 
 class ROBEntry(implicit val c: CoreConfig) extends Bundle {
@@ -60,7 +60,6 @@ class ROBEntry(implicit val c: CoreConfig) extends Bundle {
     val prdValid = Bool()
     val prd      = UInt(log2Ceil(c.regFileSize).W)
     val prevprd  = UInt(log2Ceil(c.regFileSize).W)
-    val pc       = UInt(64.W)
 
     val fCtrl = new ROBDisconField
     val commited = Bool()
@@ -72,7 +71,7 @@ class ROBAllocReq(implicit val c: CoreConfig) extends Bundle {
     val prdValid = Bool()
     val prd = UInt(log2Ceil(c.regFileSize).W)
     val prevprd = UInt(log2Ceil(c.regFileSize).W)
-    val pc = UInt(64.W)
+    val eventPc = UInt(64.W)
     val renameCkptIndex = UInt(log2Ceil(c.renameTableSize).W)
 }
 
@@ -117,14 +116,14 @@ class RetireEvent(implicit val c: CoreConfig) extends Bundle {
     // In such cases, the xinstret register should not be incremented,
     // but we still generate this event to update internal states.
     // Refer to the RISC-V Privileged Spec, section 3.3.1.
-    val isTrap = Bool()
+    val isException = Bool()
     val prdValid = Bool()
     val prd = UInt(log2Ceil(c.regFileSize).W)
     val prevprd = UInt(log2Ceil(c.regFileSize).W)
 }
 
 class ReservationStationEntry(implicit val c: CoreConfig) extends Bundle {
-    val valid = Bool()
+    val valid = Bool()  
     val exu = new EXUEnum.Type
     val opcodes = new OpcodeBundle
     val predTaken = Bool()
@@ -162,20 +161,19 @@ abstract class BaseCommitBundle(implicit val c: CoreConfig) extends Bundle {
 }
 
 trait CommitWithDiscon extends Bundle {
+    val discon = Bool()
     val disconType = new DisconEventType.Type
 }
 
-trait CommitWithTrap extends Bundle {
-    val trap = Bool()
+trait CommitWithException extends Bundle {
     val cause = UInt(16.W)
     val xtval = UInt(64.W)
 }
 
 trait CommitWithRecover extends Bundle {
-    val recover = Bool()
-    val recoverPc = UInt(64.W)
+    val eventPc = UInt(64.W)
 }
 
 trait CommitWithXret extends Bundle {
-    val xret = Bool()
+    val xretType = new TrapReturnType.Type
 }
