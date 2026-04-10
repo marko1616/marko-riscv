@@ -12,121 +12,242 @@ import markorv.cache._
 class InstrCache(implicit val c: CacheConfig) extends Module {
     val io = IO(new Bundle {
         val cacheInterface = new IcacheInterface
-        val ioInterface = new IOInterface()(getCacheIoConfig(c, CacheType.Icache),true)
+        val ioInterface = new IOInterface()(getCacheIoConfig(c, CacheType.Icache), true)
 
         val invalidateAll = Input(Bool())
         val invalidateAllOutfire = Output(Bool())
     })
+
     object State extends ChiselEnum {
-        val statIdle, statRead, statReplace, statInvalidate = Value
+        val sIdle, sRead, sReadReplace, sInvalidate = Value
     }
 
-    val readAddr = Reg(UInt(64.W))
+    val tagVArray = SyncReadMem(c.setNum, Vec(c.wayNum, new CacheTagValid))
+    val dataArray = SyncReadMem(c.setNum, Vec(c.wayNum, new CacheData))
 
-    val state = RegInit(State.statIdle)
-    val invalidateAllSetIdx = Reg(UInt(c.setBits.W))
-    val replacePtr = Reg(UInt(log2Ceil(c.wayNum).W))
+    val transactionReadAddr = Reg(UInt(64.W))
+    val transactionReadSet  = Reg(UInt(c.setBits.W))
+    val transactionReadTag  = Reg(UInt(c.tagBits.W))
+    val victimPtr           = RegInit(0.U(log2Ceil(c.wayNum).W))
 
-    val tagVArray = SyncReadMem(c.setNum, Vec(c.wayNum,new CacheTagValid))
-    val dataArray = SyncReadMem(c.setNum, Vec(c.wayNum,new CacheData))
+    val state = RegInit(State.sIdle)
+    val invalidateIdx = RegInit(0.U(c.setBits.W))
 
-    val tagvRead = Wire(Vec(c.wayNum,new CacheTagValid))
-    val dataRead = Wire(Vec(c.wayNum,new CacheData))
-    val lookupIndex = Mux(state === State.statReplace,readAddr(c.setEnd,c.setStart),io.cacheInterface.readReq.bits.addr(c.setEnd,c.setStart))
-    val lookupValid = io.cacheInterface.readReq.valid && (state === State.statIdle || state === State.statRead || state === State.statReplace)
+    val replaceSetTagVReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheTagValid().zero)))
+    val replaceSetDataReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheData().zero)))
 
-    io.cacheInterface.readReq.ready := (state === State.statIdle || state === State.statRead)
-    io.ioInterface.read.get.resp.ready := state === State.statReplace
+    val sramReadTagV = Wire(Vec(c.wayNum, new CacheTagValid))
+    val sramReadData = Wire(Vec(c.wayNum, new CacheData))
+
+    val reqReadAddr = io.cacheInterface.readReq.bits.addr
+    val reqReadSet  = reqReadAddr(c.setEnd, c.setStart)
+    val reqReadTag  = reqReadAddr(c.tagEnd, c.tagStart)
+
+
+    // State actions
+    // sIdle -> latch transaction / start sram read
+    val sIdleSetTransactionValid = WireDefault(false.B)
+    val sIdleSetTransactionAddr  = WireDefault(0.U(64.W))
+    val sIdleSetTransactionSet   = WireDefault(0.U(c.setBits.W))
+    val sIdleSetTransactionTag   = WireDefault(0.U(c.tagBits.W))
+
+    val sIdleReadSramValid = WireDefault(false.B)
+    val sIdleReadSramSet   = WireDefault(0.U(c.setBits.W))
+
+    // read result for current transaction
+    val readHit = Wire(Bool())
+    val hitData = Wire(UInt((8 * c.dataBytes).W))
+
+    // sRead -> pipeline next transaction only when current read hits
+    val sReadSetTransactionValid = WireDefault(false.B)
+    val sReadSetTransactionAddr  = WireDefault(0.U(64.W))
+    val sReadSetTransactionSet   = WireDefault(0.U(c.setBits.W))
+    val sReadSetTransactionTag   = WireDefault(0.U(c.tagBits.W))
+
+    // sRead -> miss snapshot
+    val sReadSetReplaceSetValid = WireDefault(false.B)
+    val sReadSetReplaceSetTagV  = Wire(Vec(c.wayNum, new CacheTagValid))
+    val sReadSetReplaceSetData  = Wire(Vec(c.wayNum, new CacheData))
+    sReadSetReplaceSetTagV := sramReadTagV
+    sReadSetReplaceSetData := sramReadData
+
+    // sRead -> read next set into SRAM
+    val sReadReadSramValid = WireDefault(false.B)
+    val sReadReadSramSet   = WireDefault(0.U(c.setBits.W))
+
+    // sReadReplace -> write refill result back
+    val sReadReplaceWriteValid = WireDefault(false.B)
+    val sReadReplaceWriteSet   = WireDefault(transactionReadSet)
+    val sReadReplaceWriteWay   = WireDefault(victimPtr)
+    val sReadReplaceWriteTagV  = Wire(Vec(c.wayNum, new CacheTagValid))
+    val sReadReplaceWriteData  = Wire(Vec(c.wayNum, new CacheData))
+
+    for (i <- 0 until c.wayNum) {
+        sReadReplaceWriteTagV(i) := replaceSetTagVReg(i)
+        sReadReplaceWriteData(i) := replaceSetDataReg(i)
+    }
+
+    // sInvalidate -> clear all valids
+    val sInvalidateWriteValid = WireDefault(false.B)
+    val sInvalidateWriteSet   = WireDefault(invalidateIdx)
+    val sInvalidateWriteTagV  = Wire(Vec(c.wayNum, new CacheTagValid))
+    sInvalidateWriteTagV := VecInit(Seq.fill(c.wayNum)(new CacheTagValid().zero))
+
+    // Default assignments
+    io.cacheInterface.readReq.ready := false.B
 
     io.cacheInterface.readResp.valid := false.B
     io.cacheInterface.readResp.bits := new CacheReadResp().zero
+
     io.ioInterface.read.get.params.valid := false.B
-    io.ioInterface.read.get.params.bits := new ReadParams()(using getCacheIoConfig(c, CacheType.Dcache)).zero
+    io.ioInterface.read.get.params.bits := new ReadParams()(using getCacheIoConfig(c, CacheType.Icache)).zero
 
     io.invalidateAllOutfire := false.B
 
-    tagvRead := tagVArray.read(lookupIndex,lookupValid)
-    dataRead := dataArray.read(lookupIndex,lookupValid)
+    // Hit
+    val readHits = sramReadTagV.map { e =>
+        e.valid && (e.tag === transactionReadTag)
+    }
 
+    readHit := readHits.reduce(_ || _)
+    hitData := Mux(readHit, Mux1H(readHits, sramReadData.map(_.data)), 0.U)
+
+    io.cacheInterface.readReq.ready := !io.invalidateAll && (
+        (state === State.sIdle) ||
+        ((state === State.sRead) && readHit)
+    )
+
+    // FSM
     switch(state) {
-        is(State.statIdle) {
-            when(io.cacheInterface.readReq.valid) {
-                readAddr := io.cacheInterface.readReq.bits.addr
-                state := State.statRead
-            }.elsewhen(io.invalidateAll) {
-                invalidateAllSetIdx := 0.U
-                state := State.statInvalidate
-            }
-        }
-        is(State.statRead) {
-            val readTag = readAddr(c.tagEnd,c.tagStart)
-            val readValid = WireInit(false.B)
-            for(i <- 0 until c.wayNum) {
-                val tagv = tagvRead(i)
-                when(tagv.valid && tagv.tag === readTag) {
-                    readValid := true.B
-                    io.cacheInterface.readResp.valid := true.B
-                    io.cacheInterface.readResp.bits.code := CacheCode.CacheHitOk
-                    io.cacheInterface.readResp.bits.data := dataRead(i).data
-                    when(io.cacheInterface.readReq.valid) {
-                        readAddr := io.cacheInterface.readReq.bits.addr
-                        state := State.statRead
-                    }.otherwise {
-                        state := State.statIdle
-                    }
-                }
-            }
-            when(!readValid) {
-                state := State.statReplace
-            }
+        is(State.sIdle) {
             when(io.invalidateAll) {
-                invalidateAllSetIdx := 0.U
-                state := State.statInvalidate
+                invalidateIdx := 0.U
+                state := State.sInvalidate
+            }.elsewhen(io.cacheInterface.readReq.fire) {
+                sIdleSetTransactionValid := true.B
+                sIdleSetTransactionAddr  := reqReadAddr
+                sIdleSetTransactionSet   := reqReadSet
+                sIdleSetTransactionTag   := reqReadTag
+
+                sIdleReadSramValid := true.B
+                sIdleReadSramSet   := reqReadSet
+
+                state := State.sRead
             }
         }
-        is(State.statReplace) {
-            io.ioInterface.read.get.params.valid := true.B
-            io.ioInterface.read.get.params.bits.addr := readAddr
-            io.ioInterface.read.get.params.bits.size := 3.U
-            when(io.ioInterface.read.get.resp.valid) {
-                val index = readAddr(c.setEnd, c.setStart)
-                val tag = readAddr(c.tagEnd, c.tagStart)
-                val way = replacePtr
 
-                val newTagV = Wire(Vec(c.wayNum, new CacheTagValid))
-                val newData = Wire(Vec(c.wayNum, new CacheData))
+        is(State.sRead) {
+            when(readHit) {
+                io.cacheInterface.readResp.valid := true.B
+                io.cacheInterface.readResp.bits.code := CacheCode.CacheHitOk
+                io.cacheInterface.readResp.bits.data := hitData
+
+                when(io.invalidateAll) {
+                    invalidateIdx := 0.U
+                    state := State.sInvalidate
+                }.elsewhen(io.cacheInterface.readReq.fire) {
+                    sReadSetTransactionValid := true.B
+                    sReadSetTransactionAddr  := reqReadAddr
+                    sReadSetTransactionSet   := reqReadSet
+                    sReadSetTransactionTag   := reqReadTag
+
+                    sReadReadSramValid := true.B
+                    sReadReadSramSet   := reqReadSet
+
+                    state := State.sRead
+                }.otherwise {
+                    state := State.sIdle
+                }
+            }.otherwise {
+                sReadSetReplaceSetValid := true.B
+                state := State.sReadReplace
+            }
+        }
+
+        is(State.sReadReplace) {
+            io.ioInterface.read.get.params.valid := true.B
+            io.ioInterface.read.get.params.bits.addr := transactionReadAddr
+            io.ioInterface.read.get.params.bits.size := 3.U // No function right now, AXI will auto determine the beat size.
+
+            when(io.ioInterface.read.get.resp.valid) {
+                val refillOk = io.ioInterface.read.get.resp.bits.resp.isOk()
+
+                sReadReplaceWriteValid := true.B
 
                 for (i <- 0 until c.wayNum) {
-                    newTagV(i) := tagvRead(i)
-                    newData(i) := dataRead(i)
-                    when(i.U === way) {
-                        newTagV(i).tag := tag
-                        newTagV(i).valid := io.ioInterface.read.get.resp.bits.resp.isOk()
-                        newData(i).data := io.ioInterface.read.get.resp.bits.data
+                    when(sReadReplaceWriteWay === i.U) {
+                        sReadReplaceWriteTagV(i).tag   := transactionReadTag
+                        sReadReplaceWriteTagV(i).valid := refillOk
+                        sReadReplaceWriteData(i).data  := io.ioInterface.read.get.resp.bits.data
                     }
                 }
 
-                tagVArray.write(index, newTagV)
-                dataArray.write(index, newData)
+                victimPtr := victimPtr + 1.U
 
-                replacePtr := replacePtr + 1.U
                 io.cacheInterface.readResp.valid := true.B
-                io.cacheInterface.readResp.bits.code := Mux(io.ioInterface.read.get.resp.bits.resp.isOk(),
-                                                            CacheCode.CacheMissOk,
-                                                            io.ioInterface.read.get.resp.bits.resp.asTypeOf(new CacheCode.Type))
+                io.cacheInterface.readResp.bits.code :=
+                Mux(
+                    refillOk,
+                    CacheCode.CacheMissOk,
+                    io.ioInterface.read.get.resp.bits.resp.asTypeOf(new CacheCode.Type)
+                )
                 io.cacheInterface.readResp.bits.data := io.ioInterface.read.get.resp.bits.data
-                state := State.statIdle
+
+                when(io.invalidateAll) {
+                    invalidateIdx := 0.U
+                    state := State.sInvalidate
+                }.otherwise {
+                    state := State.sIdle
+                }
             }
         }
-        is(State.statInvalidate) {
-            val currentSet = invalidateAllSetIdx
-            val invalidateTagV = Vec(c.wayNum, new CacheTagValid()).zero
-            tagVArray.write(currentSet, invalidateTagV)
-            invalidateAllSetIdx := currentSet + 1.U
-            when(currentSet === (c.setNum - 1).U) {
-                state := State.statIdle
+
+        is(State.sInvalidate) {
+            sInvalidateWriteValid := true.B
+            sInvalidateWriteSet   := invalidateIdx
+
+            when(invalidateIdx === (c.setNum - 1).U) {
                 io.invalidateAllOutfire := true.B
+                state := State.sIdle
+            }.otherwise {
+                invalidateIdx := invalidateIdx + 1.U
             }
         }
     }
+
+    // Commit
+    val finalSetTransactionValid = sIdleSetTransactionValid || sReadSetTransactionValid
+    when(finalSetTransactionValid) {
+        transactionReadAddr := Mux(sIdleSetTransactionValid, sIdleSetTransactionAddr, sReadSetTransactionAddr)
+        transactionReadSet  := Mux(sIdleSetTransactionValid, sIdleSetTransactionSet,  sReadSetTransactionSet)
+        transactionReadTag  := Mux(sIdleSetTransactionValid, sIdleSetTransactionTag,  sReadSetTransactionTag)
+    }
+
+    when(sReadSetReplaceSetValid) {
+        replaceSetTagVReg := sReadSetReplaceSetTagV
+        replaceSetDataReg := sReadSetReplaceSetData
+    }
+
+    when(sReadReplaceWriteValid) {
+        tagVArray.write(sReadReplaceWriteSet, sReadReplaceWriteTagV)
+        dataArray.write(sReadReplaceWriteSet, sReadReplaceWriteData)
+    }
+
+    when(sInvalidateWriteValid) {
+        tagVArray.write(sInvalidateWriteSet, sInvalidateWriteTagV)
+    }
+
+    // Sram read
+    val finalSramReadValid = sIdleReadSramValid || sReadReadSramValid
+    val finalSramReadSet   = WireDefault(0.U(c.setBits.W))
+
+    when(sIdleReadSramValid) {
+        finalSramReadSet := sIdleReadSramSet
+    }
+    when(sReadReadSramValid) {
+        finalSramReadSet := sReadReadSramSet
+    }
+
+    sramReadTagV := tagVArray.read(finalSramReadSet, finalSramReadValid)
+    sramReadData := dataArray.read(finalSramReadSet, finalSramReadValid)
 }

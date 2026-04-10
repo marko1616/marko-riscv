@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util._
 
 import markorv.config._
-import markorv.frontend.OpcodeBundle
+import markorv.frontend.ExuOpcode
 import markorv.frontend.DecodedParams
 import markorv.frontend.PhyRegRequests
 import markorv.backend.EXUEnum
@@ -125,7 +125,7 @@ class RetireEvent(implicit val c: CoreConfig) extends Bundle {
 class ReservationStationEntry(implicit val c: CoreConfig) extends Bundle {
     val valid = Bool()  
     val exu = new EXUEnum.Type
-    val opcodes = new OpcodeBundle
+    val exuOpcode = new ExuOpcode
     val predTaken = Bool()
     val predPc = UInt(64.W)
     val params = new EXUParams

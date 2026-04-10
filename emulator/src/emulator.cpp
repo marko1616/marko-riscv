@@ -17,6 +17,10 @@
 
 csh capstone_handle;
 
+inline cs_mode operator|(cs_mode a, cs_mode b) {
+    return static_cast<cs_mode>(static_cast<int>(a) | static_cast<int>(b));
+}
+
 void read_axi(const std::unique_ptr<VMarkoRvCore> &top, axiSignal &axi) {
     // Write request signals (Master->Slave)
     axi.awvalid = top->io_axi_aw_valid;
@@ -133,25 +137,36 @@ void axi_debug(const axiSignal& axi) {
 }
 
 std::string cycle_verbose(uint64_t cycle, uint64_t pc, std::optional<uint32_t> raw_instr) {
-    std::string result = std::format("Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Asm: ",
-                                     cycle, pc, raw_instr.value_or(0));
+    std::string result = std::format(
+        "Cycle: 0x{:04x} PC: 0x{:016x} Instr: 0x{:08x} Asm: ",
+        cycle, pc, raw_instr.value_or(0)
+    );
+
     if (!raw_instr) {
         result += "null\n";
         return result;
     }
 
-    uint8_t raw_code[4] = {0};
-    for (int i = 0; i < 4; i++) {
-        raw_code[i] = static_cast<uint8_t>(raw_instr.value() >> (8 * i));
-    }
+    uint8_t raw_code[4] = {
+        static_cast<uint8_t>(raw_instr.value() >> 0),
+        static_cast<uint8_t>(raw_instr.value() >> 8),
+        static_cast<uint8_t>(raw_instr.value() >> 16),
+        static_cast<uint8_t>(raw_instr.value() >> 24),
+    };
 
-    cs_insn *instr;
-    uint64_t count = cs_disasm(capstone_handle, raw_code, 4, pc, 0, &instr);
+    const size_t size = ((raw_instr.value() & 0x3) == 0x3) ? 4 : 2;
+
+    cs_insn *insn = nullptr;
+    size_t count = cs_disasm(capstone_handle, raw_code, size, pc, 1, &insn);
+
     if (count > 0) {
-        for (uint64_t i = 0; i < count; i++) {
-            result += std::string(instr[i].mnemonic) + " " + instr[i].op_str + "\n";
+        result += insn[0].mnemonic;
+        if (insn[0].op_str[0] != '\0') {
+            result += " ";
+            result += insn[0].op_str;
         }
-        cs_free(instr, count);
+        result += "\n";
+        cs_free(insn, count);
     } else {
         result += "invalid\n";
     }
@@ -204,7 +219,7 @@ public:
         load_payloads(rom, args.rom_payloads, "ROM");
         load_payloads(ram, args.ram_payloads, "RAM");
 
-        if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64, &capstone_handle) != CS_ERR_OK) {
+        if (cs_open(CS_ARCH_RISCV, CS_MODE_RISCV64 | CS_MODE_RISCV_C, &capstone_handle) != CS_ERR_OK) {
             throw std::runtime_error("Capstone engine failed to init.");
         }
     }

@@ -9,18 +9,26 @@ import markorv.config._
 class PMAChecker(pmaList: List[PmaConfig]) extends Module {
     val io = IO(new Bundle {
         val addr = Input(UInt(64.W))
+        val size = Input(UInt(3.W))
         val attr = Output(new PhyMemAttr)
     })
 
-    io.attr := new PhyMemAttr().zero
+    val defaultAttr = 0.U.asTypeOf(new PhyMemAttr)
 
-    for (pma <- pmaList) {
-        when (io.addr >= pma.addrLow.U && io.addr <= pma.addrHigh.U) {
-            io.attr.r := pma.r.B
-            io.attr.w := pma.w.B
-            io.attr.x := pma.x.B
-            io.attr.c := pma.c.B
-            io.attr.a := pma.a.B
-        }
+    val hits = pmaList.map { pma =>
+        io.addr >= pma.addrLow.U && (io.addr + (1.U << io.size)) <= pma.addrHigh.U
     }
+
+    val attrs = pmaList.map { pma =>
+        val a = Wire(new PhyMemAttr)
+        a := defaultAttr
+        a.r := pma.r.B
+        a.w := pma.w.B
+        a.x := pma.x.B
+        a.c := pma.c.B
+        a.a := pma.a.B
+        a
+    }
+
+    io.attr := Mux(hits.reduce(_||_), Mux1H(hits zip attrs), defaultAttr)
 }

@@ -20,7 +20,7 @@ class FetchDebug extends DPIClockedVoidFunctionImport {
 class InstrFetchUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val fetchBundle = Flipped(Decoupled(new FetchQueueEntities))
-        val instrBundle = Decoupled(new InstrDecodeBundle)
+        val decodeTask = Decoupled(new InstrDecodeTask)
 
         val pc = Output(UInt(64.W))
         val flush = Input(Bool())
@@ -31,22 +31,22 @@ class InstrFetchUnit(implicit val c: CoreConfig) extends Module {
     val nextPc = Wire(UInt(64.W))
 
     // init default values
-    io.instrBundle.valid := false.B
-    io.instrBundle.bits.instr := new Instruction().zero
-    io.instrBundle.bits.predTaken := false.B
-    io.instrBundle.bits.predPc := pc
-    io.instrBundle.bits.pc := pc
+    io.decodeTask.valid := false.B
+    io.decodeTask.bits.instr := new Instruction32().zero
+    io.decodeTask.bits.predTaken := false.B
+    io.decodeTask.bits.predPc := pc
+    io.decodeTask.bits.pc := pc
 
-    io.fetchBundle.ready := io.instrBundle.ready
+    io.fetchBundle.ready := io.decodeTask.ready
     io.pc := pc
 
-    val fetchValid = io.fetchBundle.valid && io.instrBundle.ready
+    val fetchValid = io.fetchBundle.valid && io.decodeTask.ready
     when(fetchValid) {
-        io.instrBundle.valid := true.B
-        io.instrBundle.bits.instr.rawBits := io.fetchBundle.bits.instr
-        io.instrBundle.bits.predTaken := io.fetchBundle.bits.predTaken
-        io.instrBundle.bits.predPc := io.fetchBundle.bits.predPc
-        io.instrBundle.bits.pc := pc
+        io.decodeTask.valid := true.B
+        io.decodeTask.bits.instr := io.fetchBundle.bits.instr.asInstruction32
+        io.decodeTask.bits.predTaken := io.fetchBundle.bits.predTaken
+        io.decodeTask.bits.predPc := io.fetchBundle.bits.predPc
+        io.decodeTask.bits.pc := pc
 
         nextPc := io.fetchBundle.bits.predPc
     }.otherwise {
@@ -60,6 +60,6 @@ class InstrFetchUnit(implicit val c: CoreConfig) extends Module {
         val fetchDebugger = new FetchDebug
 
         pcDebugger.call(pc)
-        fetchDebugger.call(fetchValid, io.fetchBundle.bits.instr)
+        fetchDebugger.call(fetchValid, io.fetchBundle.bits.instr.rawBits)
     }
 }

@@ -51,7 +51,7 @@ using rt_index_t = BitUtils<rt_idx_width>::type;
 using rf_index_t = BitUtils<rf_idx_width>::type;
 
 struct flowCtrl {
-    Field<uint64_t, 64> recover_pc;
+    Field<uint64_t, 64> event_pc;
     Field<bool, 1> xret_type;
     Field<uint64_t, 64> xepc;
     Field<uint64_t, 64> xtval;
@@ -154,7 +154,7 @@ struct ALUOpcode {
     }
 };
 
-struct OpcodeBundle {
+struct ExuOpcode {
     MISCOpcode misc_op;
     MDUOpcode mdu_op;
     LoadStoreOpcode lsu_op;
@@ -171,7 +171,7 @@ struct ReservationStationEntry {
     EXUParams params;
     Field<uint64_t, 64> pred_pc;
     Field<bool, 1> pred_taken;
-    OpcodeBundle opcodes;
+    ExuOpcode opcodes;
     Field<uint8_t, 3> exu;  // EXUEnum::Type
     Field<bool, 1> valid;
 

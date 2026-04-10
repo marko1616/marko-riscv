@@ -200,7 +200,7 @@ class CSRMstatus extends CSR {
 class CSRMisa extends CSR {
     val addr = "h301".U(12.W)
 
-    val extensionField = new CSRConstField(26, "h0141101".U)
+    val extensionField = new CSRConstField(26, "h0141105".U)
     val pad            = new CSRZeroField(36)
     val mxlField       = new CSRConstField(2, 2.U)
 
@@ -311,7 +311,13 @@ class CSRMcountinhibit extends CSRZeroCSR("h320".U(12.W))
 // Machine Trap Handling (MRW)
 
 class CSRMscratch extends CSRAnyCSR("h340".U(12.W))
-class CSRMEPC     extends CSRAnyCSR("h341".U(12.W))
+class CSRMepc     extends CSR {
+    val addr = "h341".U(12.W)
+
+    val pad0 = new CSRRegField(1)
+    val epcField = new CSRRegField(63)
+    val fields = Seq(epcField)
+}
 
 class CSRMcause extends CSR {
     val addr = "h342".U(12.W)
@@ -496,7 +502,13 @@ class CSRSenvcfg extends CSR {
 // Supervisor Trap Handling
 
 class CSRSscratch extends CSRAnyCSR("h140".U(12.W))
-class CSRSepc extends CSRAnyCSR("h141".U(12.W))
+class CSRSepc extends CSR {
+    val addr = "h141".U(12.W)
+
+    val pad0 = new CSRRegField(1)
+    val epcField = new CSRRegField(63)
+    val fields = Seq(epcField)
+}
 
 class CSRScause extends CSR {
     val addr = "h142".U(12.W)

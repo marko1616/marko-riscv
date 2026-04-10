@@ -177,7 +177,7 @@ Simulations are run **inside the Docker container**. The emulator `VMarkoRvCore`
     Run the emulator with your custom test ELF:
 
     ```bash
-    obj_dir/VMarkoRvCore --rom-path emulator/assets/boot.elf --ram-path tests/asmtests/src/your_test_name.elf
+    obj_dir/VMarkoRvCore --rom-load elf:emulator/assets/boot.elf --ram-load elf:tests/asmtests/src/your_test_name.elf
     ```
 
     Use `--help` to view all available emulator options.
@@ -201,15 +201,15 @@ Simulations are run **inside the Docker container**. The emulator `VMarkoRvCore`
 
 ### 🛠️ Available Makefile Commands Summary
 
-| Command Name           | Description |
-|------------------------|-------------|
-| `make init`            | Initialize submodules and build Capstone |
-| `make build-simulator` | Build the RISC-V emulator |
-| `make build-test-elves`| Compile test ELF files |
-| `make build-sim-rom`   | Build ROM files for the emulator |
-| `make clean-all`       | Clean all build artifacts |
-| `make batched-riscv-tests` | Run all RISC-V ISA tests in parallel |
-| `make exit`            | Exit the CLI tool (if using CLI management) |
+| Command Name               | Description                                 |
+| -------------------------- | ------------------------------------------- |
+| `make init`                | Initialize submodules and build Capstone    |
+| `make build-simulator`     | Build the RISC-V emulator                   |
+| `make build-test-elves`    | Compile test ELF files                      |
+| `make build-sim-rom`       | Build ROM files for the emulator            |
+| `make clean-all`           | Clean all build artifacts                   |
+| `make batched-riscv-tests` | Run all RISC-V ISA tests in parallel        |
+| `make exit`                | Exit the CLI tool (if using CLI management) |
 
 ### 📜 Memory Order Definition
 *This is a temporary Memory order definition.* Write-back order in the cache is not guaranteed, but the consistency of instruction effects on the internal CPU state is ensured (non-out-of-order execution).

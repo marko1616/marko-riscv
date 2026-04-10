@@ -5,69 +5,158 @@ import chisel3.util._
 
 import markorv.utils.ChiselUtils._
 
-class BranchPredUnit extends Module {
+class BranchPredUnit extends Module with BaseOpcode {
     val io = IO(new Bundle {
         val bpuInstr = Input(new Bundle {
             val instr = new Instruction
-            val pc = UInt(64.W)
+            val pc    = UInt(64.W)
         })
 
         val bpuResult = Output(new Bundle {
             val predTaken = Bool()
-            val predPc = UInt(64.W)
+            val predPc    = UInt(64.W)
         })
     })
 
-    // Helper case class for table-driven decoding
-    case class DecodeEntry(
-        opcode: UInt,
-        handler: (Instruction, UInt, UInt, Bool) => Unit,
-    )
-
-    def predJal(rawInstr: Instruction, pc: UInt, predPc: UInt, predTaken: Bool) = {
-        val instr = rawInstr.asTypeOf(new JTypeInstruction)
-        predTaken := true.B
-        predPc := pc + instr.imm.sextu(64)
+    class BPUDecodeInfo extends Bundle {
+        val isJal    = Bool()
+        val isJalr   = Bool()
+        val isBranch = Bool()
+        val imm      = UInt(64.W)
+        val fallThroughBytes = UInt(64.W)
     }
 
-    def predJalr(rawInstr: Instruction, pc: UInt, predPc: UInt, predTaken: Bool) = {
-        val instr = rawInstr.asTypeOf(new ITypeInstruction)
-        // TODO
-        predTaken := true.B
-        predPc := pc + 4.U
+    // 32-bit J-type immediate
+    private def jImm32(inst: UInt): UInt = {
+        Cat(
+            inst(31),
+            inst(19, 12),
+            inst(20),
+            inst(30, 21),
+            0.U(1.W)
+        ).sextu(64)
     }
 
-    def predBranch(rawInstr: Instruction, pc: UInt, predPc: UInt, predTaken: Bool) = {
-        val instr = rawInstr.asTypeOf(new BTypeInstruction)
-        predTaken := instr.imm.asSInt < 0.S
-        predPc := Mux(predTaken, pc + instr.imm.sextu(64), pc + 4.U)
+    // 32-bit B-type immediate
+    private def bImm32(inst: UInt): UInt = {
+        Cat(
+            inst(31),
+            inst(7),
+            inst(30, 25),
+            inst(11, 8),
+            0.U(1.W)
+        ).sextu(64)
     }
 
-    val OP_JAL      = "b1101111".U
-    val OP_JALR     = "b1100111".U
-    val OP_BRANCH   = "b1100011".U
+    // 16-bit C.J immediate
+    private def cjImm16(inst: UInt): UInt = {
+        Cat(
+            inst(12),
+            inst(8),
+            inst(10, 9),
+            inst(6),
+            inst(7),
+            inst(2),
+            inst(11),
+            inst(5, 3),
+            0.U(1.W)
+        ).sextu(64)
+    }
 
-    val decodeTable = Seq(
-        DecodeEntry(OP_JAL, predJal),
-        DecodeEntry(OP_JALR, predJalr),
-        DecodeEntry(OP_BRANCH, predBranch),
-    )
+    // 16-bit C.BEQZ / C.BNEZ immediate
+    private def cbImm16(inst: UInt): UInt = {
+        Cat(
+            inst(12),
+            inst(6, 5),
+            inst(2),
+            inst(11, 10),
+            inst(4, 3),
+            0.U(1.W)
+        ).sextu(64)
+    }
 
-    io.bpuResult.predTaken := false.B
-    io.bpuResult.predPc := io.bpuInstr.pc + 4.U
+    private def decodeForBPU(instr: Instruction): BPUDecodeInfo = {
+        val d     = Wire(new BPUDecodeInfo)
+        val raw   = instr.rawBits
+        val raw16 = raw(15, 0)
+
+        d.isJal := false.B
+        d.isJalr := false.B
+        d.isBranch := false.B
+        d.imm := 0.U(64.W)
+        d.fallThroughBytes := Mux(instr.isCompressed, 2.U(64.W), 4.U(64.W))
+
+        when(!instr.isCompressed) {
+            switch(raw(6, 0)) {
+                is(OP_JAL) {
+                    d.isJal := true.B
+                    d.imm := jImm32(raw)
+                }
+
+                is(OP_JALR) {
+                    d.isJalr := true.B
+                }
+
+                is(OP_BRANCH) {
+                    d.isBranch := true.B
+                    d.imm := bImm32(raw)
+                }
+            }
+        }.otherwise {
+            switch(raw16(1, 0)) {
+                is("b01".U) {
+                    switch(raw16(15, 13)) {
+                        is("b101".U) { // C.J
+                            d.isJal := true.B
+                            d.imm := cjImm16(raw16)
+                        }
+
+                        is("b110".U, "b111".U) { // C.BEQZ / C.BNEZ
+                            d.isBranch := true.B
+                            d.imm := cbImm16(raw16)
+                        }
+                    }
+                }
+
+                is("b10".U) {
+                    when(raw16(15, 13) === "b100".U) {
+                        val rs1 = raw16(11, 7)
+                        val rs2 = raw16(6, 2)
+
+                        when(raw16(12) === 0.U && rs2 === rs2.zeroAsUInt && rs1 =/= rs1.zeroAsUInt) {
+                            // C.JR
+                            d.isJalr := true.B
+                        }.elsewhen(raw16(12) === 1.U && rs2 === rs2.zeroAsUInt && rs1 =/= rs1.zeroAsUInt) {
+                            // C.JALR
+                            d.isJalr := true.B
+                        }
+                    }
+                }
+            }
+        }
+
+        d
+    }
 
     val instr = io.bpuInstr.instr
-    val instrPc = io.bpuInstr.pc
-    val opcode = io.bpuInstr.instr.opcode
-    val predTaken = io.bpuResult.predTaken
-    val predPc = io.bpuResult.predPc
+    val pc    = io.bpuInstr.pc
+    val dec   = decodeForBPU(instr)
 
-    predTaken := false.B
-    predPc := io.bpuInstr.pc + 4.U
+    val seqPc = pc +% dec.fallThroughBytes
 
-    for (entry <- decodeTable) {
-        when(opcode === entry.opcode) {
-            entry.handler(instr, instrPc, predPc, predTaken)
-        }
+    io.bpuResult.predTaken := false.B
+    io.bpuResult.predPc := seqPc
+
+    when(dec.isJal) {
+        io.bpuResult.predTaken := true.B
+        io.bpuResult.predPc := pc +% dec.imm
+    }.elsewhen(dec.isBranch) {
+        val taken = dec.imm.asSInt < 0.S
+        io.bpuResult.predTaken := taken
+        io.bpuResult.predPc := Mux(taken, pc +% dec.imm, seqPc)
+    }.elsewhen(dec.isJalr) {
+        // TODO
+        io.bpuResult.predTaken := true.B
+        io.bpuResult.predPc := seqPc
     }
 }

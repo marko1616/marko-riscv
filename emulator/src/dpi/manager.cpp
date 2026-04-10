@@ -159,12 +159,12 @@ void DpiManager::print_rob() {
 
             if (fc.discon) {
                 std::cout << std::format(
-                    "  |  discon      : Y  ->  recover_pc = {:#018x}\n"
+                    "  |  discon      : Y  ->  event_pc = {:#018x}\n"
                     "  |  trap        : Y\n"
                     "  |    cause     : {:#x}\n"
                     "  |    xtval     : {:#018x}\n"
                     "  |  xret        : Y  type={} ({})  xepc={:#018x}\n",
-                    fc.recover_pc.value,
+                    fc.event_pc.value,
                     static_cast<int16_t>(fc.cause.value),
                     fc.xtval.value,
                     static_cast<uint8_t>(fc.xret_type),

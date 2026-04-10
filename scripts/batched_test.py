@@ -104,6 +104,8 @@ TEST_CASES = [
             "rv64um-p-remu",
             "rv64um-p-remuw",
             "rv64um-p-remw",
+# C Extension
+            "rv64uc-p-rvc",
 # S Mode
 #           "rv64si-p-csr", Don't support PMP yet.
 #           "rv64si-p-dirty", Don't support PMP yet.

@@ -21,7 +21,7 @@ class CacheLine(implicit val config: CoreConfig) extends Bundle {
 class InstrPrefetchUnit(implicit val config: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val fetchPc        = Input(UInt(64.W))
-        val fetched        = Decoupled(UInt((8 * config.icacheConfig.dataBytes).W))
+        val fetched        = Valid(UInt((8 * config.icacheConfig.dataBytes).W))
         val cacheInterface = Flipped(new IcacheInterface()(config.icacheConfig))
         val flush          = Input(Bool())
     })

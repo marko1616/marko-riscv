@@ -10,13 +10,13 @@ axiConfig:
 icacheConfig:
   addrWidth: 64
   wayNum: 2
-  setNum: 2
+  setNum: 64
   offsetBits: 6
 
 dcacheConfig:
   addrWidth: 64
   wayNum: 2
-  setNum: 2
+  setNum: 64
   offsetBits: 6
 
 dirLoadStoreIoConfig:

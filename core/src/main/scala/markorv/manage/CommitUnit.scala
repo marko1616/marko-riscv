@@ -30,15 +30,17 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
         val outfires     = Output(Vec(5, Bool()))
     })
 
-    // Helper zip
-    def zip7[A, B, C, D, E, F, G](a: Seq[A], b: Seq[B], c: Seq[C], d: Seq[D], e: Seq[E], f: Seq[F], g: Seq[G]): Seq[(A, B, C, D, E, F, G)] = {
-        a.indices.map(i => (a(i), b(i), c(i), d(i), e(i), f(i), g(i)))
-    }
-
     val inputs = Seq(io.alu, io.bru, io.lsu, io.mdu, io.misc)
-    val combined = zip7(inputs, io.outfires, io.regWrites, io.robCommits, io.commitEvents, io.robReadIndices, io.robReadEntries)
 
-    for ((in, outfire, regWrite, robCommit, commitEvent, robReadIndex, robReadEntry) <- combined) {
+    for (i <- inputs.indices) {
+        val in           = inputs(i)
+        val outfire      = io.outfires(i)
+        val regWrite     = io.regWrites(i)
+        val robCommit    = io.robCommits(i)
+        val commitEvent  = io.commitEvents(i)
+        val robReadIndex = io.robReadIndices(i)
+        val robReadEntry = io.robReadEntries(i)
+
         in.ready := true.B
         outfire := in.valid
 

@@ -101,7 +101,7 @@
 <details>
 <summary><strong> Zifencei Extension Instructions </strong></summary>
 
-- [ ] fence.i
+- [x] fence.i
 </details>
 
 <details>
@@ -118,12 +118,12 @@
 <details>
 <summary><strong> S Mode Instructions </strong></summary>
 
-- [ ] sret
+- [x] sret
 - [ ] sfence.vma
 </details>
 
 <details>
-<summary><strong> A Extension Instructions </strong>✅</summary>
+<summary><strong> A(Zalrsc + Zaamo) Extension Instructions </strong>✅</summary>
 
 - [x] lr.w
 - [x] lr.d
@@ -168,6 +168,52 @@
 </details>
 
 <details>
+<summary><strong> C(Zca) Extension Instructions (RV64C, no FP) ✅</strong></summary>
+
+- [x] c.addi4spn
+
+- [x] c.lw
+- [x] c.ld
+- [x] c.sw
+- [x] c.sd
+
+- [x] c.nop
+- [x] c.addi
+- [x] c.addiw
+- [x] c.li
+- [x] c.lui
+- [x] c.addi16sp
+
+- [x] c.slli
+- [x] c.srli
+- [x] c.srai
+- [x] c.andi
+
+- [x] c.sub
+- [x] c.xor
+- [x] c.or
+- [x] c.and
+- [x] c.subw
+- [x] c.addw
+
+- [x] c.j
+- [x] c.beqz
+- [x] c.bnez
+
+- [x] c.lwsp
+- [x] c.ldsp
+- [x] c.swsp
+- [x] c.sdsp
+
+- [x] c.jr
+- [x] c.jalr
+- [x] c.mv
+- [x] c.add
+- [x] c.ebreak
+
+</details>
+
+<details>
 <summary><strong> Zicntr Extension CSR</strong>✅</summary>
 
 - [x] cycle
@@ -176,34 +222,43 @@
 </details>
 
 <details>
+<summary><strong> Sstc Extension CSR</strong>✅</summary>
+
+- [x] stimecmp
+- [N/A] vstimecmp
+- [x] menvcfg.STCE
+- [N/A] henvcfg.STCE
+</details>
+
+<details>
 <summary><strong> System Tasks </strong></summary>
 
-- [ ] L1 Instruction cache
-- [ ] L1 Data cache
+- [x] L1 Instruction cache
+- [x] L1 Data cache
 - [ ] L2 Cache
 - [x] Exception & Interruption
 - [ ] TLB
 - [ ] SV-48 MMU
 - [x] AXI Bus
-- [ ] Device tree
-- [ ] Boot loader
+- [x] Device tree
+- [x] Boot loader
 </details>
 
 <details>
 <summary><strong> Causes Tasks </strong></summary>
 
-- [ ] 0x00, misaligned fetch
-- [ ] 0x01, fetch access
-- [ ] 0x02, illegal instruction
-- [ ] 0x03, breakpoint
-- [N/A] 0x04, misaligned load
-- [ ] 0x05, load access
-- [N/A] 0x06, misaligned store
-- [ ] 0x07, store access
-- [ ] 0x08, user ecall
-- [ ] 0x09, supervisor ecall
+- [N/A] 0x00, misaligned fetch
+- [x] 0x01, fetch access
+- [x] 0x02, illegal instruction
+- [x] 0x03, breakpoint
+- [x] 0x04, misaligned load
+- [x] 0x05, load access
+- [x] 0x06, misaligned store
+- [x] 0x07, store access
+- [x] 0x08, user ecall
+- [x] 0x09, supervisor ecall
 - [N/A] 0x0A, virtual supervisor ecall
-- [ ] 0x0B, machine ecall
+- [x] 0x0B, machine ecall
 - [ ] 0x0C, fetch page fault
 - [ ] 0x0D, load page fault
 - [ ] 0x0F, store page fault

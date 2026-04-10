@@ -42,9 +42,9 @@ class ReadChannel(implicit val c: IOConfig, implicit val master: Boolean) extend
 
     // Master should always be ready for getting a response.
     val resp = if (master) {
-        Flipped(Decoupled(new ReadResp(c.dataWidth)))
+        Flipped(Valid(new ReadResp(c.dataWidth)))
     } else {
-        Decoupled(new ReadResp(c.dataWidth))
+        Valid(new ReadResp(c.dataWidth))
     }
 }
 
@@ -57,9 +57,9 @@ class WriteChannel(implicit val c: IOConfig, implicit val master: Boolean) exten
 
     // Master should always be ready for getting a response.
     val resp = if (master) {
-        Flipped(Decoupled(AxiResp()))
+        Flipped(Valid(AxiResp()))
     } else {
-        Decoupled(AxiResp())
+        Valid(AxiResp())
     }
 }
 

@@ -144,21 +144,21 @@ class ReservationStation(implicit val c: CoreConfig) extends Module {
         }
     }
 
-    io.aluOut.bits.aluOpcode := readyEntry.opcodes.aluOpcode
+    io.aluOut.bits.aluOpcode := readyEntry.exuOpcode.aluOpcode
     io.aluOut.bits.params := finalParams
 
-    io.bruOut.bits.branchOpcode := readyEntry.opcodes.branchOpcode
+    io.bruOut.bits.branchOpcode := readyEntry.exuOpcode.branchOpcode
     io.bruOut.bits.predTaken := readyEntry.predTaken
     io.bruOut.bits.predPc := readyEntry.predPc
     io.bruOut.bits.params := finalParams
 
-    io.lsuOut.bits.lsuOpcode := readyEntry.opcodes.lsuOpcode
+    io.lsuOut.bits.lsuOpcode := readyEntry.exuOpcode.lsuOpcode
     io.lsuOut.bits.params := finalParams
 
-    io.mduOut.bits.mduOpcode := readyEntry.opcodes.mduOpcode
+    io.mduOut.bits.mduOpcode := readyEntry.exuOpcode.mduOpcode
     io.mduOut.bits.params := finalParams
 
-    io.miscOut.bits.miscOpcode := readyEntry.opcodes.miscOpcode
+    io.miscOut.bits.miscOpcode := readyEntry.exuOpcode.miscOpcode
     io.miscOut.bits.params := finalParams
 
     // Flush

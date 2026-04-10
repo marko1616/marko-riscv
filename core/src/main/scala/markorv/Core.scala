@@ -143,8 +143,8 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     ipu.io.cacheInterface <> iCache.io.cacheInterface
 
     ifq.io.flush := flush
-    ifq.io.fetchPc <> ipu.io.fetchPc
-    ifq.io.cachelineRead <> ipu.io.fetched
+    ifq.io.cachelineReadReq <> ipu.io.fetchPc
+    ifq.io.cachelineReadResp <> ipu.io.fetched
     ifq.io.pc <> ifu.io.pc
 
     ifu.io.flush := flush
@@ -195,8 +195,8 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // Main Pipeline Stages
     PipelineConnect(
-        ifu.io.instrBundle,
-        decoder.io.instrBundle,
+        ifu.io.decodeTask,
+        decoder.io.decodeTask,
         decoder.io.outfire,
         flush
     )

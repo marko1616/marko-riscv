@@ -6,6 +6,7 @@ import chisel3.util._
 import markorv.utils.ChiselUtils._
 import markorv.utils.ConfigUtils._
 import markorv.cache.CacheType
+import markorv.bus.PMAChecker
 import markorv.config._
 
 class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) extends Module {
@@ -193,6 +194,9 @@ class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int) extends Module {
         val axiBus     = new AxiInterface(axiConfig)
     })
 
+    val writeChanOwner = RegInit(0.U.asTypeOf(Valid(UInt(log2Ceil(numChannel).W))))
+    val writeChanOwnerOH = UIntToOH(writeChanOwner.bits, numChannel)
+
     // Read channels
     // ========================
     // Read request arbiter
@@ -203,13 +207,9 @@ class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int) extends Module {
     io.axiBus.ar <> arArb.io.out
 
     // Read data router
-    io.axiBus.r.ready := 0.B
     for (i <- 0 until numChannel) {
         io.axiChannel(i).r.bits  := io.axiBus.r.bits
         io.axiChannel(i).r.valid := io.axiBus.r.valid && (io.axiBus.r.bits.id === i.U)
-        when (io.axiBus.r.bits.id === i.U) {
-            io.axiBus.r.ready := io.axiChannel(i).r.ready
-        }
     }
     // Caution: Although it's logically correct to OR all `r.ready` signals as a single response for `axiBus.r.ready`,
     // this design assumes that the correct target channel (identified by `r.bits.id`) will always assert `ready` immediately.
@@ -219,26 +219,44 @@ class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int) extends Module {
     // ========================
     // Write address arbiter (AW Channel)
     val awArb = Module(new RRArbiter(new AxiWriteAddressBundle(axiConfig), numChannel))
-    awArb.io.in.zip(io.axiChannel.map(_.aw)).foreach { case (arbIn, chAw) =>
+    awArb.io.in.zip(io.axiChannel.map(_.aw)).zipWithIndex.foreach { case ((arbIn, chAw), i) =>
         arbIn <> chAw
+        when(chAw.fire) {
+            writeChanOwner.valid := true.B
+            writeChanOwner.bits := i.U
+        }
     }
-    io.axiBus.aw <> awArb.io.out
+    io.axiBus.aw.valid := awArb.io.out.valid && ~writeChanOwner.valid
+    awArb.io.out.ready := io.axiBus.aw.ready && ~writeChanOwner.valid
+    awArb.io.out.bits <> io.axiBus.aw.bits
 
     // Write data router (W Channel)
-    val wArb = Module(new RRArbiter(new AxiWriteDataBundle(axiConfig), numChannel))
-    wArb.io.in.zip(io.axiChannel.map(_.w)).foreach { case (arbIn, chW) =>
-        arbIn <> chW
+    io.axiBus.w.valid := writeChanOwner.valid && Mux1H(
+        writeChanOwnerOH,
+        io.axiChannel.map(_.w.valid)
+    )
+
+    io.axiBus.w.bits := Mux1H(
+        writeChanOwnerOH,
+        io.axiChannel.map(_.w.bits)
+    )
+
+    io.axiChannel.map(_.w).zipWithIndex.foreach { case (chW, i) =>
+        chW.ready := writeChanOwner.valid && writeChanOwnerOH(i) && io.axiBus.w.ready
     }
-    io.axiBus.w <> wArb.io.out
 
     // Write response router (B Channel)
-    io.axiBus.b.ready := 0.B
-    for (i <- 0 until numChannel) {
-        io.axiChannel(i).b.bits  := io.axiBus.b.bits
-        io.axiChannel(i).b.valid := io.axiBus.b.valid && (io.axiBus.b.bits.id === i.U)
+    io.axiBus.b.ready := false.B
+    io.axiChannel.map(_.b).zipWithIndex.foreach { case (chB, i) =>
+        chB.bits <> io.axiBus.b.bits
+        chB.valid := io.axiBus.b.valid && (io.axiBus.b.bits.id === i.U)
+        when(chB.ready && (writeChanOwner.bits === i.U)) {
+            io.axiBus.b.ready := true.B
+        }
+        when(io.axiBus.b.fire) {
+            writeChanOwner.valid := false.B
+        }
     }
-
-    io.axiBus.b.ready := io.axiChannel.map(_.b.ready).reduce(_ || _)
 }
 
 class AxiCtrl(implicit val c: CoreConfig) extends Module {

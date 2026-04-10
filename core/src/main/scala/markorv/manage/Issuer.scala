@@ -110,7 +110,7 @@ class Issuer(implicit val c: CoreConfig) extends Module {
     io.rsReq.bits := new ReservationStationEntry().zero
     io.rsReq.bits.valid := true.B
     io.rsReq.bits.exu := exu
-    io.rsReq.bits.opcodes := task.opcodes
+    io.rsReq.bits.exuOpcode := task.exuOpcode
     io.rsReq.bits.predTaken := task.predTaken
     io.rsReq.bits.predPc := task.predPc
     io.rsReq.bits.params := issueParams

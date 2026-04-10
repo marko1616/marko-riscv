@@ -6,103 +6,192 @@ import chisel3.util._
 import markorv.utils.ChiselUtils._
 import markorv.backend._
 
-class InstrDecoder extends Module {
+class InstrDecoder extends Module with BaseOpcode {
     val io = IO(new Bundle {
-        val instrBundle = Flipped(Decoupled(new InstrDecodeBundle))
-        val issueTask = Decoupled(new IssueTask)
+        val decodeTask = Flipped(Decoupled(new InstrDecodeTask))
+        val issueTask  = Decoupled(new IssueTask)
 
         val outfire = Output(Bool())
     })
 
-    // Helper case class for table-driven decoding
     case class DecodeEntry(
         opcode: UInt,
-        matchFn: Instruction => Bool,
-        handler: (Instruction, LogicRegRequests, DecodedParams, UInt) => Bool,
+        matchFn: Instruction32 => Bool,
+        handler: (Instruction32, ExuOpcode, LogicRegRequests, DecodedParams, UInt) => Bool,
         unit: EXUEnum.Type
     )
 
-    // Local wires
-    val issueTask = WireInit(new IssueTask().zero)
-    val validInstr = WireDefault(false.B)
-    val instr = io.instrBundle.bits.instr
-    val pc = io.instrBundle.bits.pc
-    val exu = WireInit(EXUEnum.alu)
-    val params = WireInit(new DecodedParams().zero)
-    params.pc := pc
-
-    val lregReq = WireDefault(new LogicRegRequests().zero)
+    val instr  = io.decodeTask.bits.instr
+    val pc     = io.decodeTask.bits.pc
     val opcode = instr.rawBits(6, 0)
 
-    // Pred info (used only by branch-like instructions)
-    val predTaken = io.instrBundle.bits.predTaken
-    val predPc = io.instrBundle.bits.predPc
+    val decodedResults = Seq(
+        DecodeEntry(
+        OP_LUI,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.aluOpcode.fromLui(i, lregReq, params, pc),
+        EXUEnum.alu
+        ),
+        DecodeEntry(
+        OP_AUIPC,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.aluOpcode.fromAuipc(i, lregReq, params, pc),
+        EXUEnum.alu
+        ),
+        DecodeEntry(
+        OP_IMM,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.aluOpcode.fromImm(i, lregReq, params, pc),
+        EXUEnum.alu
+        ),
+        DecodeEntry(
+        OP_IMM32,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.aluOpcode.fromImm32(i, lregReq, params, pc),
+        EXUEnum.alu
+        ),
+        DecodeEntry(
+        OP,
+        i => i.rawBits(31, 25) =/= "b0000001".U,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.aluOpcode.fromReg(i, lregReq, params, pc),
+        EXUEnum.alu
+        ),
+        DecodeEntry(
+        OP,
+        i => i.rawBits(31, 25) === "b0000001".U,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.mduOpcode.fromReg(i, lregReq, params, pc),
+        EXUEnum.mdu
+        ),
+        DecodeEntry(
+        OP_32,
+        i => i.rawBits(31, 25) =/= "b0000001".U,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.aluOpcode.fromReg32(i, lregReq, params, pc),
+        EXUEnum.alu
+        ),
+        DecodeEntry(
+        OP_32,
+        i => i.rawBits(31, 25) === "b0000001".U,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.mduOpcode.fromReg32(i, lregReq, params, pc),
+        EXUEnum.mdu
+        ),
+        DecodeEntry(
+        OP_LOAD,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.lsuOpcode.fromLoad(i, lregReq, params, pc),
+        EXUEnum.lsu
+        ),
+        DecodeEntry(
+        OP_STOR,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.lsuOpcode.fromStore(i, lregReq, params, pc),
+        EXUEnum.lsu
+        ),
+        DecodeEntry(
+        OP_JAL,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.branchOpcode.fromJal(i, lregReq, params, pc),
+        EXUEnum.bru
+        ),
+        DecodeEntry(
+        OP_JALR,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.branchOpcode.fromJalr(i, lregReq, params, pc, i.from16),
+        EXUEnum.bru
+        ),
+        DecodeEntry(
+        OP_BRANCH,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.branchOpcode.fromBranch(i, lregReq, params, pc, i.from16),
+        EXUEnum.bru
+        ),
+        DecodeEntry(
+        OP_SYSTEM,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.miscOpcode.fromSys(i, lregReq, params, pc),
+        EXUEnum.misc
+        ),
+        DecodeEntry(
+        OP_MISC_MEM,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.miscOpcode.fromMISCMem(i, lregReq, params, pc),
+        EXUEnum.misc
+        ),
+        DecodeEntry(
+        OP_AMO,
+        _ => true.B,
+        (i, exuOpcode, lregReq, params, pc) =>
+            exuOpcode.lsuOpcode.fromAmo(i, lregReq, params, pc),
+        EXUEnum.lsu
+        )
+    ).map { entry =>
+        val hit       = WireDefault(false.B)
+        val lregReq   = WireInit(new LogicRegRequests().zero)
+        val params    = WireInit(new DecodedParams().zero)
+        val exu       = WireDefault(entry.unit)
+        val exuOpcode = WireInit(new ExuOpcode().zero)
+        params.pc := pc
+        hit := io.decodeTask.valid && (opcode === entry.opcode) && entry.matchFn(instr) && entry.handler(instr, exuOpcode, lregReq, params, pc)
+        (hit, lregReq, params, exu, exuOpcode)
+    }
 
-    val OP_LUI      = "b0110111".U
-    val OP_AUIPC    = "b0010111".U
-    val OP_IMM      = "b0010011".U
-    val OP_IMM32    = "b0011011".U
-    val OP          = "b0110011".U
-    val OP_32       = "b0111011".U
-    val OP_LOAD     = "b0000011".U
-    val OP_STOR     = "b0100011".U
-    val OP_JAL      = "b1101111".U
-    val OP_JALR     = "b1100111".U
-    val OP_BRANCH   = "b1100011".U
-    val OP_SYSTEM   = "b1110011".U
-    val OP_MISC_MEM = "b0001111".U
-    val OP_AMO      = "b0101111".U
+    val hits       = decodedResults.map(_._1)
+    val lregReqs   = decodedResults.map(_._2)
+    val paramsList = decodedResults.map(_._3)
+    val exus       = decodedResults.map(_._4)
+    val exuOpcodes = decodedResults.map(_._5)
 
-    val opcodes = issueTask.opcodes
-    val decodeTable = Seq(
-        DecodeEntry(OP_LUI,     _ => true.B, opcodes.aluOpcode.fromLui,       EXUEnum.alu),
-        DecodeEntry(OP_AUIPC,   _ => true.B, opcodes.aluOpcode.fromAuipc,     EXUEnum.alu),
-        DecodeEntry(OP_IMM,     _ => true.B, opcodes.aluOpcode.fromImm,       EXUEnum.alu),
-        DecodeEntry(OP_IMM32,   _ => true.B, opcodes.aluOpcode.fromImm32,     EXUEnum.alu),
-        DecodeEntry(OP,         _ => true.B, opcodes.aluOpcode.fromReg,       EXUEnum.alu),
-        DecodeEntry(OP,         i => i.rawBits(31,25) === "b0000001".U, opcodes.mduOpcode.fromReg,   EXUEnum.mdu),
-        DecodeEntry(OP_32,      _ => true.B, opcodes.aluOpcode.fromReg32,     EXUEnum.alu),
-        DecodeEntry(OP_32,      i => i.rawBits(31,25) === "b0000001".U, opcodes.mduOpcode.fromReg32, EXUEnum.mdu),
-        DecodeEntry(OP_LOAD,    _ => true.B, opcodes.lsuOpcode.fromLoad,      EXUEnum.lsu),
-        DecodeEntry(OP_STOR,    _ => true.B, opcodes.lsuOpcode.fromStore,     EXUEnum.lsu),
-        DecodeEntry(OP_JAL,     _ => true.B, opcodes.branchOpcode.fromJal,    EXUEnum.bru),
-        DecodeEntry(OP_JALR,    _ => true.B, opcodes.branchOpcode.fromJalr,   EXUEnum.bru),
-        DecodeEntry(OP_BRANCH,  _ => true.B, opcodes.branchOpcode.fromBranch, EXUEnum.bru),
-        DecodeEntry(OP_SYSTEM,  _ => true.B, opcodes.miscOpcode.fromSys,      EXUEnum.misc),
-        DecodeEntry(OP_MISC_MEM,_ => true.B, opcodes.miscOpcode.fromMISCMem,  EXUEnum.misc),
-        DecodeEntry(OP_AMO,     _ => true.B, opcodes.lsuOpcode.fromAmo,       EXUEnum.lsu)
+    val validInstr = hits.reduce(_ || _)
+
+    val selectedLregReq   = Mux1H(hits, lregReqs)
+    val selectedParams    = Mux1H(hits, paramsList)
+    val selectedExu       = suppressEnumCastWarning { Mux1H(hits, exus) }
+    val selectedExuOpcode = Mux1H(hits, exuOpcodes)
+
+    val illegalInstrLregReq   = WireInit(new LogicRegRequests().zero)
+    val illegalInstrParams    = WireInit(new DecodedParams().zero)
+    val illegalInstrExu       = WireDefault(EXUEnum.misc)
+    val illegalInstrExuOpcode = WireInit(new ExuOpcode().zero)
+
+    illegalInstrParams.pc := pc
+    illegalInstrExuOpcode.miscOpcode.fromIllegal(
+        instr,
+        illegalInstrLregReq,
+        illegalInstrParams,
+        pc
     )
 
-    // Decode dispatcher
-    for (entry <- decodeTable) {
-        when(io.instrBundle.valid && (opcode === entry.opcode) && entry.matchFn(instr)) {
-            validInstr := entry.handler(instr, lregReq, params, pc)
-            exu := entry.unit
-            issueTask.predPc := predPc
-            when(entry.unit === EXUEnum.bru) {
-                issueTask.predTaken := predTaken
-            }
-        }
-    }
-    when(io.instrBundle.valid && !validInstr) {
-        opcodes.miscOpcode.fromIllegal(instr, lregReq, params, pc)
-        exu := EXUEnum.misc
-    }
+    val finalLregReq   = Mux(validInstr, selectedLregReq, illegalInstrLregReq)
+    val finalParams    = Mux(validInstr, selectedParams, illegalInstrParams)
+    val finalExu       = Mux(validInstr, selectedExu, illegalInstrExu)
+    val finalExuOpcode = Mux(validInstr, selectedExuOpcode, illegalInstrExuOpcode)
 
-    // Commit task
-    io.instrBundle.ready := io.issueTask.ready
-    io.outfire := false.B
-    io.issueTask.valid := false.B
-    io.issueTask.bits := new IssueTask().zero
+    val issueTask = WireInit(new IssueTask().zero)
+    issueTask.lregReq    := finalLregReq
+    issueTask.params     := finalParams
+    issueTask.exu := suppressEnumCastWarning { finalExu.asTypeOf(EXUEnum()) }
+    issueTask.exuOpcode  := finalExuOpcode
+    issueTask.predTaken  := io.decodeTask.bits.predTaken
+    issueTask.predPc     := io.decodeTask.bits.predPc
 
-    when(io.instrBundle.valid && io.issueTask.ready) {
-        issueTask.params := params
-        issueTask.exu := exu
-        issueTask.lregReq := lregReq
+    io.issueTask.bits := issueTask
 
-        io.issueTask.valid := true.B
-        io.issueTask.bits := issueTask
-        io.instrBundle.ready := true.B
-        io.outfire := true.B
-    }
+    val fire = io.decodeTask.valid && io.issueTask.ready
+    io.issueTask.valid  := io.decodeTask.valid
+    io.outfire          := fire
+    io.decodeTask.ready := io.issueTask.ready
 }

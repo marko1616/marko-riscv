@@ -81,7 +81,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
 
     // Machine Trap Handling (MRW)
     val csrMscratch = new CSRMscratch
-    val csrMepc     = new CSRMEPC
+    val csrMepc     = new CSRMepc
     val csrMcause   = new CSRMcause
     val csrMtval    = new CSRMtval
     val csrMip      = new CSRMip(io.msip, io.mtip, io.meip, stip, false.B)
@@ -135,8 +135,8 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     io.medeleg        := csrMedeleg.read
     io.mideleg        := csrMideleg.read
     io.sie            := csrSie.read
-    io.mepc           := csrMepc.field.read
-    io.sepc           := csrSepc.field.read
+    io.mepc           := csrMepc.read
+    io.sepc           := csrSepc.read
 
     // Counter Logic
     csrCycle.field.reg := csrCycle.field.reg + 1.U
@@ -253,7 +253,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
 
             csrSstatus.sppField.write(privilege(0))
 
-            csrSepc.field.write(trapPc)
+            csrSepc.write(trapPc)
 
             csrScause.interruptField.write(interruption)
             csrScause.codeField.write(causeCode)
@@ -278,7 +278,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
 
             csrMstatus.mppField.write(privilege)
 
-            csrMepc.field.write(trapPc)
+            csrMepc.write(trapPc)
 
             csrMcause.interruptField.write(interruption)
             csrMcause.codeField.write(causeCode)
@@ -309,7 +309,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         val oldMPIE = csrMstatus.mpieField.read
 
         retTrap.privilege := oldMPP
-        retTrap.trapPc    := csrMepc.field.read
+        retTrap.trapPc    := csrMepc.read
 
         csrMstatus.mieField.write(oldMPIE)
 
@@ -320,7 +320,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         val oldSPIE = csrSstatus.spieField.read
 
         retTrap.privilege := 0.U(1.W) ## oldSPP
-        retTrap.trapPc    := csrSepc.field.read
+        retTrap.trapPc    := csrSepc.read
 
         csrSstatus.sieField.write(oldSPIE)
 

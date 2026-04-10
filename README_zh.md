@@ -60,7 +60,7 @@
 │   │   ├── bus/               # AXI 总线接口
 │   │   ├── cache/             # 缓存子模块
 │   │   ├── config/            # 配置模块
-│   │   ├── exception/         # 异常/中断处理机制
+│   │   ├── trap/              # 异常/中断处理机制
 │   │   └── utils/             # 工具函数
 │   └── test/scala/markorv/    # Scala 编写的单元测试
 │
@@ -179,7 +179,7 @@
     运行模拟器：
 
     ```bash
-    obj_dir/VMarkoRvCore --rom-path emulator/assets/boot.elf --ram-path tests/asmtests/src/your_test_name.elf
+    obj_dir/VMarkoRvCore --rom-load elf:emulator/assets/boot.elf --ram-load elf:tests/asmtests/src/your_test_name.elf
     ```
 
     可用 `--help` 查看模拟器支持的全部参数。
@@ -203,15 +203,15 @@
 
 ### 🛠️ Makefile 可用命令简表
 
-| 命令名称                | 功能描述 |
-|------------------------|-----------|
-| `make init`            | 初始化子模块，构建 Capstone |
-| `make build-simulator` | 构建 RISC-V 仿真器 |
-| `make build-test-elves`| 编译测试 ELF 文件 |
-| `make build-sim-rom`   | 构建仿真器使用的 ROM 文件 |
-| `make clean-all`       | 清理所有构建产物 |
-| `make batched-riscv-tests` | 批量运行 RISC-V ISA 测试 |
-| `make exit`            | 退出 CLI 工具（如果使用 CLI 管理） |
+| 命令名称                   | 功能描述                           |
+| -------------------------- | ---------------------------------- |
+| `make init`                | 初始化子模块，构建 Capstone        |
+| `make build-simulator`     | 构建 RISC-V 仿真器                 |
+| `make build-test-elves`    | 编译测试 ELF 文件                  |
+| `make build-sim-rom`       | 构建仿真器使用的 ROM 文件          |
+| `make clean-all`           | 清理所有构建产物                   |
+| `make batched-riscv-tests` | 批量运行 RISC-V ISA 测试           |
+| `make exit`                | 退出 CLI 工具（如果使用 CLI 管理） |
 
 ### 📜 内存顺序定义
 *仅限暂时的内存顺序定义。* 不保证缓存写回顺序，但保证任意指令对 CPU 内部状态影响的顺序一致性（非乱序执行）。
