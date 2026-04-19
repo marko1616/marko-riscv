@@ -44,7 +44,6 @@ class ROBDisconField extends Bundle {
     val discon = Bool()
     val disconType = new DisconEventType.Type // Reserve for statistics CSR and debugging.
 
-    val exception  = Bool()
     val cause = UInt(16.W)
     val xtval = UInt(64.W)
     val xepc  = UInt(64.W)

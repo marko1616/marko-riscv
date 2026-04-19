@@ -31,13 +31,11 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
 
     if(ioConfig.read) {
         val channel = io.req.read.get
-        channel.params.ready := false.B
         channel.resp.valid := false.B
         channel.resp.bits := new ReadResp(ioConfig.dataWidth).zero
     }
     if(ioConfig.write) {
         val channel = io.req.write.get
-        channel.params.ready := false.B
         channel.resp.valid := false.B
         channel.resp.bits := AxiResp.okay
     }
@@ -53,24 +51,26 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
 
     if(ioConfig.read) {
         val channel = io.req.read.get
+        val rburst = if(burstLen != 0) Some(RegInit(false.B)) else None
         val rstate = RegInit(new ReadState().zero)
         val rtemp = if(burstLen != 0) Some(RegInit(0.U(ioConfig.dataWidth.W))) else None
         val ready = ~rstate.work && io.axi.ar.ready
 
-        channel.params.ready := ready
         when(~rstate.work && channel.params.valid) {
             // Valid can't be related to ready
+            val doBurst = maxAxSize < channel.params.bits.size
             io.axi.ar.valid := true.B
             io.axi.ar.bits.addr := channel.params.bits.addr
             if (burstLen != 0) {
-                io.axi.ar.bits.size := maxAxSize
+                io.axi.ar.bits.size := Mux(doBurst, maxAxSize, channel.params.bits.size)
+                rburst.get := doBurst
             } else {
                 io.axi.ar.bits.size := channel.params.bits.size
             }
             io.axi.ar.bits.burst := "b01".U
             io.axi.ar.bits.cache := "b0011".U
             io.axi.ar.bits.id := id.U
-            io.axi.ar.bits.len := burstLen.U
+            io.axi.ar.bits.len := (if(burstLen != 0) Mux(doBurst, burstLen.U, 0.U) else 0.U)
             io.axi.ar.bits.lock := (if(ioConfig.atomicity) channel.params.bits.lock.get else 0.U)
             io.axi.ar.bits.qos := 0.U
             io.axi.ar.bits.region := 0.U
@@ -78,13 +78,13 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
         }
 
         when(ready && channel.params.valid) {
-            // Req handshake succeed
             rstate.work := true.B
             if(burstLen != 0) {
                 rtemp.get := 0.U
                 rstate.bptr.get := 0.U
             }
         }
+
         when(rstate.work) {
             io.axi.r.ready := true.B
 
@@ -94,18 +94,17 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
                     hasFailed := true.B
                 }
                 when(io.axi.r.bits.last) {
-                    // Should always be ready here
                     channel.resp.valid := true.B
                     channel.resp.bits.resp := AxiResp(io.axi.r.bits.resp)
                     rstate.work := false.B
-                    if(burstLen != 0) {
+                    if (burstLen != 0) {
                         channel.resp.bits.data := (io.axi.r.bits.data << (rstate.bptr.get * axiConfig.dataWidth.U)) | rtemp.get
                     } else {
                         channel.resp.bits.data := io.axi.r.bits.data
                     }
                 }.otherwise {
                     // burstLen should not be 0 here
-                    if(burstLen != 0) {
+                    if (burstLen != 0) {
                         rtemp.get := (io.axi.r.bits.data << (rstate.bptr.get * axiConfig.dataWidth.U)) | rtemp.get
                         rstate.bptr.get := rstate.bptr.get + 1.U
                     }
@@ -116,24 +115,26 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
 
     if(ioConfig.write) {
         val channel = io.req.write.get
+        val wburst = if(burstLen != 0) Some(RegInit(false.B)) else None
         val wstate = RegInit(new WriteState().zero)
         val wtemp = RegInit(0.U(ioConfig.dataWidth.W))
         val ready = ~wstate.work && io.axi.aw.ready
 
-        channel.params.ready := ready
         when(~wstate.work && channel.params.valid) {
             // Valid can't be related to ready
+            val doBurst = maxAxSize < channel.params.bits.size
             io.axi.aw.valid := true.B
             io.axi.aw.bits.addr := channel.params.bits.addr
             if (burstLen != 0) {
-                io.axi.aw.bits.size := maxAxSize
+                io.axi.aw.bits.size := Mux(doBurst, maxAxSize, channel.params.bits.size)
+                wburst.get := true.B
             } else {
                 io.axi.aw.bits.size := channel.params.bits.size
             }
             io.axi.aw.bits.burst := "b01".U
             io.axi.aw.bits.cache := "b0011".U
             io.axi.aw.bits.id := id.U
-            io.axi.aw.bits.len := burstLen.U
+            io.axi.aw.bits.len := (if(burstLen != 0) Mux(doBurst, burstLen.U, 0.U) else 0.U)
             io.axi.aw.bits.lock := (if(ioConfig.atomicity) channel.params.bits.lock.get else 0.U)
             io.axi.aw.bits.qos := 0.U
             io.axi.aw.bits.region := 0.U
@@ -152,7 +153,7 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
         when(wstate.work && ~wstate.resp) {
             io.axi.w.valid := true.B
             if(burstLen != 0) {
-                val last = wstate.bptr.get === burstLen.U
+                val last = Mux(wburst.get, wstate.bptr.get === burstLen.U, true.B)
                 io.axi.w.bits.last := last
                 io.axi.w.bits.data := wtemp >> (wstate.bptr.get * axiConfig.dataWidth.U)
                 io.axi.w.bits.strb := ~(0.U((axiConfig.dataWidth/8).W))
@@ -261,23 +262,23 @@ class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int) extends Module {
 
 class AxiCtrl(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
-        val dirLoadStore = new IOInterface()(c.dirLoadStoreIoConfig,false)
         val instrFetch = new IOInterface()(getCacheIoConfig(c.icacheConfig, CacheType.Icache),false)
         val dcacheLoadStore = new IOInterface()(getCacheIoConfig(c.dcacheConfig, CacheType.Dcache),false)
+        val dirLoadStore = new IOInterface()(c.lsuIoConfig,false)
         val axi = new AxiInterface(c.axiConfig)
     })
 
-    val dirLoadStoreHandler = Module(new AXIHandler(c.axiConfig, c.dirLoadStoreIoConfig, 1))
     val instrFetchHandler = Module(new AXIHandler(c.axiConfig, getCacheIoConfig(c.icacheConfig, CacheType.Icache), 0))
-    val dcacheLoadStoreHandler = Module(new AXIHandler(c.axiConfig, getCacheIoConfig(c.dcacheConfig, CacheType.Dcache), 2))
+    val dcacheLoadStoreHandler = Module(new AXIHandler(c.axiConfig, getCacheIoConfig(c.dcacheConfig, CacheType.Dcache), 1))
+    val dirLoadStoreHandler = Module(new AXIHandler(c.axiConfig, c.lsuIoConfig, 2))
     instrFetchHandler.io.req <> io.instrFetch
-    dirLoadStoreHandler.io.req <> io.dirLoadStore
     dcacheLoadStoreHandler.io.req <> io.dcacheLoadStore
+    dirLoadStoreHandler.io.req <> io.dirLoadStore
 
     val axiRouter = Module(new AxiRouter(c.axiConfig, 3))
 
     axiRouter.io.axiChannel(0) <> instrFetchHandler.io.axi
-    axiRouter.io.axiChannel(1) <> dirLoadStoreHandler.io.axi
-    axiRouter.io.axiChannel(2) <> dcacheLoadStoreHandler.io.axi
+    axiRouter.io.axiChannel(1) <> dcacheLoadStoreHandler.io.axi
+    axiRouter.io.axiChannel(2) <> dirLoadStoreHandler.io.axi
     io.axi <> axiRouter.io.axiBus
 }

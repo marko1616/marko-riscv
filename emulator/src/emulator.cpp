@@ -144,7 +144,7 @@ std::string cycle_verbose(uint64_t cycle, uint64_t pc, std::optional<uint32_t> r
 
     if (!raw_instr) {
         result += "null\n";
-        return result;
+        return "";
     }
 
     uint8_t raw_code[4] = {

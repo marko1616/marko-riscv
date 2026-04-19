@@ -24,7 +24,12 @@ object SystemOperation extends ChiselEnum {
     val wfi = Value("h3".U)
     val mret = Value("h4".U)
     val sret = Value("h5".U)
-    val illegalInstr = Value("h6".U)
+    val sfenceVma = Value("h6".U)
+    val pmaFaultLowInstr = Value("h7".U)
+    val pageFaultLowInstr = Value("h8".U)
+    val pmaFaultHighInstr = Value("h9".U)
+    val pageFaultHighInstr = Value("ha".U)
+    val illegalInstr = Value("hb".U)
 }
 
 object MemoryOperation extends ChiselEnum {
@@ -168,6 +173,50 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                     io.commit.bits.eventPc := io.sepc
                     io.outfire := true.B
                 }
+                is(SystemOperation.sfenceVma) {
+                    // TODO TLB
+                    io.outfire := true.B
+                    io.commit.valid := true.B
+                    io.commit.bits.discon := true.B
+                    io.commit.bits.disconType := DisconEventType.instrSync
+                    io.commit.bits.eventPc := params.pc + 4.U
+                }
+                is(SystemOperation.pmaFaultLowInstr) {
+                    io.commit.valid := true.B
+                    io.commit.bits.discon := true.B
+                    io.commit.bits.disconType := DisconEventType.instrException
+                    io.commit.bits.eventPc := params.pc
+                    io.commit.bits.xtval := params.pc
+                    io.commit.bits.cause := 1.U
+                    io.outfire := true.B
+                }
+                is(SystemOperation.pageFaultLowInstr) {
+                    io.commit.valid := true.B
+                    io.commit.bits.discon := true.B
+                    io.commit.bits.disconType := DisconEventType.instrException
+                    io.commit.bits.eventPc := params.pc
+                    io.commit.bits.xtval := params.pc
+                    io.commit.bits.cause := 12.U
+                    io.outfire := true.B
+                }
+                is(SystemOperation.pmaFaultHighInstr) {
+                    io.commit.valid := true.B
+                    io.commit.bits.discon := true.B
+                    io.commit.bits.disconType := DisconEventType.instrException
+                    io.commit.bits.eventPc := params.pc
+                    io.commit.bits.xtval := params.pc + 2.U
+                    io.commit.bits.cause := 1.U
+                    io.outfire := true.B
+                }
+                is(SystemOperation.pageFaultHighInstr) {
+                    io.commit.valid := true.B
+                    io.commit.bits.discon := true.B
+                    io.commit.bits.disconType := DisconEventType.instrException
+                    io.commit.bits.eventPc := params.pc
+                    io.commit.bits.xtval := params.pc + 2.U
+                    io.commit.bits.cause := 12.U
+                    io.outfire := true.B
+                }
                 is(SystemOperation.illegalInstr) {
                     io.commit.valid := true.B
                     io.commit.bits.discon := true.B
@@ -201,7 +250,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                             io.commit.valid := true.B
                             io.commit.bits.discon := true.B
                             io.commit.bits.disconType := DisconEventType.instrSync
-                            io.commit.bits.eventPc := params.source1
+                            io.commit.bits.eventPc := params.pc + 4.U
                             isFenceiCleanDcacheStage := true.B
                         }
                     }

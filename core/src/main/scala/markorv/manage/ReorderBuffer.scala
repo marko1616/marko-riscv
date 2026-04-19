@@ -84,7 +84,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
 
     nextBuffer := buffer
     io.headIndex := deqPtr
-    io.robMayDison := buffer.map(e => e.valid && (e.exu === EXUEnum.bru || e.exu === EXUEnum.lsu || e.exu === EXUEnum.misc)).reduce(_ || _)
+    io.robMayDison := buffer.map(e => e.valid && e.exu.mayDison()).reduce(_ || _)
 
     // Read Entry
     for ((readIndex, readEntry) <- io.readIndices.zip(io.readEntries)) {
@@ -139,7 +139,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     }
 
     // Branch & fence.i recover
-    val recoverRequired = retireValid && nextBuffer(deqPtr).fCtrl.discon && (nextBuffer(deqPtr).fCtrl.disconType === DisconEventType.branchMispred || nextBuffer(deqPtr).fCtrl.disconType === DisconEventType.instrSync)
+    val recoverRequired = retireValid && nextBuffer(deqPtr).fCtrl.discon && (nextBuffer(deqPtr).fCtrl.disconType.in(DisconEventType.branchMispred, DisconEventType.instrSync))
     io.flush := recoverRequired
     io.flushPc := nextBuffer(deqPtr).fCtrl.eventPc
 
@@ -160,14 +160,16 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
 
     val disconEventValid = recoverRequired || exceptionRequired || trapRetRequired
     val disconType = nextBuffer(deqPtr).fCtrl.disconType
+    val disconRollBackPrevRt = disconType === DisconEventType.instrException && nextBuffer(deqPtr).prdValid
+    val disconRecoverRtIndex = Mux(disconRollBackPrevRt, lastRtCkptIndex, nextBuffer(deqPtr).renameCkptIndex)
     io.disconEvent.valid := disconEventValid
     io.disconEvent.bits.disconType := disconType
     io.disconEvent.bits.prdValid := nextBuffer(deqPtr).prdValid
     io.disconEvent.bits.prd := nextBuffer(deqPtr).prd
     io.disconEvent.bits.prevprd := nextBuffer(deqPtr).prevprd
-    io.disconEvent.bits.renameCkptIndex := nextBuffer(deqPtr).renameCkptIndex
+    io.disconEvent.bits.renameCkptIndex := disconRecoverRtIndex
 
-    when (disconEventValid) {
+    when(disconEventValid) {
         for(entry <- nextBuffer) {
             entry.valid := false.B
         }
@@ -185,7 +187,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
         interrupteventPc := nextBuffer(deqPtr).fCtrl.eventPc
         when(disconEventValid) {
             io.rtRestoreIndex.valid := true.B
-            io.rtRestoreIndex.bits := nextBuffer(deqPtr).renameCkptIndex
+            io.rtRestoreIndex.bits := disconRecoverRtIndex
         } otherwise {
             io.rtRmLastCkpt := nextBuffer(deqPtr).renameCkptIndex =/= lastRtCkptIndex
         }

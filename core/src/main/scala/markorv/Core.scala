@@ -54,9 +54,10 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     // Bus Controllers
     val axiCtrl = Module(new AxiCtrl)
 
-    // Cache
+    // Cache & mmu
     val iCache = Module(new InstrCache()(c.icacheConfig))
     val dCache = Module(new DataCache()(c.icacheConfig))
+    val mmu    = Module(new MemoryManagementUnit)
 
     // Frontend Pipeline
     val ipu = Module(new InstrPrefetchUnit)
@@ -90,8 +91,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     // TODO: Handle AXI error
     axiCtrl.io.instrFetch <> iCache.io.ioInterface
     axiCtrl.io.dcacheLoadStore <> dCache.io.ioInterface
-
-    lsu.io.dirLoadStore <> axiCtrl.io.dirLoadStore
+    axiCtrl.io.dirLoadStore <> lsu.io.dirLoadStore
     io.axi <> axiCtrl.io.axi
 
     // Exception & Flush Control
@@ -100,10 +100,16 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     // Cache
     iCache.io.invalidateAll <> misc.io.icacheInvalidateAll
     iCache.io.invalidateAllOutfire <> misc.io.icacheInvalidateAllOutfire
+    iCache.io.mmuReq <> mmu.io.mmuReqs(0)
+    iCache.io.mmuResp <> mmu.io.mmuResps(0)
+    iCache.io.privilege <> misc.io.getPrivilege
+    iCache.io.satpModeField <> csrFile.io.satpModeField
+    // TODO Zicbom
     dCache.io.cleanAll <> misc.io.dcacheCleanAll
     dCache.io.cleanAllOutfire <> misc.io.dcacheCleanAllOutfire
-    // TODO Dcache invalidation
     dCache.io.invalidateAll := false.B
+    dCache.io.cacheInterface.paReadReq <> mmu.io.paReadReq
+    dCache.io.cacheInterface.paReadResp <> mmu.io.paReadResp
     dCache.io.cacheInterface.readReq <> lsu.io.cacheReadReq
     dCache.io.cacheInterface.readResp <> lsu.io.cacheReadResp
     dCache.io.cacheInterface.writeReq <> lsu.io.cacheWriteReq
@@ -112,12 +118,27 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     dCache.io.cacheInterface.cleanResp <> lsu.io.cacheCleanResp
     dCache.io.cacheInterface.invalidateReq <> lsu.io.cacheInvalidateReq
     dCache.io.cacheInterface.invalidateResp <> lsu.io.cacheInvalidateResp
-    // TODO Zicbom
+    dCache.io.cacheInterface.amoFlushReq <> lsu.io.cacheAmoFlushReq
+    dCache.io.cacheInterface.amoFlushResp <> lsu.io.cacheAmoFlushResp
+    dCache.io.cacheInterface.paddr <> lsu.io.paddr
+    dCache.io.mmuReq <> mmu.io.mmuReqs(1)
+    dCache.io.mmuResp <> mmu.io.mmuResps(1)
+    dCache.io.privilege <> misc.io.getPrivilege
+    dCache.io.satpModeField <> csrFile.io.satpModeField
+    dCache.io.statusMppField <> csrFile.io.statusMppField
+    dCache.io.statusMprvField <> csrFile.io.statusMprvField
+    dCache.io.statusSumField <> csrFile.io.statusSumField
+    dCache.io.statusMxrField <> csrFile.io.statusMxrField
     if(c.simulate) {
         dCache.io.cleanAll <> (io.dcacheCleanAllReq.get || misc.io.dcacheCleanAll)
         dCache.io.cleanAllOutfire <> io.dcacheCleanAllResp.get
     }
 
+    // MMU
+    mmu.io.ppn <> csrFile.io.ppn
+    mmu.io.asid <> csrFile.io.asid
+
+    // Trap
     trapUnit.io.pc <> ifu.io.pc
     trapUnit.io.privilege <> misc.io.getPrivilege
     trapUnit.io.handleTrap <> csrFile.io.handleTrap

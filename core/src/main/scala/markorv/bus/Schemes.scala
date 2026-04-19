@@ -35,9 +35,9 @@ class WriteParams(implicit val c: IOConfig) extends Bundle {
 
 class ReadChannel(implicit val c: IOConfig, implicit val master: Boolean) extends Bundle {
     val params = if (master) {
-        Decoupled(new ReadParams)
+        Valid(new ReadParams)
     } else {
-        Flipped(Decoupled(new ReadParams))
+        Flipped(Valid(new ReadParams))
     }
 
     // Master should always be ready for getting a response.
@@ -50,9 +50,9 @@ class ReadChannel(implicit val c: IOConfig, implicit val master: Boolean) extend
 
 class WriteChannel(implicit val c: IOConfig, implicit val master: Boolean) extends Bundle {
     val params = if (master) {
-        Decoupled(new WriteParams)
+        Valid(new WriteParams)
     } else {
-        Flipped(Decoupled(new WriteParams))
+        Flipped(Valid(new WriteParams))
     }
 
     // Master should always be ready for getting a response.
@@ -64,6 +64,7 @@ class WriteChannel(implicit val c: IOConfig, implicit val master: Boolean) exten
 }
 
 class IOInterface(implicit val c: IOConfig, implicit val master: Boolean) extends Bundle {
+    // This interface assumed master should hold valid params until transaction finished
     val read = if(c.read) Some(new ReadChannel()) else None
     val write = if(c.write) Some(new WriteChannel()) else None
 }
@@ -134,4 +135,69 @@ class PhyMemAttr() extends Bundle {
     val x = Bool()
     val c = Bool()
     val a = Bool()
+}
+
+class Pte extends Bundle {
+    val n = Bool()
+    val pbmt = Bool()
+    val pad = UInt(7.W)
+    val ppn2 = UInt(26.W)
+    val ppn1 = UInt(9.W)
+    val ppn0 = UInt(9.W)
+    val rsw = UInt(2.W)
+    val d = Bool()
+    val a = Bool()
+    val g = Bool()
+    val u = Bool()
+    val x = Bool()
+    val w = Bool()
+    val r = Bool()
+    val v = Bool()
+
+    def fromRaw(raw: UInt) = {
+        this.n := raw(63)
+        this.pbmt := raw(62, 61)
+        this.pad := raw(60, 54)
+        this.ppn2 := raw(53, 28)
+        this.ppn1 := raw(27, 19)
+        this.ppn0 := raw(18, 10)
+        this.rsw := raw(9, 8)
+        this.d := raw(7)
+        this.a := raw(6)
+        this.g := raw(5)
+        this.u := raw(4)
+        this.x := raw(3)
+        this.w := raw(2)
+        this.r := raw(1)
+        this.v := raw(0)
+    }
+}
+
+class MMUReq extends Bundle {
+    val va = UInt(64.W)
+    val mode = new MmuMode.Type
+}
+
+class MmuResp extends Bundle {
+    val pa = UInt(64.W)
+    val valid = Bool()
+    val walkPmaFault = Bool()
+    val pmaRead  = Bool()
+    val pmaWrite = Bool()
+    val pmaExec  = Bool()
+    val pteRead  = Bool()
+    val pteWrite = Bool()
+    val pteExec  = Bool()
+    val user  = Bool()
+    val global = Bool()
+    val dirty = Bool()
+    val accessed = Bool()
+    val cache = Bool()
+    val atomic = Bool()
+}
+
+// MMU Mode
+object MmuMode extends ChiselEnum {
+    val bare = Value("b0".U)
+    val sv39 = Value("b1".U)
 }

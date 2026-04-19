@@ -55,7 +55,7 @@ def run_make_target(target: str):
 
 def run_batched_tests():
     """Run the batched RISC-V test script using all CPU cores."""
-    nproc = os.cpu_count()
+    nproc = min(os.cpu_count(), 8)
     command = ["python3", "scripts/batched_test.py", "-j", str(nproc)]
     console.print(Panel.fit(f"[cyan]Running: {' '.join(command)}[/cyan]"))
     try:

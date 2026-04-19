@@ -165,9 +165,9 @@ class CSRMstatus extends CSR {
     val mppField   = new CSRRegField(2, 3.U(2.W))
     val fsField    = new CSRZeroField(2)
     val xsField    = new CSRZeroField(2)
-    val mprvField  = new CSRZeroField(1)
-    val sumField   = new CSRZeroField(1)
-    val mxrField   = new CSRZeroField(1)
+    val mprvField  = new CSRRegField(1)
+    val sumField   = new CSRRegField(1)
+    val mxrField   = new CSRRegField(1)
     val tvmField   = new CSRZeroField(1)
     val twField    = new CSRZeroField(1)
     val tsrField   = new CSRZeroField(1)
@@ -314,9 +314,9 @@ class CSRMscratch extends CSRAnyCSR("h340".U(12.W))
 class CSRMepc     extends CSR {
     val addr = "h341".U(12.W)
 
-    val pad0 = new CSRRegField(1)
+    val pad0 = new CSRZeroField(1)
     val epcField = new CSRRegField(63)
-    val fields = Seq(epcField)
+    val fields = Seq(pad0, epcField)
 }
 
 class CSRMcause extends CSR {
@@ -336,7 +336,7 @@ class CSRMcause extends CSR {
         ).exists(_ === code)
 
         val legalException = VecInit(
-            Seq(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11).map(_.U(63.W))
+            Seq(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 15).map(_.U(63.W))
         ).exists(_ === code)
 
         Mux(interrupt, legalInterrupt, legalException)
@@ -417,8 +417,8 @@ class CSRSstatus(csrMstatus: CSRMstatus) extends CSR {
     val fsField    = new CSRZeroField(2)
     val xsField    = new CSRZeroField(2)
     val pad4       = new CSRRegField(1)
-    val sumField   = new CSRZeroField(1)
-    val mxrField   = new CSRZeroField(1)
+    val sumField   = new CSRRWMappedField(1, csrMstatus.sumField.reg)
+    val mxrField   = new CSRRWMappedField(1, csrMstatus.mxrField.reg)
     val pad5       = new CSRRegField(3)
     val spelpField = new CSRZeroField(1)
     val sdtField   = new CSRZeroField(1)
@@ -505,9 +505,9 @@ class CSRSscratch extends CSRAnyCSR("h140".U(12.W))
 class CSRSepc extends CSR {
     val addr = "h141".U(12.W)
 
-    val pad0 = new CSRRegField(1)
+    val pad0 = new CSRZeroField(1)
     val epcField = new CSRRegField(63)
-    val fields = Seq(epcField)
+    val fields = Seq(pad0, epcField)
 }
 
 class CSRScause extends CSR {
@@ -527,7 +527,7 @@ class CSRScause extends CSR {
         ).exists(_ === code)
 
         val legalException = VecInit(
-            Seq(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11).map(_.U(63.W))
+            Seq(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 15).map(_.U(63.W))
         ).exists(_ === code)
 
         Mux(interrupt, legalInterrupt, legalException)
@@ -558,7 +558,26 @@ class CSRSip(csrMip: CSRMip) extends CSR {
 
 // Supervisor Protection and Translation
 
-class CSRSatp extends CSRZeroCSR("h180".U(12.W))
+class CSRSatp(asidWidth: Int) extends CSR {
+    val addr = "h180".U(12.W)
+
+    val ppnField = new CSRRegField(44, 0.U)
+    val asidField = new CSRRegField(asidWidth, 0.U)
+    val pad0 = if (asidWidth != 16) Some(new CSRZeroField(16 - asidWidth)) else None
+    val modeField = new CSRRegField(4, 0.U)
+    val fields: Seq[CSRField] = if (asidWidth != 16) Seq(
+            ppnField, asidField, pad0.get, modeField
+        ) else Seq(
+            ppnField, asidField, modeField
+        )
+
+    // MODE WARL: 0: Bare, 8: Sv39
+    override protected def legalizeWrite(newValue: UInt): UInt = {
+        val modeRaw   = extractField(newValue, modeField)
+        val modeLegal = Mux((modeRaw === 8.U || modeRaw === 0.U), modeRaw, 0.U)
+        replaceField(newValue, modeField, modeLegal)
+    }
+}
 
 // Supervisor Timer Compare
 

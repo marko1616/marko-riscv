@@ -5,7 +5,7 @@ import chisel3.util._
 
 import markorv.utils.ChiselUtils._
 import markorv.config._
-import markorv.backend._
+import markorv.backend  ._
 import markorv.bus._
 import markorv.cache._
 import markorv.frontend.DecodedParams
@@ -19,64 +19,57 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
             val lsuOpcode = new LoadStoreOpcode
             val params = new EXUParams
         }))
-        val cacheReadReq = Decoupled(new CacheReadReq())
-        val cacheReadResp = Flipped(Decoupled(new CacheReadResp()(c.dcacheConfig)))
-        val cacheWriteReq = Decoupled(new CacheWriteReq()(c.dcacheConfig))
-        val cacheWriteResp = Flipped(Decoupled(new CacheWriteResp()))
-        val cacheCleanReq = Decoupled(new CacheCleanReq())
-        val cacheCleanResp = Input(Bool())
-        val cacheInvalidateReq = Decoupled(new CacheInvalidateReq())
-        val cacheInvalidateResp = Input(Bool())
-        val dirLoadStore = new IOInterface()(c.dirLoadStoreIoConfig, true)
+        val cacheReadReq = Decoupled(new DCacheReadReq())
+        val cacheReadResp = Flipped(Valid(new DCacheReadResp()(c.dcacheConfig)))
+        val cacheWriteReq = Decoupled(new DCacheWriteReq()(c.dcacheConfig))
+        val cacheWriteResp = Flipped(Valid(new DCacheWriteResp()))
+        val cacheCleanReq = Decoupled(new DCacheCleanReq())
+        val cacheCleanResp = Flipped(Valid(new DCacheCleanResp))
+        val cacheInvalidateReq = Decoupled(new DCacheInvalidateReq())
+        val cacheInvalidateResp = Flipped(Valid(new DCacheInvalidateResp))
+        val cacheAmoFlushReq = Decoupled(new DCacheAmoFlushReq())
+        val cacheAmoFlushResp = Flipped(Valid(new DCacheAmoFlushResp))
+        val paddr = Input(UInt(64.W))
+        val dirLoadStore = new IOInterface()(c.lsuIoConfig, true)
 
         val commit = Decoupled(new LSUCommit)
         val invalidateReserved = Input(Bool())
         val outfire = Output(Bool())
     })
 
-    val pmaChecker = Module(new PMAChecker(c.pma))
     private val dirReadChannel = io.dirLoadStore.read.get
     private val dirWriteChannel = io.dirLoadStore.write.get
-    dirReadChannel.params.valid := false.B
-    dirReadChannel.params.bits := new ReadParams()(c.dirLoadStoreIoConfig).zero
-    dirWriteChannel.params.valid := false.B
-    dirWriteChannel.params.bits := new WriteParams()(c.dirLoadStoreIoConfig).zero
 
     object State extends ChiselEnum {
-        val sIdle, sCacheNormWait, sCacheInvalWait, sAmoRead, sAmoWrite = Value
+        val sIdle, sCacheReadWait, sCacheWriteWait, sBypassRead, sBypassWrite, sAmoFlushWait, sAmoRead, sAmoWrite = Value
     }
+
     val state = RegInit(State.sIdle)
     val localLoadReservedValid = RegInit(false.B)
-    val localLoadReservedAddr = RegInit(0.U(64.W))
-    val cacheCleanPending = RegInit(false.B)
+    val localLoadReservedPa = RegInit(0.U(64.W))
+    val transPaAddrReg = RegInit(0.U(64.W))
+    val amoDataReg = Reg(UInt(64.W))
 
+    // Decode
     val (opcode, validFunct) = LSUOpcode.safe(io.lsuInstr.bits.lsuOpcode.funct)
     val size = io.lsuInstr.bits.lsuOpcode.size(1, 0)
     val sign = !io.lsuInstr.bits.lsuOpcode.size(2)
     val params = io.lsuInstr.bits.params
 
-    val opFired = Wire(Bool())
-    val loadData = Wire(UInt(64.W))
-    val amoDataReg = Reg(UInt(64.W))
+    val isAmo = LSUOpcode.isamo(opcode)
+    val isLoad = LSUOpcode.isload(opcode)
+    val isStore = !isAmo && !isLoad
+    val isSc = opcode === LSUOpcode.sc
+    val isLr = opcode === LSUOpcode.lr
+
+    // Keep full VA so returned PA keeps the byte offset.
+    val vaAddr = params.source1.asUInt
+    val alignedCheckSucc = (vaAddr & ((1.U << size) - 1.U)) === 0.U
+    val alignExcCause = Mux(isLoad, 4.U, 6.U)
+
     val AMO_SC_FAILED = "h0000000000000001".U
-    val AMO_SC_SUCCED = "h0000000000000000".U
+    val AMO_SC_SUCCEEDED = "h0000000000000000".U
 
-    val addr = params.source1.asUInt
-    val byteOffset = addr(c.dcacheConfig.offsetBits - 1, 0)
-    val dataShiftAmount = byteOffset << 3
-    val maskedAddr = addr & ((~(0.U(64.W))) << c.dcacheConfig.offsetBits)
-    val alignedCheckSucc = (addr & ((1.U << size) - 1.U)) === 0.U
-    pmaChecker.io.addr := addr
-    pmaChecker.io.size := size
-
-    def invalidateReserved(writeAddr: UInt) = {
-        when(writeAddr === localLoadReservedAddr) {
-            localLoadReservedValid := false.B
-            localLoadReservedAddr := 0.U
-        }
-    }
-
-    // Helper: sign-extend raw data based on size
     def extendData(raw: UInt): UInt = {
         MuxLookup(size, raw)(Seq(
             0.U -> Mux(sign, raw(7, 0).sextu(64), raw(7, 0).zextu(64)),
@@ -86,17 +79,92 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
         ))
     }
 
-    // Default Outputs
+    def isLoadAccessFault(code: DCacheCode.Type): Bool = {
+        code === DCacheCode.pmaMmuWalkErr || code === DCacheCode.pmaLoadErr
+    }
+
+    def isStoreAccessFault(code: DCacheCode.Type): Bool = {
+        code === DCacheCode.pmaMmuWalkErr || code === DCacheCode.pmaLoadErr || code === DCacheCode.pmaStorErr
+    }
+
+    val cacheWriteData = Wire(UInt(64.W))
+    cacheWriteData := params.source2.asUInt
+
+    val cacheWriteMaskBase = MuxLookup(size, 0.U(8.W))(Seq(
+        0.U -> "h01".U(8.W),
+        1.U -> "h03".U(8.W),
+        2.U -> "h0f".U(8.W),
+        3.U -> "hff".U(8.W)
+    ))
+    val cacheWriteMask = Wire(UInt(8.W))
+    cacheWriteMask := cacheWriteMaskBase
+
+    val source2Extended = MuxLookup(size, params.source2.asUInt)(Seq(
+        0.U -> params.source2(7, 0).sextu(64),
+        1.U -> params.source2(15, 0).sextu(64),
+        2.U -> params.source2(31, 0).sextu(64)
+    ))
+
+    val amoAluResult = MuxLookup(opcode, 0.U)(Seq(
+        LSUOpcode.sc      -> source2Extended,
+        LSUOpcode.amoswap -> source2Extended,
+        LSUOpcode.amoadd  -> (amoDataReg + source2Extended),
+        LSUOpcode.amoxor  -> (amoDataReg ^ source2Extended),
+        LSUOpcode.amoor   -> (amoDataReg | source2Extended),
+        LSUOpcode.amoand  -> (amoDataReg & source2Extended),
+        LSUOpcode.amomin  -> Mux(amoDataReg.asSInt < source2Extended.asSInt, amoDataReg, source2Extended),
+        LSUOpcode.amomax  -> Mux(amoDataReg.asSInt > source2Extended.asSInt, amoDataReg, source2Extended),
+        LSUOpcode.amominu -> Mux(amoDataReg < source2Extended, amoDataReg, source2Extended),
+        LSUOpcode.amomaxu -> Mux(amoDataReg > source2Extended, amoDataReg, source2Extended)
+    ))
+
+    // Action wires
+    val opFired = WireDefault(false.B)
+    val loadData = WireDefault(0.U(64.W))
+
+    // Reservation update
+    val setReservedValid = WireDefault(false.B)
+    val newReservedValidVal = WireDefault(false.B)
+    val newReservedPaVal = WireDefault(0.U(64.W))
+
+    // Reservation invalidation
+    val doInvalidateReserved = WireDefault(false.B)
+    val invalidateReservedPa = WireDefault(0.U(64.W))
+
+    // AMO data capture
+    val setAmoData = WireDefault(false.B)
+    val newAmoDataVal = WireDefault(0.U(64.W))
+
+    def raiseException(cause: UInt): Unit = {
+        opFired := true.B
+        io.commit.valid := true.B
+        io.commit.bits.discon := true.B
+        io.commit.bits.disconType := DisconEventType.instrException
+        io.commit.bits.eventPc := params.pc
+        io.commit.bits.xtval := vaAddr
+        io.commit.bits.cause := cause
+    }
+
+    def finishOp(data: UInt): Unit = {
+        opFired := true.B
+        loadData := data
+    }
+
+    dirReadChannel.params.valid := false.B
+    dirReadChannel.params.bits := new ReadParams()(c.lsuIoConfig).zero
+    dirWriteChannel.params.valid := false.B
+    dirWriteChannel.params.bits := new WriteParams()(c.lsuIoConfig).zero
+
     io.cacheReadReq.valid := false.B
-    io.cacheReadReq.bits := new CacheReadReq().zero
-    io.cacheReadResp.ready := false.B
+    io.cacheReadReq.bits := new DCacheReadReq().zero
     io.cacheWriteReq.valid := false.B
-    io.cacheWriteReq.bits := new CacheWriteReq()(c.dcacheConfig).zero
-    io.cacheWriteResp.ready := false.B
+    io.cacheWriteReq.bits := new DCacheWriteReq()(c.dcacheConfig).zero
     io.cacheCleanReq.valid := false.B
-    io.cacheCleanReq.bits := new CacheCleanReq().zero
+    io.cacheCleanReq.bits := new DCacheCleanReq().zero
     io.cacheInvalidateReq.valid := false.B
-    io.cacheInvalidateReq.bits := new CacheInvalidateReq().zero
+    io.cacheInvalidateReq.bits := new DCacheInvalidateReq().zero
+    io.cacheAmoFlushReq.valid := false.B
+    io.cacheAmoFlushReq.bits := new DCacheAmoFlushReq().zero
 
     io.commit.valid := false.B
     io.commit.bits := new LSUCommit().zero
@@ -104,181 +172,139 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
 
     io.lsuInstr.ready := false.B
     io.outfire := false.B
-    opFired := false.B
-    loadData := 0.U
 
-    when(io.invalidateReserved) {
-        localLoadReservedValid := false.B
-    }
-
-    when(io.cacheCleanResp) {
-        cacheCleanPending := false.B
-    }
-
-    // ==============================================================================
-    // State Machine
-    // ==============================================================================
     switch(state) {
         is(State.sIdle) {
             when(io.lsuInstr.valid && validFunct && io.commit.ready) {
-                when(LSUOpcode.isamo(opcode)) {
-                    // Dispatch AMO
-                    val pmaCheckSucc = pmaChecker.io.attr.a
-                    when(~pmaCheckSucc) {
-                        io.commit.valid := true.B
-                        io.commit.bits.discon := true.B
-                        io.commit.bits.disconType := DisconEventType.instrException
-                        io.commit.bits.eventPc := params.pc
-                        io.commit.bits.xtval := addr
-                        io.commit.bits.cause := 7.U
-                        opFired := true.B
-                    }.elsewhen(~alignedCheckSucc) {
-                        io.commit.valid := true.B
-                        io.commit.bits.discon := true.B
-                        io.commit.bits.disconType := DisconEventType.instrException
-                        io.commit.bits.eventPc := params.pc
-                        io.commit.bits.xtval := addr
-                        io.commit.bits.cause := 6.U
-                        opFired := true.B
-                    }.otherwise {
-                        when(pmaChecker.io.attr.c) {
-                            io.cacheCleanReq.valid := true.B
-                            io.cacheCleanReq.bits.addr := maskedAddr
-                            cacheCleanPending := true.B
-                            when(io.cacheCleanReq.ready) {
-                                state := State.sCacheNormWait
-                            }
-                        }.otherwise {
-                            when(opcode === LSUOpcode.sc) {
-                                state := State.sAmoWrite
-                            }.otherwise {
-                                state := State.sAmoRead
-                            }
-                        }
+                when(!alignedCheckSucc) {
+                    raiseException(alignExcCause)
+                }.elsewhen(isAmo) {
+                    io.cacheAmoFlushReq.valid := true.B
+                    io.cacheAmoFlushReq.bits.vaddr := vaAddr
+                    io.cacheAmoFlushReq.bits.readLike := isLr
+                    when(io.cacheAmoFlushReq.ready) {
+                        state := State.sAmoFlushWait
+                    }
+                }.elsewhen(isLoad) {
+                    io.cacheReadReq.valid := true.B
+                    io.cacheReadReq.bits.vaddr := vaAddr
+                    when(io.cacheReadReq.ready) {
+                        state := State.sCacheReadWait
                     }
                 }.otherwise {
-                    when(LSUOpcode.isload(opcode)) {
-                        val pmaCheckSucc = pmaChecker.io.attr.r
-                        when(~pmaCheckSucc) {
-                            io.commit.valid := true.B
-                            io.commit.bits.discon := true.B
-                            io.commit.bits.disconType := DisconEventType.instrException
-                            io.commit.bits.eventPc := params.pc
-                            io.commit.bits.xtval := addr
-                            io.commit.bits.cause := 5.U
-                            opFired := true.B
-                        }.elsewhen(~alignedCheckSucc) {
-                            io.commit.valid := true.B
-                            io.commit.bits.discon := true.B
-                            io.commit.bits.disconType := DisconEventType.instrException
-                            io.commit.bits.eventPc := params.pc
-                            io.commit.bits.xtval := addr
-                            io.commit.bits.cause := 4.U
-                            opFired := true.B
-                        }.otherwise {
-                            when(pmaChecker.io.attr.c) {
-                                io.cacheReadReq.valid := true.B
-                                io.cacheReadReq.bits.addr := maskedAddr
-                                when(io.cacheReadReq.ready) {
-                                    state := State.sCacheNormWait
-                                }
-                            }.otherwise {
-                                val addr = params.source1.asUInt
-                                dirReadChannel.params.valid := true.B
-                                dirReadChannel.params.bits.size := size
-                                dirReadChannel.params.bits.addr := addr
-                                when(dirReadChannel.resp.valid) {
-                                    opFired := true.B
-                                    val raw = dirReadChannel.resp.bits.data
-                                    val extended = extendData(raw)
-                                    loadData := extended
-                                }
-                            }
-                        }
-                    }.otherwise {
-                        // Normal Store
-                        invalidateReserved(addr)
-                        val pmaCheckSucc = pmaChecker.io.attr.w
-                        when(~pmaCheckSucc) {
-                            io.commit.valid := true.B
-                            io.commit.bits.discon := true.B
-                            io.commit.bits.disconType := DisconEventType.instrException
-                            io.commit.bits.eventPc := params.pc
-                            io.commit.bits.xtval := addr
-                            io.commit.bits.cause := 7.U
-                            opFired := true.B
-                        }.elsewhen(~alignedCheckSucc) {
-                            io.commit.valid := true.B
-                            io.commit.bits.discon := true.B
-                            io.commit.bits.disconType := DisconEventType.instrException
-                            io.commit.bits.eventPc := params.pc
-                            io.commit.bits.xtval := addr
-                            io.commit.bits.cause := 6.U
-                            opFired := true.B
-                        }.otherwise {
-                            when(pmaChecker.io.attr.c) {
-                                io.cacheWriteReq.valid := true.B
-                                io.cacheWriteReq.bits.addr := maskedAddr
-                                io.cacheWriteReq.bits.data := (params.source2.asUInt << dataShiftAmount).asTypeOf(io.cacheWriteReq.bits.data)
-                                io.cacheWriteReq.bits.mask := MuxLookup(size, 0.U)(Seq(
-                                    0.U -> "h01".U((c.dcacheConfig.dataBytes * 8).W),
-                                    1.U -> "h03".U((c.dcacheConfig.dataBytes * 8).W),
-                                    2.U -> "h0f".U((c.dcacheConfig.dataBytes * 8).W),
-                                    3.U -> "hff".U((c.dcacheConfig.dataBytes * 8).W)
-                                )) << byteOffset
-                                when(io.cacheWriteReq.ready) {
-                                    state := State.sCacheNormWait
-                                }
-                            }.otherwise {
-                                val data = params.source2.asUInt
-                                val addr = params.source1.asUInt
-                                dirWriteChannel.params.valid := true.B
-                                dirWriteChannel.params.bits.size := size
-                                dirWriteChannel.params.bits.addr := addr
-                                dirWriteChannel.params.bits.data := data
-                                when(dirWriteChannel.resp.valid) {
-                                    opFired := true.B
-                                }
-                            }
-                        }
+                    io.cacheWriteReq.valid := true.B
+                    io.cacheWriteReq.bits.vaddr := vaAddr
+                    io.cacheWriteReq.bits.data := cacheWriteData
+                    io.cacheWriteReq.bits.mask := cacheWriteMask
+                    when(io.cacheWriteReq.ready) {
+                        state := State.sCacheWriteWait
                     }
                 }
             }
         }
 
-        is(State.sCacheNormWait) {
-            when(LSUOpcode.isamo(opcode)) {
-                when(~cacheCleanPending || io.cacheCleanResp) {
-                    io.cacheInvalidateReq.valid := true.B
-                    io.cacheInvalidateReq.bits.addr := maskedAddr
-                    when(io.cacheInvalidateReq.ready) {
-                        state := State.sCacheInvalWait
-                    }
-                }
-            }.elsewhen(LSUOpcode.isload(opcode)) {
-                io.cacheReadResp.ready := true.B
-                when(io.cacheReadResp.valid) {
-                    opFired := true.B
-                    val raw = io.cacheReadResp.bits.data >> dataShiftAmount
-                    val extended = extendData(raw)
-                    loadData := extended
+        is(State.sCacheReadWait) {
+            when(io.cacheReadResp.valid) {
+                val code = io.cacheReadResp.bits.code
+                when(code.isOk()) {
+                    finishOp(extendData(io.cacheReadResp.bits.data))
                     state := State.sIdle
-                }
-            }.otherwise {
-                io.cacheWriteResp.ready := true.B
-                when(io.cacheWriteResp.valid) {
-                    opFired := true.B
+                }.elsewhen(code === DCacheCode.pmaCacheErr) {
+                    transPaAddrReg := io.paddr
+                    state := State.sBypassRead
+                }.elsewhen(code === DCacheCode.pageLoadErr) {
+                    raiseException(13.U)
+                    state := State.sIdle
+                }.elsewhen(isLoadAccessFault(code)) {
+                    raiseException(5.U)
+                    state := State.sIdle
+                }.otherwise {
+                    raiseException(5.U)
                     state := State.sIdle
                 }
             }
         }
 
-        is(State.sCacheInvalWait) {
-            when(io.cacheInvalidateResp) {
-                when(opcode === LSUOpcode.sc) {
-                    state := State.sAmoWrite
+        is(State.sCacheWriteWait) {
+            when(io.cacheWriteResp.valid) {
+                val code = io.cacheWriteResp.bits.code
+                when(code.isOk()) {
+                    finishOp(0.U)
+                    doInvalidateReserved := true.B
+                    invalidateReservedPa := io.paddr
+                    state := State.sIdle
+                }.elsewhen(code === DCacheCode.pmaCacheErr) {
+                    transPaAddrReg := io.paddr
+                    state := State.sBypassWrite
+                }.elsewhen(code === DCacheCode.pageStorErr) {
+                    raiseException(15.U)
+                    state := State.sIdle
+                }.elsewhen(code === DCacheCode.pageLoadErr) {
+                    raiseException(13.U)
+                    state := State.sIdle
+                }.elsewhen(isStoreAccessFault(code)) {
+                    raiseException(7.U)
+                    state := State.sIdle
                 }.otherwise {
-                    state := State.sAmoRead
+                    raiseException(7.U)
+                    state := State.sIdle
+                }
+            }
+        }
+
+        is(State.sBypassRead) {
+            dirReadChannel.params.valid := true.B
+            dirReadChannel.params.bits.size := size
+            dirReadChannel.params.bits.addr := transPaAddrReg
+
+            when(dirReadChannel.resp.valid) {
+                finishOp(extendData(dirReadChannel.resp.bits.data))
+                state := State.sIdle
+            }
+        }
+
+        is(State.sBypassWrite) {
+            dirWriteChannel.params.valid := true.B
+            dirWriteChannel.params.bits.size := size
+            dirWriteChannel.params.bits.addr := transPaAddrReg
+            dirWriteChannel.params.bits.data := params.source2.asUInt
+
+            when(dirWriteChannel.resp.valid) {
+                finishOp(0.U)
+                doInvalidateReserved := true.B
+                invalidateReservedPa := transPaAddrReg
+                state := State.sIdle
+            }
+        }
+
+        is(State.sAmoFlushWait) {
+            when(io.cacheAmoFlushResp.valid) {
+                val code = io.cacheAmoFlushResp.bits.code
+
+                when(code.isOk()) {
+                    transPaAddrReg := io.paddr
+                    when(isSc) {
+                        when(localLoadReservedValid && localLoadReservedPa === io.paddr) {
+                            state := State.sAmoWrite
+                        }.otherwise {
+                            finishOp(AMO_SC_FAILED)
+                            state := State.sIdle
+                        }
+                    }.otherwise {
+                        state := State.sAmoRead
+                    }
+                }.elsewhen(code === DCacheCode.pageStorErr) {
+                    raiseException(15.U)
+                    state := State.sIdle
+                }.elsewhen(code === DCacheCode.pageLoadErr) {
+                    raiseException(13.U)
+                    state := State.sIdle
+                }.elsewhen(isStoreAccessFault(code)) {
+                    raiseException(7.U)
+                    state := State.sIdle
+                }.otherwise {
+                    raiseException(7.U)
+                    state := State.sIdle
                 }
             }
         }
@@ -286,18 +312,18 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
         is(State.sAmoRead) {
             dirReadChannel.params.valid := true.B
             dirReadChannel.params.bits.size := size
-            dirReadChannel.params.bits.addr := addr
+            dirReadChannel.params.bits.addr := transPaAddrReg
 
             when(dirReadChannel.resp.valid) {
-                val raw = dirReadChannel.resp.bits.data
-                val extended = extendData(raw)
-                amoDataReg := extended
+                val readData = extendData(dirReadChannel.resp.bits.data)
+                setAmoData := true.B
+                newAmoDataVal := readData
 
-                when(opcode === LSUOpcode.lr) {
-                    opFired := true.B
-                    localLoadReservedValid := true.B
-                    localLoadReservedAddr := addr
-                    loadData := extended
+                when(isLr) {
+                    finishOp(readData)
+                    setReservedValid := true.B
+                    newReservedValidVal := true.B
+                    newReservedPaVal := transPaAddrReg
                     state := State.sIdle
                 }.otherwise {
                     state := State.sAmoWrite
@@ -306,76 +332,27 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
         }
 
         is(State.sAmoWrite) {
-            val source2 = Wire(UInt(64.W))
-            source2 := MuxLookup(size, params.source2)(Seq(
-                0.U -> params.source2(7, 0).sextu(64),
-                1.U -> params.source2(15, 0).sextu(64),
-                2.U -> params.source2(31, 0).sextu(64)
-            ))
+            dirWriteChannel.params.valid := true.B
+            dirWriteChannel.params.bits.size := size
+            dirWriteChannel.params.bits.addr := transPaAddrReg
+            dirWriteChannel.params.bits.data := amoAluResult
 
-            val isSc = opcode === LSUOpcode.sc
-
-            val aluResult = MuxLookup(opcode, 0.U)(Seq(
-                LSUOpcode.sc      -> source2,
-                LSUOpcode.amoswap -> source2,
-                LSUOpcode.amoadd  -> (amoDataReg + source2),
-                LSUOpcode.amoxor  -> (amoDataReg ^ source2),
-                LSUOpcode.amoor   -> (amoDataReg | source2),
-                LSUOpcode.amoand  -> (amoDataReg & source2),
-                LSUOpcode.amomin  -> Mux(amoDataReg.asSInt < source2.asSInt, amoDataReg, source2),
-                LSUOpcode.amomax  -> Mux(amoDataReg.asSInt > source2.asSInt, amoDataReg, source2),
-                LSUOpcode.amominu -> Mux(amoDataReg < source2, amoDataReg, source2),
-                LSUOpcode.amomaxu -> Mux(amoDataReg > source2, amoDataReg, source2)
-            ))
-
-            // Cache-path shifted data & mask (only meaningful for cacheable writes)
-            val writeDataShifted = aluResult.asTypeOf(UInt((c.dcacheConfig.dataBytes * 8).W)) << dataShiftAmount
-            val writeMask = MuxLookup(size, "h00".U)(Seq(
-                0.U -> "h01".U((c.dcacheConfig.dataBytes * 8).W),
-                1.U -> "h03".U((c.dcacheConfig.dataBytes * 8).W),
-                2.U -> "h0f".U((c.dcacheConfig.dataBytes * 8).W),
-                3.U -> "hff".U((c.dcacheConfig.dataBytes * 8).W)
-            )) << byteOffset
-
-            when(isSc) {
-                // SC Logic
-                when(localLoadReservedValid && localLoadReservedAddr === addr) {
-                    dirWriteChannel.params.valid := true.B
-                    dirWriteChannel.params.bits.size := size
-                    dirWriteChannel.params.bits.addr := addr
-                    dirWriteChannel.params.bits.data := aluResult
-
-                    when(dirWriteChannel.resp.valid) {
-                        opFired := true.B
-                        localLoadReservedValid := false.B
-                        localLoadReservedAddr := 0.U
-                        loadData := AMO_SC_SUCCED
-                        state := State.sIdle
-                    }
+            when(dirWriteChannel.resp.valid) {
+                when(isSc) {
+                    finishOp(AMO_SC_SUCCEEDED)
+                    setReservedValid := true.B
+                    newReservedValidVal := false.B
+                    newReservedPaVal := 0.U
                 }.otherwise {
-                    // Reservation Invalid: Fail immediately, no write
-                    opFired := true.B
-                    loadData := AMO_SC_FAILED
-                    state := State.sIdle
+                    finishOp(amoDataReg)
+                    doInvalidateReserved := true.B
+                    invalidateReservedPa := transPaAddrReg
                 }
-            }.otherwise {
-                // Standard RMW AMO Logic
-                invalidateReserved(addr)
-                dirWriteChannel.params.valid := true.B
-                dirWriteChannel.params.bits.size := size
-                dirWriteChannel.params.bits.addr := addr
-                dirWriteChannel.params.bits.data := aluResult
-
-                when(dirWriteChannel.resp.valid) {
-                    opFired := true.B
-                    loadData := amoDataReg
-                    state := State.sIdle
-                }
+                state := State.sIdle
             }
         }
     }
 
-    // Handshaking Logic
     when(!io.lsuInstr.valid) {
         io.lsuInstr.ready := io.commit.ready && state === State.sIdle
     }
@@ -385,5 +362,22 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
         io.lsuInstr.ready := io.commit.ready
         io.commit.valid := true.B
         io.commit.bits.data := loadData
+    }
+
+    when(io.invalidateReserved) {
+        localLoadReservedValid := false.B
+        localLoadReservedPa := 0.U
+    }
+    when(doInvalidateReserved && invalidateReservedPa === localLoadReservedPa) {
+        localLoadReservedValid := false.B
+        localLoadReservedPa := 0.U
+    }
+    when(setReservedValid) {
+        localLoadReservedValid := newReservedValidVal
+        localLoadReservedPa := newReservedPaVal
+    }
+
+    when(setAmoData) {
+        amoDataReg := newAmoDataVal
     }
 }

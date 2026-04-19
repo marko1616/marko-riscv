@@ -71,9 +71,10 @@ class Issuer(implicit val c: CoreConfig) extends Module {
     io.createRtCkpt.bits := io.renameTable
 
     // Hazard Detection
-    val warHazard = io.rsRegReqBits(origPrd)
+    val warHazard = io.rsRegReqBits(origPrd) && prdValid
     val wawHazard = (io.regStates(origPrd) =/= PhyRegState.Allocated && prdValid)
-    val hasHazard = warHazard || wawHazard || io.robMayDison
+    val excepHazard = io.robMayDison || (exu.mayDison() && prdValid)
+    val hasHazard = warHazard || wawHazard || excepHazard
     val noHazard = !hasHazard
 
     // Rename Logic

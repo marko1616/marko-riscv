@@ -107,14 +107,14 @@ class InstrDecoder extends Module with BaseOpcode {
         OP_JALR,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
-            exuOpcode.branchOpcode.fromJalr(i, lregReq, params, pc, i.from16),
+            exuOpcode.branchOpcode.fromJalr(i, lregReq, params, pc, i.status === InstrStatus.instrOk16),
         EXUEnum.bru
         ),
         DecodeEntry(
         OP_BRANCH,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
-            exuOpcode.branchOpcode.fromBranch(i, lregReq, params, pc, i.from16),
+            exuOpcode.branchOpcode.fromBranch(i, lregReq, params, pc, i.status === InstrStatus.instrOk16),
         EXUEnum.bru
         ),
         DecodeEntry(
@@ -162,6 +162,36 @@ class InstrDecoder extends Module with BaseOpcode {
     val selectedExu       = suppressEnumCastWarning { Mux1H(hits, exus) }
     val selectedExuOpcode = Mux1H(hits, exuOpcodes)
 
+    val isPmaFault = instr.status.in(InstrStatus.instrPmaFaultLow, InstrStatus.instrPmaFaultHigh)
+    val pmaFaultInstrLregReq   = WireInit(new LogicRegRequests().zero)
+    val pmaFaultInstrParams    = WireInit(new DecodedParams().zero)
+    val pmaFaultInstrExu       = WireDefault(EXUEnum.misc)
+    val pmaFaultInstrExuOpcode = WireInit(new ExuOpcode().zero)
+
+    pmaFaultInstrParams.pc := pc
+    pmaFaultInstrExuOpcode.miscOpcode.fromPmaFault(
+        instr,
+        pmaFaultInstrLregReq,
+        pmaFaultInstrParams,
+        pc,
+        instr.status === InstrStatus.instrPmaFaultHigh
+    )
+
+    val isPageFault = instr.status.in(InstrStatus.instrPageFaultLow, InstrStatus.instrPageFaultHigh)
+    val pageFaultInstrLregReq   = WireInit(new LogicRegRequests().zero)
+    val pageFaultInstrParams    = WireInit(new DecodedParams().zero)
+    val pageFaultInstrExu       = WireDefault(EXUEnum.misc)
+    val pageFaultInstrExuOpcode = WireInit(new ExuOpcode().zero)
+
+    pageFaultInstrParams.pc := pc
+    pageFaultInstrExuOpcode.miscOpcode.fromPageFault(
+        instr,
+        pageFaultInstrLregReq,
+        pageFaultInstrParams,
+        pc,
+        instr.status === InstrStatus.instrPageFaultHigh
+    )
+
     val illegalInstrLregReq   = WireInit(new LogicRegRequests().zero)
     val illegalInstrParams    = WireInit(new DecodedParams().zero)
     val illegalInstrExu       = WireDefault(EXUEnum.misc)
@@ -175,10 +205,29 @@ class InstrDecoder extends Module with BaseOpcode {
         pc
     )
 
-    val finalLregReq   = Mux(validInstr, selectedLregReq, illegalInstrLregReq)
-    val finalParams    = Mux(validInstr, selectedParams, illegalInstrParams)
-    val finalExu       = Mux(validInstr, selectedExu, illegalInstrExu)
-    val finalExuOpcode = Mux(validInstr, selectedExuOpcode, illegalInstrExuOpcode)
+    val finalLregReq = MuxCase(selectedLregReq, Seq(
+        isPmaFault  -> pmaFaultInstrLregReq,
+        isPageFault -> pageFaultInstrLregReq,
+        !validInstr -> illegalInstrLregReq
+    ))
+
+    val finalParams = MuxCase(selectedParams, Seq(
+        isPmaFault  -> pmaFaultInstrParams,
+        isPageFault -> pageFaultInstrParams,
+        !validInstr -> illegalInstrParams
+    ))
+
+    val finalExu = MuxCase(selectedExu, Seq(
+        isPmaFault  -> pmaFaultInstrExu,
+        isPageFault -> pageFaultInstrExu,
+        !validInstr -> illegalInstrExu
+    ))
+
+    val finalExuOpcode = MuxCase(selectedExuOpcode, Seq(
+        isPmaFault  -> pmaFaultInstrExuOpcode,
+        isPageFault -> pageFaultInstrExuOpcode,
+        !validInstr -> illegalInstrExuOpcode
+    ))
 
     val issueTask = WireInit(new IssueTask().zero)
     issueTask.lregReq    := finalLregReq

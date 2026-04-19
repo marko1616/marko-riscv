@@ -6,6 +6,7 @@ import chisel3.util._
 import markorv.utils.ChiselUtils._
 import markorv.config._
 import markorv.trap._
+import markorv.bus.MmuMode
 import markorv.manage.RetireEvent
 
 class ControlStatusRegistersIO extends Bundle {
@@ -27,6 +28,12 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
 
         val privilege      = Input(UInt(2.W))
 
+        val satpModeField = Output(UInt(4.W))
+        val statusMppField = Output(UInt(2.W))
+        val statusMprvField = Output(Bool())
+        val statusSumField = Output(Bool())
+        val statusMxrField = Output(Bool())
+
         val trapRet        = Flipped(Valid(new TrapReturnType.Type))
         val trapRetInfo    = Output(new TrapState)
 
@@ -45,6 +52,9 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
 
         val mepc = Output(UInt(64.W))
         val sepc = Output(UInt(64.W))
+
+        val ppn     = Output(UInt(44.W))
+        val asid    = Output(UInt(c.asidWidth.W))
 
         val time = Input(UInt(64.W))
 
@@ -106,7 +116,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     val csrSip      = new CSRSip(csrMip)
 
     // Supervisor Protection and Translation (SRW)
-    val csrSatp = new CSRSatp
+    val csrSatp = new CSRSatp(c.asidWidth)
 
     // Supervisor Timer Compare (SRW)
     val csrStimecmp = new CSRStimecmp
@@ -137,6 +147,14 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     io.sie            := csrSie.read
     io.mepc           := csrMepc.read
     io.sepc           := csrSepc.read
+    io.ppn            := csrSatp.ppnField.read
+    io.asid           := csrSatp.asidField.read
+
+    io.satpModeField := csrSatp.modeField.read
+    io.statusMppField := csrMstatus.mppField.read
+    io.statusMprvField := csrMstatus.mprvField.read
+    io.statusSumField := csrMstatus.sumField.read
+    io.statusMxrField := csrMstatus.mxrField.read
 
     // Counter Logic
     csrCycle.field.reg := csrCycle.field.reg + 1.U
@@ -243,8 +261,8 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         val doIntDeleg  = interruption && csrMideleg.read(causeCode(5,0)) && (privilege <= 1.U)
         val doDeleg = doTrapDeleg || doIntDeleg
 
-        val oldMIE = csrMstatus.mieField.reg
-        val oldSIE = csrMstatus.sieField.reg
+        val oldMIE = csrMstatus.mieField.read
+        val oldSIE = csrMstatus.sieField.read
 
         when(doDeleg) {
             // Delegated to S-mode
@@ -304,27 +322,36 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     val ret     = io.trapRet.valid
     retTrap := new TrapState().zero
 
-    when(ret && io.trapRet.bits === TrapReturnType.mret) {
-        val oldMPP  = csrMstatus.mppField.read
-        val oldMPIE = csrMstatus.mpieField.read
+    when(ret) {
+        val targetPriv = WireInit(0.U)
+        when(io.trapRet.bits === TrapReturnType.mret) {
+            val oldMPP  = csrMstatus.mppField.read
+            val oldMPIE = csrMstatus.mpieField.read
 
-        retTrap.privilege := oldMPP
-        retTrap.trapPc    := csrMepc.read
+            targetPriv := oldMPP
+            retTrap.trapPc    := csrMepc.read
 
-        csrMstatus.mieField.write(oldMPIE)
+            csrMstatus.mieField.write(oldMPIE)
 
-        csrMstatus.mpieField.write(1.U)
-        csrMstatus.mppField.write(0.U)
-    }.elsewhen(ret && io.trapRet.bits === TrapReturnType.sret) {
-        val oldSPP  = csrSstatus.sppField.read
-        val oldSPIE = csrSstatus.spieField.read
+            csrMstatus.mpieField.write(1.U)
+            csrMstatus.mppField.write(0.U)
+        }.elsewhen(io.trapRet.bits === TrapReturnType.sret) {
+            val oldSPP  = csrSstatus.sppField.read
+            val oldSPIE = csrSstatus.spieField.read
 
-        retTrap.privilege := 0.U(1.W) ## oldSPP
-        retTrap.trapPc    := csrSepc.read
+            targetPriv := 0.U(1.W) ## oldSPP
+            retTrap.trapPc    := csrSepc.read
 
-        csrSstatus.sieField.write(oldSPIE)
+            csrSstatus.sieField.write(oldSPIE)
 
-        csrSstatus.spieField.write(1.U)
-        csrSstatus.sppField.write(0.U)
+            csrSstatus.spieField.write(1.U)
+            csrSstatus.sppField.write(0.U)
+        }
+
+        when(targetPriv =/= 3.U) {
+            csrMstatus.mprvField.write(0.U)
+        }
+
+        retTrap.privilege := targetPriv
     }
 }

@@ -5,6 +5,7 @@ import chisel3.util._
 
 import markorv.utils.ChiselUtils._
 import markorv.config._
+import markorv.cache._
 import markorv.backend.EXUEnum
 import markorv.backend.ALUOpcode
 import markorv.backend.MDUOpcode
@@ -29,9 +30,18 @@ trait BaseOpcode {
     val OP_AMO      = "b0101111".U(7.W)
 }
 
+object InstrStatus extends ChiselEnum {
+    val instrOk32, instrOk16, instrPageFaultLow, instrPmaFaultLow, instrPageFaultHigh, instrPmaFaultHigh, reserved1, reserved2 = Value
+}
+
+class PreFetchedLine(implicit val config: CoreConfig) extends Bundle {
+    val code = new ICacheCode.Type
+    val data = UInt((8 * config.icacheConfig.dataBytes).W)
+}
+
 class Instruction extends Bundle {
     val rawBits = UInt(32.W)
-    val fetchAccessFault = Bool()
+    val status = new InstrStatus.Type
 
     def isCompressed: Bool = rawBits(1, 0) =/= "b11".U
     def expandedBits: UInt = Mux(isCompressed, CompressedDecoder.expand(rawBits), rawBits)
@@ -49,16 +59,14 @@ class Instruction extends Bundle {
     def asInstruction32: Instruction32 = {
         val instr32 = WireInit(new Instruction32().zero)
         instr32.fromUInt(expandedBits)
-        instr32.from16 := isCompressed
-        instr32.fetchAccessFault := fetchAccessFault
+        instr32.status := status
         instr32
     }
 }
 
 class Instruction32 extends Bundle {
     val rawBits = UInt(32.W)
-    val from16  = Bool()
-    val fetchAccessFault = Bool()
+    val status = new InstrStatus.Type
 
     def fromUInt(rawBits: UInt) = {
         this.rawBits := rawBits

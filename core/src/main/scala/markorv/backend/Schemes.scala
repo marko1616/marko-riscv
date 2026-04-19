@@ -15,6 +15,9 @@ import markorv.manage.DisconEventType
 
 object EXUEnum extends ChiselEnum {
     val alu, bru, lsu, mdu, misc = Value
+    implicit class EXUEnumOps(x: EXUEnum.Type) {
+        def mayDison(): Bool = x === bru || x === lsu || x === misc
+    }
 }
 
 object MultiplyDivisionUnitFunct3Op64 extends ChiselEnum {
@@ -89,7 +92,7 @@ object SystemFunct7Const {
     val MRET = "b0011000".U(7.W)
     val SRET = "b0001000".U(7.W)
     val WFI = "b0001000".U(7.W)
-    val TRIGEXCEP = "b1000110".U(7.W)
+    val SFENCEVMA = "b0001001".U(7.W)
 }
 
 object SystemRs2Const {
@@ -114,6 +117,7 @@ object SystemRdConst {
     val MRET = "b00000".U(5.W)
     val SRET = "b00000".U(5.W)
     val WFI = "b00000".U(5.W)
+    val SFENCEVMA = "b00000".U(5.W)
 }
 
 class ALUOpcode extends Bundle {
@@ -408,7 +412,7 @@ class MDUCommit(implicit override val c: CoreConfig) extends BaseCommitBundle
 
 class MISCOpcode extends Bundle {
     val miscCsrFunct = UInt(4.W)
-    val miscSysFunct = UInt(3.W)
+    val miscSysFunct = UInt(4.W)
     val miscMemFunct = UInt(2.W)
 
     val rawInstr = UInt(32.W)
@@ -441,7 +445,8 @@ class MISCOpcode extends Bundle {
             val mretValid = instr.funct7 === SystemFunct7Const.MRET && instr.rs2 === SystemRs2Const.MRET && instr.rs1 === SystemRs1Const.MRET && instr.rd === SystemRdConst.MRET
             val sretValid = instr.funct7 === SystemFunct7Const.SRET && instr.rs2 === SystemRs2Const.SRET && instr.rs1 === SystemRs1Const.SRET && instr.rd === SystemRdConst.SRET
             val wfiValid = instr.funct7 === SystemFunct7Const.WFI && instr.rs2 === SystemRs2Const.WFI && instr.rs1 === SystemRs1Const.WFI && instr.rd === SystemRdConst.WFI
-            val sysValid = ecallValid || ebreakValid || mretValid || wfiValid || sretValid
+            val sfencevmaValid = instr.funct7 === SystemFunct7Const.SFENCEVMA &&instr.rd === SystemRdConst.SFENCEVMA
+            val sysValid = ecallValid || ebreakValid || mretValid || wfiValid || sretValid || sfencevmaValid
             valid := sysValid
             this.miscSysFunct := Mux(sysValid, MuxCase(0.U, Seq(
                 ecallValid -> 1.U,
@@ -449,6 +454,7 @@ class MISCOpcode extends Bundle {
                 wfiValid -> 3.U,
                 mretValid -> 4.U,
                 sretValid -> 5.U,
+                sfencevmaValid -> 6.U
             )),0.U)
         }
         valid
@@ -462,23 +468,35 @@ class MISCOpcode extends Bundle {
         when(instr.funct3 === 0.U) {
             // fence
             valid := true.B
-            params.source1 := pc + 4.U
             this.miscMemFunct := 1.U
         }
 
         when(instr.funct3 === 1.U) {
             // fence.i
             valid := true.B
-            params.source1 := pc + 4.U
             this.miscMemFunct := 2.U
         }
+        valid
+    }
+
+    def fromPmaFault(rawInstr: Instruction32, _regReq: LogicRegRequests, _params: DecodedParams, _pc: UInt, isHigh: Bool): Bool = {
+        val valid = WireInit(true.B)
+        this.rawInstr := rawInstr.rawBits
+        this.miscSysFunct := Mux(isHigh, 9.U, 7.U)
+        valid
+    }
+
+    def fromPageFault(rawInstr: Instruction32, _regReq: LogicRegRequests, _params: DecodedParams, _pc: UInt, isHigh: Bool): Bool = {
+        val valid = WireInit(true.B)
+        this.rawInstr := rawInstr.rawBits
+        this.miscSysFunct := Mux(isHigh, 10.U, 8.U)
         valid
     }
 
     def fromIllegal(rawInstr: Instruction32, _regReq: LogicRegRequests, _params: DecodedParams, _pc: UInt): Bool = {
         val valid = WireInit(true.B)
         this.rawInstr := rawInstr.rawBits
-        this.miscSysFunct := 6.U
+        this.miscSysFunct := 11.U
         valid
     }
 }

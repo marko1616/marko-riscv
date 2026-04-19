@@ -46,15 +46,22 @@ case class CacheConfig(
     addrWidth: Int,
     wayNum: Int,
     setNum: Int,
-    offsetBits: Int
+    byteNum: Int
 ) {
+    private def isPowerOf2(x: Int): Boolean = (x > 0) && ((x & (x - 1)) == 0)
+
     require(addrWidth > 0, "addrWidth must be positive")
-    require(wayNum >= 0, "wayBits must be non-negative")
-    require(setNum >= 0, "setBits must be non-negative")
-    require(offsetBits >= 0, "offsetBits must be non-negative")
+    require(wayNum >= 0, "wayNum must be non-negative")
+    require(setNum >= 0, "setNum must be non-negative")
+    require(byteNum >= 0, "byteNum must be non-negative")
+    require(isPowerOf2(wayNum), "wayNum must be power of 2")
+    require(isPowerOf2(setNum), "setNum must be power of 2")
+    require(isPowerOf2(byteNum), "byteNum must be power of 2")
+    require(log2Ceil(byteNum) + log2Ceil(setNum) <= 12, "log2(byteNum) + log2(setNum) must <= 12")
 
     def setBits: Int = log2Ceil(setNum)
     def wayBits: Int = log2Ceil(wayNum)
+    def offsetBits: Int = log2Ceil(byteNum)
     def indexBits: Int = this.setBits + this.offsetBits
     def tagBits: Int = this.addrWidth - this.indexBits
     def dataBytes: Int = 1 << this.offsetBits
@@ -77,16 +84,21 @@ case class PmaConfig(
     require(addrLow >= 0, "addrLow must be non-negative")
     require(addrHigh >= 0, "addrHigh must be non-negative")
     require(addrLow <= addrHigh, "addrLow must be less than or equal to addrHigh")
+    require(r || w || x, "r or w or x must be true")
+    require(!x || (r && x), "When x is set r must be set")
+    require((x && c) || !x, "When x is set c must be set")
 }
 
 case class CoreConfig(
     simulate: Boolean,
     resetVector: Int,
     fetchQueueSize: Int,
+    asidWidth: Int,
     axiConfig: AxiConfig,
     icacheConfig: CacheConfig,
     dcacheConfig: CacheConfig,
-    dirLoadStoreIoConfig: IOConfig,
+    lsuIoConfig: IOConfig,
+    mmuIoConfig: IOConfig,
     robSize: Int,
     rsSize: Int,
     renameTableSize: Int,
@@ -95,6 +107,8 @@ case class CoreConfig(
 ) {
     private def isPowerOf2(x: Int): Boolean = (x > 0) && ((x & (x - 1)) == 0)
 
+    require(asidWidth > 0, "Asid width must > 0")
+    require(asidWidth <= 16, "Asid width must <= 16")
     require(isPowerOf2(robSize), "ROB size must be a positive power of 2")
     require(isPowerOf2(rsSize), "Reservation station size must be a positive power of 2")
     require(isPowerOf2(renameTableSize), "RenameTable size must be a positive power of 2")

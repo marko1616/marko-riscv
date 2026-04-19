@@ -231,6 +231,14 @@
 </details>
 
 <details>
+<summary><strong> Svade/Svadu Extension</strong></summary>
+
+- [ ] Svade
+- [N/A] Svadu
+
+</details>
+
+<details>
 <summary><strong> System Tasks </strong></summary>
 
 - [x] L1 Instruction cache
@@ -238,7 +246,7 @@
 - [ ] L2 Cache
 - [x] Exception & Interruption
 - [ ] TLB
-- [ ] SV-48 MMU
+- [x] SV-39 MMU
 - [x] AXI Bus
 - [x] Device tree
 - [x] Boot loader

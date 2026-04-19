@@ -1,6 +1,7 @@
 simulate: true
 resetVector: 0x1000000
 fetchQueueSize: 4
+asidWidth: 16
 
 axiConfig:
   addrWidth: 64
@@ -11,18 +12,25 @@ icacheConfig:
   addrWidth: 64
   wayNum: 2
   setNum: 64
-  offsetBits: 6
+  byteNum: 64
 
 dcacheConfig:
   addrWidth: 64
   wayNum: 2
   setNum: 64
-  offsetBits: 6
+  byteNum: 64
 
-dirLoadStoreIoConfig:
+lsuIoConfig:
   read: true
   write: true
   atomicity: true
+  addrWidth: 64
+  dataWidth: 64
+
+mmuIoConfig:
+  read: true
+  write: false
+  atomicity: false
   addrWidth: 64
   dataWidth: 64
 
