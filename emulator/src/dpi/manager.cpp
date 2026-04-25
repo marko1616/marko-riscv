@@ -19,7 +19,7 @@ void update_rob(const svBitVecVal* entry, const uint32_t index) {
 void update_rs(const svBitVecVal* entry, const uint32_t index) {
     auto decoded_entry = bytes_to_struct<ReservationStationEntry>(entry);
 
-    if (index < CFG_ROB_SIZE) {
+    if (index < CFG_RS_SIZE) {
         rs_data[index] = decoded_entry;
     } else {
         throw std::runtime_error("Rs index out of range.");

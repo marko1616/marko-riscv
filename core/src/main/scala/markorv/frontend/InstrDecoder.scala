@@ -4,9 +4,10 @@ import chisel3._
 import chisel3.util._
 
 import markorv.utils.ChiselUtils._
+import markorv.config._
 import markorv.backend._
 
-class InstrDecoder extends Module with BaseOpcode {
+class InstrDecoder(implicit val c: CoreConfig) extends Module with BaseOpcode {
     val io = IO(new Bundle {
         val decodeTask = Flipped(Decoupled(new InstrDecodeTask))
         val issueTask  = Decoupled(new IssueTask)

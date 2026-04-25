@@ -5,6 +5,12 @@ VirtualPLIC::VirtualPLIC(uint64_t base_addr) : InterruptController(base_addr) {
 }
 
 uint64_t VirtualPLIC::read(uint64_t addr, uint8_t size) {
+    auto plic_comparator = [this](uint16_t a, uint16_t b) -> bool {
+        if (source_priority[a] != source_priority[b])
+            return source_priority[a] < source_priority[b];
+        return a > b;
+    };
+
     if (std::ranges::contains(priority_reg_range, addr)) {
         uint8_t index = addr >> 2;
         return source_priority[index];
@@ -13,7 +19,9 @@ uint64_t VirtualPLIC::read(uint64_t addr, uint8_t size) {
     if (std::ranges::contains(pending_reg_range, addr)) {
         uint64_t result = 0;
         for (const auto& source_index : source_pending) {
-            result |= 1ULL << (source_index - ((addr - 0x1000) << 3));
+            uint32_t word = (addr - 0x1000) / 4;                                                                                                                                                                           
+            uint32_t bit  = source_index - word * 32;
+            if (bit < 32) result |= (1ULL << bit);
         }
         return result;
     }
@@ -36,13 +44,21 @@ uint64_t VirtualPLIC::read(uint64_t addr, uint8_t size) {
             return threshold;
         } else if (addr == 0x200004) {
             // Claim
-            const auto max_it = std::ranges::max_element(source_pending);
-            if (max_it == source_pending.end() || *max_it < threshold) {
+            auto candidates = source_pending
+                | std::views::filter([this](uint16_t id) {
+                    return source_priority[id] > threshold;
+                });
+            auto max_it = std::ranges::max_element(candidates, plic_comparator);
+
+            if (max_it == candidates.end()) {
                 return 0;
             }
-            source_processing.push_back(*max_it);
-            source_pending.erase(max_it);
-            return *max_it;
+
+            uint16_t claimed = *max_it;
+            source_processing.push_back(claimed);
+
+            source_pending.erase(std::ranges::find(source_pending, claimed));
+            return claimed;
         }
     }
 

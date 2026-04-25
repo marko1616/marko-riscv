@@ -33,6 +33,9 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         val statusMprvField = Output(Bool())
         val statusSumField = Output(Bool())
         val statusMxrField = Output(Bool())
+        val statusTvmField = Output(Bool())
+        val statusTwField = Output(Bool())
+        val statusTsrField = Output(Bool())
 
         val trapRet        = Flipped(Valid(new TrapReturnType.Type))
         val trapRetInfo    = Output(new TrapState)
@@ -65,11 +68,6 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     val stip = WireInit(false.B)
     val ssip = WireInit(false.B)
 
-    // Unprivileged Counter/Timers (URO)
-    val csrCycle   = new CSRCycle
-    val csrTime    = new CSRTime(io.time)
-    val csrInstret = new CSRInstRet
-
     // Machine Information Registers (MRO)
     val csrMvendorid  = new CSRMvendorID
     val csrMarchid    = new CSRMarchID
@@ -86,6 +84,10 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     val csrMtvec      = new CSRMtvec
     val csrMcounteren = new CSRMcounteren
 
+    // Machine Counter/Timers (MRW)
+    val csrMcycle   = new CSRMcycle
+    val csrMinstret = new CSRMinstRet
+
     // Machine Counter Setup (MRW)
     val csrMcountinhibit = new CSRMcountinhibit
 
@@ -94,6 +96,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     val csrMepc     = new CSRMepc
     val csrMcause   = new CSRMcause
     val csrMtval    = new CSRMtval
+    // TODO PLIC Supervisor context
     val csrMip      = new CSRMip(io.msip, io.mtip, io.meip, stip, false.B)
 
     // Machine Configuration(MRW)
@@ -121,12 +124,18 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     // Supervisor Timer Compare (SRW)
     val csrStimecmp = new CSRStimecmp
 
+    // Unprivileged Counter/Timers (URO)
+    val csrCycle   = new CSRCycle(csrMcycle.read)
+    val csrTime    = new CSRTime(io.time)
+    val csrInstret = new CSRInstRet(csrMinstret.read)
+
     // All CSRs for address dispatch
     val allCSRs: Seq[CSR] = Seq(
-        csrCycle, csrTime, csrInstret,
         csrMvendorid, csrMarchid, csrMimpid, csrMhartid, CSRMconfigPtr,
         csrMstatus, csrMisa, csrMedeleg, csrMideleg,
-        csrMie, csrMtvec, csrMcounteren,
+        csrMie, csrMtvec, 
+        csrMcycle, csrMinstret,
+        csrMcounteren,
         csrMcountinhibit,
         csrMscratch, csrMepc, csrMcause, csrMtval, csrMip,
         csrMenvcfg,
@@ -134,7 +143,8 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         csrSenvcfg,
         csrSscratch, csrSepc, csrScause, csrStval, csrSip,
         csrSatp,
-        csrStimecmp
+        csrStimecmp,
+        csrCycle, csrTime, csrInstret,
     )
 
     // Defaults
@@ -156,10 +166,14 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     io.statusSumField := csrMstatus.sumField.read
     io.statusMxrField := csrMstatus.mxrField.read
 
+    io.statusTvmField := csrMstatus.tvmField.read
+    io.statusTwField := csrMstatus.twField.read
+    io.statusTsrField := csrMstatus.tsrField.read
+
     // Counter Logic
-    csrCycle.field.reg := csrCycle.field.reg + 1.U
-    when(io.retireEvent.valid && ~io.retireEvent.bits.isException) {
-        csrInstret.field.reg := csrInstret.field.reg + 1.U
+    csrMcycle.field.reg := csrMcycle.field.reg + 1.U
+    when(io.retireEvent.valid && io.retireEvent.bits.incInstRet) {
+        csrMinstret.field.reg := csrMinstret.field.reg + 1.U
     }
 
     // Supervisor interrupt logic
@@ -200,6 +214,8 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             ))
         }.elsewhen(addr === csrStimecmp.addr) {
             priv := Mux(csrMcounteren.tmField.read.asBool && csrMenvcfg.stceField.read.asBool, 1.U, 3.U)
+        }.elsewhen(addr === csrSatp.addr) {
+            priv := Mux(csrMstatus.tvmField.read.asBool, 3.U, 1.U)
         }
         priv
     }

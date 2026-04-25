@@ -18,8 +18,6 @@ case class IOConfig(
 ) {
     require(addrWidth > 0, "Addr width must be positive")
     require(dataWidth > 0, "Data width must be positive")
-    require(addrWidth % 8 == 0, "Addr width must be a multiple of 8 (byte-aligned)")
-    require(dataWidth % 8 == 0, "Data width must be a multiple of 8 (byte-aligned)")
     require((atomicity && dataWidth == 64) | !atomicity, "Atomic operations are only supported when the data width equals 64 bits (8 bytes)")
 
     def burstLen(bus_width: Int): Int = {
@@ -36,8 +34,6 @@ case class AxiConfig(
 ) {
     require(addrWidth > 0, "Addr width must be positive")
     require(dataWidth > 0, "Data width must be positive")
-    require(addrWidth % 8 == 0, "Addr width must be a multiple of 8 (byte-aligned)")
-    require(dataWidth % 8 == 0, "Data width must be a multiple of 8 (byte-aligned)")
 
     def size_width: Int = log2Ceil(this.dataWidth / 8)
 }
@@ -46,30 +42,40 @@ case class CacheConfig(
     addrWidth: Int,
     wayNum: Int,
     setNum: Int,
-    byteNum: Int
+    byteNum: Int,
+    tagWidth: Option[Int] = None
 ) {
-    private def isPowerOf2(x: Int): Boolean = (x > 0) && ((x & (x - 1)) == 0)
 
     require(addrWidth > 0, "addrWidth must be positive")
     require(wayNum >= 0, "wayNum must be non-negative")
     require(setNum >= 0, "setNum must be non-negative")
     require(byteNum >= 0, "byteNum must be non-negative")
-    require(isPowerOf2(wayNum), "wayNum must be power of 2")
-    require(isPowerOf2(setNum), "setNum must be power of 2")
-    require(isPowerOf2(byteNum), "byteNum must be power of 2")
+    require(isPow2(wayNum), "wayNum must be power of 2")
+    require(isPow2(setNum), "setNum must be power of 2")
+    require(isPow2(byteNum), "byteNum must be power of 2")
     require(log2Ceil(byteNum) + log2Ceil(setNum) <= 12, "log2(byteNum) + log2(setNum) must <= 12")
 
     def setBits: Int = log2Ceil(setNum)
     def wayBits: Int = log2Ceil(wayNum)
     def offsetBits: Int = log2Ceil(byteNum)
     def indexBits: Int = this.setBits + this.offsetBits
-    def tagBits: Int = this.addrWidth - this.indexBits
+
+    def naturalTagBits: Int = this.addrWidth - this.indexBits
+    def tagBits: Int = tagWidth.getOrElse(naturalTagBits)
+
+    tagWidth.foreach { tw =>
+        require(tw > 0, s"tagWidth ($tw) must be positive")
+        require(tw <= naturalTagBits,
+            s"tagWidth ($tw) must not exceed natural tag bits ($naturalTagBits = addrWidth($addrWidth) - indexBits($indexBits))")
+    }
+
     def dataBytes: Int = 1 << this.offsetBits
     def setStart: Int = this.offsetBits
     def setEnd: Int = this.offsetBits + this.setBits - 1
     def tagStart: Int = this.offsetBits + this.setBits
-    def tagEnd: Int = this.addrWidth - 1
+    def tagEnd: Int = this.tagStart + this.tagBits - 1
     def offsetMask: UInt = (~(0.U(addrWidth.W))) << this.offsetBits
+    def maxRepresentableAddr: BigInt = (BigInt(1) << (tagBits + indexBits)) - 1
 }
 
 case class PmaConfig(
@@ -105,20 +111,36 @@ case class CoreConfig(
     regFileSize: Int,
     pma: List[PmaConfig]
 ) {
-    private def isPowerOf2(x: Int): Boolean = (x > 0) && ((x & (x - 1)) == 0)
-
     require(asidWidth > 0, "Asid width must > 0")
     require(asidWidth <= 16, "Asid width must <= 16")
-    require(isPowerOf2(robSize), "ROB size must be a positive power of 2")
-    require(isPowerOf2(rsSize), "Reservation station size must be a positive power of 2")
-    require(isPowerOf2(renameTableSize), "RenameTable size must be a positive power of 2")
-    require(isPowerOf2(regFileSize), "Physical register number must be a positive power of 2")
+    require(isPow2(robSize), "ROB size must be a positive power of 2")
+    require(isPow2(rsSize), "Reservation station size must be a positive power of 2")
+    require(isPow2(renameTableSize), "RenameTable size must be a positive power of 2")
+    require(isPow2(regFileSize), "Physical register number must be a positive power of 2")
     require(regFileSize >= 32, "Physical register number must be at least 32")
 
     pma.combinations(2).foreach {
         case List(a, b) =>
             require(a.addrHigh < b.addrLow || b.addrHigh < a.addrLow, s"PMA regions overlap: $a and $b")
         case _ => // This case will never happen given combinations(2)
+    }
+
+    private val icacheMax = icacheConfig.maxRepresentableAddr
+    private val dcacheMax = dcacheConfig.maxRepresentableAddr
+
+    pma.filter(_.c).foreach { p =>
+        require(p.addrHigh <= icacheMax,
+            s"Cacheable PMA region [0x${p.addrLow.toString(16)}, 0x${p.addrHigh.toString(16)}] " +
+            s"exceeds icache tag representable range " +
+            s"(tagBits=${icacheConfig.tagBits}, indexBits=${icacheConfig.indexBits}, " +
+            s"max=0x${icacheMax.toString(16)}). " +
+            s"Addresses beyond the tag width must be guaranteed to trigger a PMA error.")
+        require(p.addrHigh <= dcacheMax,
+            s"Cacheable PMA region [0x${p.addrLow.toString(16)}, 0x${p.addrHigh.toString(16)}] " +
+            s"exceeds dcache tag representable range " +
+            s"(tagBits=${dcacheConfig.tagBits}, indexBits=${dcacheConfig.indexBits}, " +
+            s"max=0x${dcacheMax.toString(16)}). " +
+            s"Addresses beyond the tag width must be guaranteed to trigger a PMA error.")
     }
 }
 

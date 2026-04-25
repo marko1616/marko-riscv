@@ -64,7 +64,7 @@ void VirtualAxiSlaves::empty_write_transaction() {
     current_write.resp = RESP_OKAY;
 }
 
-uint64_t VirtualAxiSlaves::calculate_next_addr(uint64_t base_addr, uint8_t size, axi_burst_t burst, uint8_t beat) {
+uint64_t VirtualAxiSlaves::calculate_next_addr(uint64_t base_addr, uint8_t size, axi_burst_t burst, uint8_t beat, bool is_read) {
     const uint64_t bytes_per_beat = 1 << size;
     switch (burst) {
         case BURST_FIXED:
@@ -75,7 +75,7 @@ uint64_t VirtualAxiSlaves::calculate_next_addr(uint64_t base_addr, uint8_t size,
             return base_addr + beat * bytes_per_beat;
         case BURST_WRAP: {
             // Wrap burst: address wraps within a fixed-size region
-            const uint64_t num_beats = current_read.len + 1;
+            const uint64_t num_beats = is_read ? current_read.len : current_write.len + 1;
             const uint64_t wrap_boundary = num_beats * bytes_per_beat;
             const uint64_t aligned_base = base_addr & ~(wrap_boundary - 1);
             const uint64_t offset = beat * bytes_per_beat;
@@ -116,7 +116,8 @@ void VirtualAxiSlaves::handle_read(axiSignal &axi) {
                 current_read.addr,
                 current_read.size,
                 current_read.burst,
-                current_read.beat
+                current_read.beat,
+                true
             );
 
             auto slave = std::ranges::find_if(slaves,
@@ -126,7 +127,7 @@ void VirtualAxiSlaves::handle_read(axiSignal &axi) {
 
             // Found and not cross 4k boundary.
             bool addr_valid = (slave != slaves.end()) &&
-                ((current_addr & 0xfffff000) == (current_read.addr & 0xfffff000));
+                ((current_addr & 0xfffffffffffff000) == (current_read.addr & 0xfffffffffffff000));
 
             if (addr_valid) {
                 if (current_read.held_data) {
@@ -203,7 +204,8 @@ void VirtualAxiSlaves::handle_write(axiSignal &axi) {
                     current_write.addr,
                     current_write.size,
                     current_write.burst,
-                    current_write.beat
+                    current_write.beat,
+                    false
                 );
 
                 auto slave = std::ranges::find_if(slaves,
@@ -213,7 +215,7 @@ void VirtualAxiSlaves::handle_write(axiSignal &axi) {
 
                 // Found and not cross 4k boundary.
                 bool addr_valid = (slave != slaves.end()) &&
-                    ((current_addr & 0xfffff000) == (current_write.addr & 0xfffff000));
+                    ((current_addr & 0xfffffffffffff000) == (current_write.addr & 0xfffffffffffff000));
 
                 if (addr_valid) {
                     bool reserved_hit = false;

@@ -56,7 +56,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // Cache & mmu
     val iCache = Module(new InstrCache()(c.icacheConfig))
-    val dCache = Module(new DataCache()(c.icacheConfig))
+    val dCache = Module(new DataCache()(c.dcacheConfig))
     val mmu    = Module(new MemoryManagementUnit)
 
     // Frontend Pipeline
@@ -256,6 +256,9 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     csrFile.io.privilege <> misc.io.getPrivilege
     csrFile.io.mepc <> misc.io.mepc
     csrFile.io.sepc <> misc.io.sepc
+    csrFile.io.statusTvmField <> misc.io.statusTvmField
+    csrFile.io.statusTwField <> misc.io.statusTwField
+    csrFile.io.statusTsrField <> misc.io.statusTsrField
 
     csrFile.io.meip <> io.meip
     csrFile.io.mtip <> io.mtip

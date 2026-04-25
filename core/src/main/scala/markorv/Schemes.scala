@@ -128,16 +128,10 @@ class CSRConstCSR(val addr: UInt, constValue: UInt) extends CSR {
 
 class CSRZeroCSR(override val addr: UInt) extends CSRConstCSR(addr, 0.U)
 
-// Unprivileged Counter/Timers (URO)
+// Machine Counter/Timers (MRW)
 
-class CSRCycle   extends CSRAnyCSR("hc00".U(12.W))
-class CSRTime(timeData: UInt) extends CSR {
-    val addr = "hc01".U(12.W)
-
-    val time = new CSRROMappedField(64, timeData)
-    override val fields = Seq(time)
-}
-class CSRInstRet extends CSRAnyCSR("hc02".U(12.W))
+class CSRMcycle   extends CSRAnyCSR("hb00".U(12.W))
+class CSRMinstRet extends CSRAnyCSR("hb02".U(12.W))
 
 // Machine Information Registers (MRO)
 
@@ -152,11 +146,11 @@ class CSRMconfigPtr extends CSRZeroCSR("hf15".U(12.W))
 class CSRMstatus extends CSR {
     val addr = "h300".U(12.W)
 
-    val pad0       = new CSRRegField(1)
+    val pad0       = new CSRZeroField(1)
     val sieField   = new CSRRegField(1)
-    val pad1       = new CSRRegField(1)
+    val pad1       = new CSRZeroField(1)
     val mieField   = new CSRRegField(1)
-    val pad2       = new CSRRegField(1)
+    val pad2       = new CSRZeroField(1)
     val spieField  = new CSRRegField(1)
     val ubeField   = new CSRZeroField(1)
     val mpieField  = new CSRRegField(1)
@@ -168,17 +162,17 @@ class CSRMstatus extends CSR {
     val mprvField  = new CSRRegField(1)
     val sumField   = new CSRRegField(1)
     val mxrField   = new CSRRegField(1)
-    val tvmField   = new CSRZeroField(1)
-    val twField    = new CSRZeroField(1)
-    val tsrField   = new CSRZeroField(1)
+    val tvmField   = new CSRRegField(1)
+    val twField    = new CSRRegField(1)
+    val tsrField   = new CSRRegField(1)
     val spelpField = new CSRZeroField(1)
     val sdtField   = new CSRZeroField(1)
-    val pad3       = new CSRRegField(7)
-    val uxlField   = new CSRZeroField(2)
-    val sxlField   = new CSRZeroField(2)
+    val pad3       = new CSRZeroField(7)
+    val uxlField   = new CSRConstField(2, 2.U)
+    val sxlField   = new CSRConstField(2, 2.U)
     val sbeField   = new CSRZeroField(1)
     val mbeField   = new CSRZeroField(1)
-    val pad4       = new CSRRegField(25)
+    val pad4       = new CSRZeroField(25)
     val sdField    = new CSRZeroField(1)
 
     val fields: Seq[CSRField] = Seq(
@@ -257,19 +251,19 @@ class CSRMideleg extends CSR {
 class CSRMie extends CSR {
     val addr = "h304".U(12.W)
 
-    val pad0       = new CSRRegField(1)
+    val pad0       = new CSRZeroField(1)
     val ssieField  = new CSRRegField(1)
-    val pad1       = new CSRRegField(1)
+    val pad1       = new CSRZeroField(1)
     val msieField  = new CSRRegField(1)
-    val pad2       = new CSRRegField(1)
+    val pad2       = new CSRZeroField(1)
     val stieField  = new CSRRegField(1)
-    val pad3       = new CSRRegField(1)
+    val pad3       = new CSRZeroField(1)
     val mtieField  = new CSRRegField(1)
-    val pad4       = new CSRRegField(1)
+    val pad4       = new CSRZeroField(1)
     val seieField  = new CSRRegField(1)
-    val pad5       = new CSRRegField(1)
+    val pad5       = new CSRZeroField(1)
     val meieField  = new CSRRegField(1)
-    val pad6       = new CSRRegField(52)
+    val pad6       = new CSRZeroField(52)
 
     val fields: Seq[CSRField] = Seq(
         pad0, ssieField, pad1, msieField, pad2, stieField,
@@ -378,13 +372,13 @@ class CSRMenvcfg extends CSR {
     val addr = "h30a".U(12.W)
 
     val fiomField  = new CSRZeroField(1)
-    val pad0       = new CSRRegField(1)
+    val pad0       = new CSRZeroField(1)
     val lpeField   = new CSRZeroField(1)
     val sseField   = new CSRZeroField(1)
     val cbieField  = new CSRZeroField(2)
-    val cbcfeFeild = new CSRZeroField(1)
+    val cbcfeField = new CSRZeroField(1)
     val cbzeField  = new CSRZeroField(1)
-    val pad1       = new CSRRegField(24)
+    val pad1       = new CSRZeroField(24)
     val pmmField   = new CSRZeroField(2)
     val pad2       = new CSRZeroField(25)
     val dteField   = new CSRZeroField(1)
@@ -394,7 +388,7 @@ class CSRMenvcfg extends CSR {
     val stceField   = new CSRRegField(1)
 
     val fields: Seq[CSRField] = Seq(
-        fiomField, pad0, lpeField, sseField, cbieField, cbcfeFeild,
+        fiomField, pad0, lpeField, sseField, cbieField, cbcfeField,
         cbzeField, pad1, pmmField, pad2, dteField, cdeField,
         adueField, pbmteField, stceField
     )
@@ -405,26 +399,26 @@ class CSRMenvcfg extends CSR {
 class CSRSstatus(csrMstatus: CSRMstatus) extends CSR {
     val addr = "h100".U(12.W)
 
-    val pad0       = new CSRRegField(1)
+    val pad0       = new CSRZeroField(1)
     val sieField   = new CSRRWMappedField(1, csrMstatus.sieField.reg)
-    val pad1       = new CSRRegField(3)
+    val pad1       = new CSRZeroField(3)
     val spieField  = new CSRRWMappedField(1, csrMstatus.spieField.reg)
     val ubeField   = new CSRZeroField(1)
-    val pad2       = new CSRRegField(1)
+    val pad2       = new CSRZeroField(1)
     val sppField   = new CSRRWMappedField(1, csrMstatus.sppField.reg)
     val vsField    = new CSRZeroField(2)
-    val pad3       = new CSRRegField(2)
+    val pad3       = new CSRZeroField(2)
     val fsField    = new CSRZeroField(2)
     val xsField    = new CSRZeroField(2)
-    val pad4       = new CSRRegField(1)
+    val pad4       = new CSRZeroField(1)
     val sumField   = new CSRRWMappedField(1, csrMstatus.sumField.reg)
     val mxrField   = new CSRRWMappedField(1, csrMstatus.mxrField.reg)
-    val pad5       = new CSRRegField(3)
+    val pad5       = new CSRZeroField(3)
     val spelpField = new CSRZeroField(1)
     val sdtField   = new CSRZeroField(1)
-    val pad6       = new CSRRegField(7)
-    val uxlField   = new CSRZeroField(2)
-    val pad7       = new CSRRegField(29)
+    val pad6       = new CSRZeroField(7)
+    val uxlField   = new CSRConstField(2, 2.U)
+    val pad7       = new CSRZeroField(29)
     val sdField    = new CSRZeroField(1)
 
     val fields: Seq[CSRField] = Seq(
@@ -483,18 +477,18 @@ class CSRSenvcfg extends CSR {
     val addr = "h10a".U(12.W)
 
     val fiomField  = new CSRZeroField(1)
-    val pad0       = new CSRRegField(1)
+    val pad0       = new CSRZeroField(1)
     val lpeField   = new CSRZeroField(1)
     val sseField   = new CSRZeroField(1)
     val cbieField  = new CSRZeroField(1)
-    val cbcfeFeild = new CSRZeroField(1)
+    val cbcfeField = new CSRZeroField(1)
     val cbzeField  = new CSRZeroField(1)
-    val pad1       = new CSRRegField(24)
+    val pad1       = new CSRZeroField(24)
     val pmmField   = new CSRZeroField(2)
     val pad2       = new CSRZeroField(30)
 
     val fields: Seq[CSRField] = Seq(
-        fiomField, pad0, lpeField, sseField, cbieField, cbcfeFeild,
+        fiomField, pad0, lpeField, sseField, cbieField, cbcfeField,
         cbzeField, pad1, pmmField, pad2
     )
 }
@@ -586,18 +580,25 @@ class CSRStimecmp extends CSR {
 
     val cmpField = new CSRRegField(64)
     val fields: Seq[CSRField] = Seq(cmpField)
+}
 
-    override def write(newValue: UInt): Bool = {
-        val shouldWrite = validateWrite(newValue)
-        val legalized   = legalizeWrite(newValue)
-        var offset = 0
-        fields.foreach { field =>
-            val bits = legalized(offset + field.width - 1, offset)
-            offset += field.width
-            when(shouldWrite) {
-                field.write(bits)
-            }
-        }
-        true.B
-    }
+// Unprivileged Counter/Timers (URO)
+
+class CSRCycle(cycleData: UInt) extends CSR {
+    val addr = "hc00".U(12.W)
+
+    val cycle = new CSRROMappedField(64, cycleData)
+    override val fields = Seq(cycle)
+}
+class CSRTime(timeData: UInt) extends CSR {
+    val addr = "hc01".U(12.W)
+
+    val time = new CSRROMappedField(64, timeData)
+    override val fields = Seq(time)
+}
+class CSRInstRet(instRetData: UInt) extends CSR {
+    val addr = "hc02".U(12.W)
+
+    val instret = new CSRROMappedField(64, instRetData)
+    override val fields = Seq(instret)
 }

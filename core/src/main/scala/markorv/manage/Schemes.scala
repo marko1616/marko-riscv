@@ -13,8 +13,8 @@ import markorv.trap.TrapReturnType
 object DisconEventType extends ChiselEnum {
     val interrupt      = Value  // External Asynchronous Interrupt
     val instrException = Value  // Synchronous Instruction Exception (e.g. syscall, illegal instr)
-    val branchMispred  = Value  // Pipeline flush due to Branch Misprediction
-    val instrSync      = Value  // Pipeline Synchronization/Flush due to Instruction Side-effects (e.g. fence.i)
+    val instrSync      = Value  // Pipeline Synchronization/Flush due to Instruction Side-effects (e.g. branch flush, fence.i, sfence.vma, csr that need to sync frontend)
+    val instrSyncNoRet = Value  // Pipeline Synchronization/Flush due to Instruction Side-effects that do not increase instret CSR
     val excepReturn    = Value  // Return from Exception Handler by xret
 }
 
@@ -40,7 +40,7 @@ class RegisterCommit(implicit val c: CoreConfig) extends Bundle {
     val data = UInt(64.W)
 }
 
-class ROBDisconField extends Bundle {
+class ROBDisconField(implicit val c: CoreConfig) extends Bundle {
     val discon = Bool()
     val disconType = new DisconEventType.Type // Reserve for statistics CSR and debugging.
 
@@ -116,6 +116,7 @@ class RetireEvent(implicit val c: CoreConfig) extends Bundle {
     // but we still generate this event to update internal states.
     // Refer to the RISC-V Privileged Spec, section 3.3.1.
     val isException = Bool()
+    val incInstRet = Bool()
     val prdValid = Bool()
     val prd = UInt(log2Ceil(c.regFileSize).W)
     val prevprd = UInt(log2Ceil(c.regFileSize).W)

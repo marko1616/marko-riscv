@@ -58,19 +58,18 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
 
         when(~rstate.work && channel.params.valid) {
             // Valid can't be related to ready
-            val doBurst = maxAxSize < channel.params.bits.size
             io.axi.ar.valid := true.B
             io.axi.ar.bits.addr := channel.params.bits.addr
             if (burstLen != 0) {
-                io.axi.ar.bits.size := Mux(doBurst, maxAxSize, channel.params.bits.size)
-                rburst.get := doBurst
+                io.axi.ar.bits.size := maxAxSize
+                rburst.get := true.B
             } else {
                 io.axi.ar.bits.size := channel.params.bits.size
             }
             io.axi.ar.bits.burst := "b01".U
             io.axi.ar.bits.cache := "b0011".U
             io.axi.ar.bits.id := id.U
-            io.axi.ar.bits.len := (if(burstLen != 0) Mux(doBurst, burstLen.U, 0.U) else 0.U)
+            io.axi.ar.bits.len := (if(burstLen != 0) burstLen.U else 0.U)
             io.axi.ar.bits.lock := (if(ioConfig.atomicity) channel.params.bits.lock.get else 0.U)
             io.axi.ar.bits.qos := 0.U
             io.axi.ar.bits.region := 0.U
@@ -122,11 +121,10 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
 
         when(~wstate.work && channel.params.valid) {
             // Valid can't be related to ready
-            val doBurst = maxAxSize < channel.params.bits.size
             io.axi.aw.valid := true.B
             io.axi.aw.bits.addr := channel.params.bits.addr
             if (burstLen != 0) {
-                io.axi.aw.bits.size := Mux(doBurst, maxAxSize, channel.params.bits.size)
+                io.axi.aw.bits.size := maxAxSize
                 wburst.get := true.B
             } else {
                 io.axi.aw.bits.size := channel.params.bits.size
@@ -134,7 +132,7 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int) 
             io.axi.aw.bits.burst := "b01".U
             io.axi.aw.bits.cache := "b0011".U
             io.axi.aw.bits.id := id.U
-            io.axi.aw.bits.len := (if(burstLen != 0) Mux(doBurst, burstLen.U, 0.U) else 0.U)
+            io.axi.aw.bits.len := (if(burstLen != 0) burstLen.U else 0.U)
             io.axi.aw.bits.lock := (if(ioConfig.atomicity) channel.params.bits.lock.get else 0.U)
             io.axi.aw.bits.qos := 0.U
             io.axi.aw.bits.region := 0.U

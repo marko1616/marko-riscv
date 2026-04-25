@@ -3,7 +3,9 @@ package markorv.trap
 import chisel3._
 import chisel3.util._
 
-class TrapUnit extends Module {
+import markorv.config._
+
+class TrapUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         // Interrupt signals
         // ========================
@@ -54,6 +56,11 @@ class TrapUnit extends Module {
     val sInterruptEnable = (io.privilege < "b01".U) || (io.privilege === "b01".U && globalSie)
     val mInterruptEnable = (io.privilege < "b11".U) || (io.privilege === "b11".U && globalMie)
 
+    def doInterrupt(code: UInt) = {
+        interruptCode := code
+        io.interruptHlt := true.B
+    }
+
     io.interruptHlt := false.B
     io.flush := false.B
     io.flushPc := 0.U
@@ -67,39 +74,21 @@ class TrapUnit extends Module {
     trapInfo.state.trapPc := 0.U
     trapInfo.state.xtval := 0.U
 
+    // S-mode: SEI(9) > STI(5) > SSI(1)
     when(sInterruptEnable) {
-        when((io.seip && io.sie(9) && io.mideleg(9))) {
-            io.interruptHlt := true.B
-            interruptCode := 9.U
-        }.elsewhen((io.stip && io.sie(5) && io.mideleg(5))) {
-            io.interruptHlt := true.B
-            interruptCode := 5.U
-        }.elsewhen((io.ssip && io.sie(1) && io.mideleg(1))) {
-            io.interruptHlt := true.B
-            interruptCode := 1.U
-        }
+        when(io.seip && io.sie(9) && io.mideleg(9)) { interruptCode := 9.U }                                                                                                                                           
+        .elsewhen(io.stip && io.sie(5) && io.mideleg(5)) { interruptCode := 5.U }                                                                                                                                      
+        .elsewhen(io.ssip && io.sie(1) && io.mideleg(1)) { interruptCode := 1.U }
     }
-
-    when(mInterruptEnable) {
-        when((io.meip && io.mie(11) && ~io.mideleg(11))) {
-            io.interruptHlt := true.B
-            interruptCode := 11.U
-        }.elsewhen((io.seip && io.mie(9) && ~io.mideleg(9))) {
-            io.interruptHlt := true.B
-            interruptCode := 9.U
-        }.elsewhen((io.mtip && io.mie(7) && ~io.mideleg(7))) {
-            io.interruptHlt := true.B
-            interruptCode := 7.U
-        }.elsewhen((io.stip && io.mie(5) && ~io.mideleg(5))) {
-            io.interruptHlt := true.B
-            interruptCode := 5.U
-        }.elsewhen((io.msip && io.mie(3) && ~io.mideleg(3))) {
-            io.interruptHlt := true.B
-            interruptCode := 3.U
-        }.elsewhen((io.ssip && io.mie(1) && ~io.mideleg(1))) {
-            io.interruptHlt := true.B
-            interruptCode := 1.U
-        }
+                                                                                                                                                                                                                    
+    // M-mode: MEI(11) > MSI(3) > MTI(7) > SEI(9) > SSI(1) > STI(5)        
+    when(mInterruptEnable) {                                                                                                                                      
+        when(io.meip && io.mie(11) && ~io.mideleg(11)) { doInterrupt(11.U)}
+        .elsewhen(io.msip && io.mie(3) && ~io.mideleg(3)) { doInterrupt(3.U) }                                                                                                                                     
+        .elsewhen(io.mtip && io.mie(7) && ~io.mideleg(7)) { doInterrupt(7.U) }                                                                                                                                     
+        .elsewhen(io.seip && io.mie(9) && ~io.mideleg(9)) { doInterrupt(9.U) }
+        .elsewhen(io.ssip && io.mie(1) && ~io.mideleg(1)) { doInterrupt(1.U) }                                                                                                                                     
+        .elsewhen(io.stip && io.mie(5) && ~io.mideleg(5)) { doInterrupt(5.U) }    
     }
 
     when(io.trapRet.valid) {

@@ -82,7 +82,7 @@ class DCacheWriteResp extends Bundle {
 }
 
 class IcacheInterface(implicit val c: CacheConfig) extends Bundle {
-    val readReq = Flipped(Decoupled(new ICacheReadReq()))
+    val readReq = Flipped(Decoupled(new ICacheReadReq))
     val readResp = Decoupled(new ICacheReadResp())
 }
 
@@ -121,17 +121,17 @@ class DCachePaReadResp(implicit val c: CacheConfig) extends Bundle {
 }
 
 class DcacheInterface(implicit val c: CacheConfig) extends Bundle {
-    val readReq = Flipped(Decoupled(new DCacheReadReq()))
+    val readReq = Flipped(Decoupled(new DCacheReadReq))
     val readResp = Valid(new DCacheReadResp())
-    val writeReq = Flipped(Decoupled(new DCacheWriteReq()))
+    val writeReq = Flipped(Decoupled(new DCacheWriteReq))
     val writeResp = Valid(new DCacheWriteResp())
-    val cleanReq = Flipped(Decoupled(new DCacheCleanReq()))
+    val cleanReq = Flipped(Decoupled(new DCacheCleanReq))
     val cleanResp = Valid(new DCacheCleanResp)
-    val invalidateReq = Flipped(Decoupled(new DCacheInvalidateReq()))
+    val invalidateReq = Flipped(Decoupled(new DCacheInvalidateReq))
     val invalidateResp = Valid(new DCacheInvalidateResp)
     val amoFlushReq = Flipped(Decoupled(new DCacheAmoFlushReq))
     val amoFlushResp = Valid(new DCacheAmoFlushResp)
-    val paReadReq = Flipped(Decoupled(new DCachePaReadReq()))
+    val paReadReq = Flipped(Decoupled(new DCachePaReadReq))
     val paReadResp = Valid(new DCachePaReadResp())
     val paddr = UInt(64.W)
 }

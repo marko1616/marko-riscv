@@ -12,16 +12,16 @@ class InputManager {
 public:
     using CharCallback = std::function<void(uint8_t)>;
 
-    enum class PauseAction { Step, Resume, Quit };
+    enum class InputAction { PauseStep, PauseResume, PauseQuit, Exit };
 
     InputManager();
     ~InputManager();
 
     // Non-blocking poll; guest chars dispatched via callback
-    void poll(const CharCallback& enqueue_to_uart);
+    InputAction poll(const CharCallback& enqueue_to_uart);
 
     // Blocking wait in paused mode; returns desired action
-    PauseAction wait_paused(const CharCallback& enqueue_to_uart);
+    InputAction wait_paused(const CharCallback& enqueue_to_uart);
 
     bool is_paused()        const { return paused_; }
     bool is_force_verbose() const { return force_verbose_; }
@@ -38,12 +38,12 @@ private:
     bool process_char(uint8_t ch,
                       const CharCallback& enqueue_to_uart,
                       bool paused_context,
-                      PauseAction* out_action);
+                      InputAction& out_action);
 
     void handle_escape(uint8_t ch,
                        const CharCallback& enqueue_to_uart,
                        bool paused_context,
-                       PauseAction* out_action);
+                       InputAction& out_action);
 
     void print_help();
 

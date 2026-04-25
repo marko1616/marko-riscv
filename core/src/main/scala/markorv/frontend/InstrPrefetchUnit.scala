@@ -12,18 +12,18 @@ object FetchTarget extends ChiselEnum {
     val pref = Value(1.U)
 }
 
-class CacheLine(implicit val config: CoreConfig) extends Bundle {
+class CacheLine(implicit val c: CoreConfig) extends Bundle {
     val valid = Bool()
     val addr  = UInt(64.W)
     val code = new ICacheCode.Type
-    val data  = UInt((8 * config.icacheConfig.dataBytes).W)
+    val data  = UInt((8 * c.icacheConfig.dataBytes).W)
 }
 
-class InstrPrefetchUnit(implicit val config: CoreConfig) extends Module {
+class InstrPrefetchUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val fetchPc        = Input(UInt(64.W))
         val fetched        = Valid(new PreFetchedLine)
-        val cacheInterface = Flipped(new IcacheInterface()(config.icacheConfig))
+        val cacheInterface = Flipped(new IcacheInterface()(c.icacheConfig))
         val flush          = Input(Bool())
     })
 
@@ -38,8 +38,8 @@ class InstrPrefetchUnit(implicit val config: CoreConfig) extends Module {
     val pendingAddr   = Reg(UInt(64.W))
     val pendingTarget = Reg(FetchTarget())
 
-    val cachelineBytes = config.icacheConfig.dataBytes
-    val maskedPc       = io.fetchPc & config.icacheConfig.offsetMask
+    val cachelineBytes = c.icacheConfig.dataBytes
+    val maskedPc       = io.fetchPc & c.icacheConfig.offsetMask
     val nextLinePc     = maskedPc + cachelineBytes.U
 
     val currValid   = currCacheline.valid && currCacheline.addr === maskedPc

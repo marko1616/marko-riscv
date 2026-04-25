@@ -139,7 +139,7 @@ class PhyMemAttr() extends Bundle {
 
 class Pte extends Bundle {
     val n = Bool()
-    val pbmt = Bool()
+    val pbmt = UInt(2.W)
     val pad = UInt(7.W)
     val ppn2 = UInt(26.W)
     val ppn1 = UInt(9.W)

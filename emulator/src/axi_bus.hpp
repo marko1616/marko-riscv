@@ -64,7 +64,7 @@ private:
 
     void empty_read_transaction();
     void empty_write_transaction();
-    uint64_t calculate_next_addr(uint64_t base_addr, uint8_t size, axi_burst_t burst, uint8_t beat);
+    uint64_t calculate_next_addr(uint64_t base_addr, uint8_t size, axi_burst_t burst, uint8_t beat, bool is_read);
     void handle_top(const std::unique_ptr<VMarkoRvCore> &top);
     void handle_read(axiSignal &axi);
     void handle_write(axiSignal &axi);

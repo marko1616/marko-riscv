@@ -8,7 +8,7 @@ import markorv.bus._
 import markorv.config._
 import markorv.cache._
 
-class InstrFetchQueue(implicit val config: CoreConfig) extends Module {
+class InstrFetchQueue(implicit val c: CoreConfig) extends Module {
     // priority: PMA Fault > PageFault
     val io = IO(new Bundle {
         val cachelineReadReq = Output(UInt(64.W))
@@ -22,7 +22,7 @@ class InstrFetchQueue(implicit val config: CoreConfig) extends Module {
     val bpu = Module(new BranchPredUnit)
     val instrQueue = Module(new Queue(
         new FetchQueueEntities,
-        config.fetchQueueSize,
+        c.fetchQueueSize,
         flow = true,
         hasFlush = true
     ))
@@ -44,8 +44,8 @@ class InstrFetchQueue(implicit val config: CoreConfig) extends Module {
     val queueEmpty = instrQueue.io.count === 0.U
     val fetchPc = Mux(queueEmpty, io.pc, bufferedNextPcReg)
 
-    val lineOffsetBits = config.icacheConfig.offsetBits
-    val lastHalfwordOffsetInLine = (config.icacheConfig.dataBytes - 2).U(lineOffsetBits.W)
+    val lineOffsetBits = c.icacheConfig.offsetBits
+    val lastHalfwordOffsetInLine = (c.icacheConfig.dataBytes - 2).U(lineOffsetBits.W)
 
     val startsAtWordBoundary = fetchPc(1) === 0.U
     val startsAtLastHalfwordInLine = fetchPc(lineOffsetBits - 1, 0) === lastHalfwordOffsetInLine

@@ -20,7 +20,7 @@ VirtualRAM::~VirtualRAM() {
 
 uint64_t VirtualRAM::read(uint64_t addr, uint8_t size) {
     const uint64_t bytes = 1ULL << size;
-    assert((addr + bytes - 1) < this->size && "Read address out of bounds");
+    check_range(addr, bytes, "AXI Read");
 
     uint64_t data = 0;
     for (uint64_t i = 0; i < bytes; i++) {
@@ -31,7 +31,7 @@ uint64_t VirtualRAM::read(uint64_t addr, uint8_t size) {
 
 void VirtualRAM::write(uint64_t addr, uint64_t data, uint8_t size, uint8_t strb) {
     const uint64_t bytes = 1ULL << size;
-    assert((addr + bytes - 1) < this->size && "Write address out of bounds");
+    check_range(addr, bytes, "AXI Write");
 
     for (uint64_t i = 0; i < bytes; i++) {
         if (strb & (1 << i)) {

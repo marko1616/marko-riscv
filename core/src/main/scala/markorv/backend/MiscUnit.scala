@@ -52,6 +52,9 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
         val setPrivilege = Flipped(Valid(UInt(2.W)))
         val mepc = Input(UInt(64.W))
         val sepc = Input(UInt(64.W))
+        val statusTvmField = Input(Bool())
+        val statusTwField = Input(Bool())
+        val statusTsrField = Input(Bool())
 
         val icacheInvalidateAll = Output(Bool())
         val icacheInvalidateAllOutfire = Input(Bool())
@@ -69,6 +72,42 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     val (memOp, validMemOp) = MemoryOperation.safe(opcode.miscMemFunct)
 
     val validOp = io.miscInstr.valid && (validCsrOp || validSysOp || validMemOp)
+
+    def emitCommit(): Unit = {
+        io.commit.valid := true.B
+        io.outfire := true.B
+    }
+
+    def emitException(eventPc: UInt, xtval: UInt, cause: UInt): Unit = {
+        io.commit.valid := true.B
+        io.commit.bits.discon := true.B
+        io.commit.bits.disconType := DisconEventType.instrException
+        io.commit.bits.eventPc := eventPc
+        io.commit.bits.xtval := xtval
+        io.commit.bits.cause := cause
+        io.outfire := true.B
+    }
+
+    def emitIllegalInstr(): Unit = {
+        emitException(params.pc, opcode.rawInstr, 2.U)
+    }
+
+    def emitSync(eventPc: UInt, disconType: DisconEventType.Type = DisconEventType.instrSync): Unit = {
+        io.commit.valid := true.B
+        io.commit.bits.discon := true.B
+        io.commit.bits.disconType := disconType
+        io.commit.bits.eventPc := eventPc
+        io.outfire := true.B
+    }
+
+    def emitExcepReturn(retType: TrapReturnType.Type, epc: UInt): Unit = {
+        io.commit.valid := true.B
+        io.commit.bits.discon := true.B
+        io.commit.bits.disconType := DisconEventType.excepReturn
+        io.commit.bits.xretType := retType
+        io.commit.bits.eventPc := epc
+        io.outfire := true.B
+    }
 
     io.csrio.readEn := false.B
     io.csrio.writeEn := false.B
@@ -88,12 +127,12 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
 
     when(validOp) {
         when(validCsrOp) {
-            // TODO: implement CSR exception.
-            // b) Check if r/w side effect is correctly handled.
             val csrSrc1 = params.source1
             val csrAddr = params.source2
-            io.csrio.readEn := opcode.miscCsrFunct(3)
-            io.csrio.writeEn := opcode.miscCsrFunct(2)
+            val readEn = opcode.miscCsrFunct(3)
+            val writeEn = opcode.miscCsrFunct(2)
+            io.csrio.readEn := readEn
+            io.csrio.writeEn := writeEn
 
             io.csrio.readAddr := csrAddr
             val csrData = io.csrio.readData
@@ -106,125 +145,70 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
             ))
 
             when(io.csrio.illegal) {
-                io.commit.valid := true.B
-                io.commit.bits.discon := true.B
-                io.commit.bits.disconType := DisconEventType.instrException
-                io.commit.bits.eventPc := params.pc
-                io.commit.bits.xtval := opcode.rawInstr
-                io.commit.bits.cause := 2.U
-                io.outfire := true.B
+                emitIllegalInstr()
             }.otherwise {
-                io.commit.valid := true.B
+                // We need to sync frontend to ensure the csr explicit access visible to instr fetch.
+                val syncType = Mux(writeEn && csrAddr === "hb02".U, DisconEventType.instrSyncNoRet, DisconEventType.instrSync)
+                emitSync(params.pc + 4.U, syncType)
                 io.commit.bits.data := csrData
-                io.outfire := true.B
             }
         }
 
         when(validSysOp) {
             switch(sysOp) {
                 is(SystemOperation.wfi) {
-                    io.commit.valid := true.B
-                    io.outfire := true.B // wfi treated as NOP
+                    when(io.statusTwField && privilegeReg =/= 3.U) {
+                        emitIllegalInstr()
+                    }.otherwise {
+                        emitCommit() // wfi treated as NOP
+                    }
                 }
                 is(SystemOperation.ecall) {
-                    io.commit.valid := true.B
-                    io.commit.bits.discon := true.B
-                    io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.eventPc := params.pc
-                    io.commit.bits.cause := MuxLookup(privilegeReg, 2.U)(Seq(
+                    emitException(params.pc, 0.U, MuxLookup(privilegeReg, 2.U)(Seq(
                         0.U -> 8.U, // U-mode ecall
                         1.U -> 9.U, // S-mode ecall
                         3.U -> 11.U // M-mode ecall
-                    ))
-                    io.outfire := true.B
+                    )))
                 }
                 is(SystemOperation.ebreak) {
-                    io.commit.valid := true.B
-                    io.commit.bits.discon := true.B
-                    io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.eventPc := params.pc
-                    io.commit.bits.xtval := params.pc
-                    io.commit.bits.cause := 3.U
-                    io.outfire := true.B
+                    emitException(params.pc, params.pc, 3.U)
                 }
                 is(SystemOperation.mret) {
                     when(privilegeReg === 3.U) {
-                        io.commit.valid := true.B
-                        io.commit.bits.discon := true.B
-                        io.commit.bits.disconType := DisconEventType.excepReturn
-                        io.commit.bits.xretType := TrapReturnType.mret
-                        io.commit.bits.eventPc := io.mepc
-                        io.outfire := true.B
+                        emitExcepReturn(TrapReturnType.mret, io.mepc)
                     }.otherwise {
-                        io.commit.valid := true.B
-                        io.commit.bits.discon := true.B
-                        io.commit.bits.disconType := DisconEventType.instrException
-                        io.commit.bits.eventPc := params.pc
-                        io.commit.bits.xtval := opcode.rawInstr
-                        io.commit.bits.cause := 2.U
-                        io.outfire := true.B
+                        emitIllegalInstr()
                     }
                 }
                 is(SystemOperation.sret) {
-                    io.commit.valid := true.B
-                    io.commit.bits.discon := true.B
-                    io.commit.bits.disconType := DisconEventType.excepReturn
-                    io.commit.bits.xretType := TrapReturnType.sret
-                    io.commit.bits.eventPc := io.sepc
-                    io.outfire := true.B
+                    when(privilegeReg >= Mux(io.statusTsrField, 3.U, 1.U)) {
+                        emitExcepReturn(TrapReturnType.sret, io.sepc)
+                    }.otherwise {
+                        emitIllegalInstr()
+                    }
                 }
                 is(SystemOperation.sfenceVma) {
                     // TODO TLB
-                    io.outfire := true.B
-                    io.commit.valid := true.B
-                    io.commit.bits.discon := true.B
-                    io.commit.bits.disconType := DisconEventType.instrSync
-                    io.commit.bits.eventPc := params.pc + 4.U
+                    when(io.statusTvmField && privilegeReg =/= 3.U) {
+                        emitIllegalInstr()
+                    }.otherwise {
+                        emitSync(params.pc + 4.U)
+                    }
                 }
                 is(SystemOperation.pmaFaultLowInstr) {
-                    io.commit.valid := true.B
-                    io.commit.bits.discon := true.B
-                    io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.eventPc := params.pc
-                    io.commit.bits.xtval := params.pc
-                    io.commit.bits.cause := 1.U
-                    io.outfire := true.B
+                    emitException(params.pc, params.pc, 1.U)
                 }
                 is(SystemOperation.pageFaultLowInstr) {
-                    io.commit.valid := true.B
-                    io.commit.bits.discon := true.B
-                    io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.eventPc := params.pc
-                    io.commit.bits.xtval := params.pc
-                    io.commit.bits.cause := 12.U
-                    io.outfire := true.B
+                    emitException(params.pc, params.pc, 12.U)
                 }
                 is(SystemOperation.pmaFaultHighInstr) {
-                    io.commit.valid := true.B
-                    io.commit.bits.discon := true.B
-                    io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.eventPc := params.pc
-                    io.commit.bits.xtval := params.pc + 2.U
-                    io.commit.bits.cause := 1.U
-                    io.outfire := true.B
+                    emitException(params.pc, params.pc + 2.U, 1.U)
                 }
                 is(SystemOperation.pageFaultHighInstr) {
-                    io.commit.valid := true.B
-                    io.commit.bits.discon := true.B
-                    io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.eventPc := params.pc
-                    io.commit.bits.xtval := params.pc + 2.U
-                    io.commit.bits.cause := 12.U
-                    io.outfire := true.B
+                    emitException(params.pc, params.pc + 2.U, 12.U)
                 }
                 is(SystemOperation.illegalInstr) {
-                    io.commit.valid := true.B
-                    io.commit.bits.discon := true.B
-                    io.commit.bits.disconType := DisconEventType.instrException
-                    io.commit.bits.eventPc := params.pc
-                    io.commit.bits.xtval := opcode.rawInstr
-                    io.commit.bits.cause := 2.U
-                    io.outfire := true.B
+                    emitIllegalInstr()
                 }
             }
         }
@@ -233,8 +217,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
             switch(memOp) {
                 // Currently there is no reordered load/store command so there is no need for fence instruction.
                 is(MemoryOperation.fence) {
-                    io.outfire := true.B
-                    io.commit.valid := true.B
+                    emitCommit()
                 }
                 is(MemoryOperation.fenceI) {
                     io.miscInstr.ready := false.B
@@ -246,11 +229,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                     }.otherwise {
                         io.icacheInvalidateAll := true.B
                         when(io.icacheInvalidateAllOutfire) {
-                            io.outfire := true.B
-                            io.commit.valid := true.B
-                            io.commit.bits.discon := true.B
-                            io.commit.bits.disconType := DisconEventType.instrSync
-                            io.commit.bits.eventPc := params.pc + 4.U
+                            emitSync(params.pc + 4.U)
                             isFenceiCleanDcacheStage := true.B
                         }
                     }

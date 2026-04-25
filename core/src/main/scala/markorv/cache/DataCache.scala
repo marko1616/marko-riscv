@@ -17,7 +17,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     // Assert paRead should only fire when the main FSM is in sIdle,
     // or stalled in sRead waiting MMU response (sRead && mmuHlt).
     val io = IO(new Bundle {
-        val cacheInterface = new DcacheInterface
+        val cacheInterface = new DcacheInterface()(c)
         val ioInterface = new IOInterface()(getCacheIoConfig(c, CacheType.Dcache), true)
 
         val privilege = Input(UInt(2.W))
@@ -100,7 +100,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val amoFlushReadLike       = RegInit(false.B)
     val transactionType        = RegInit(TransactionType.read)
     val transactionAddrLow     = RegInit(0.U(12.W))
-    val transactionPaHigh      = RegInit(0.U(52.W))
+    val transactionPaHigh      = RegInit(0.U((c.addrWidth - 12).W))
     val transactionWriteData   = RegInit(0.U(64.W))
     val transactionWriteMask   = RegInit(0.U(8.W))
     val transactionWriteCode   = RegInit(DCacheCode.cacheHitOk)
@@ -108,17 +108,17 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val transactionReadData    = RegInit(0.U((8 * c.dataBytes).W))
     val transactionPaLow       = transactionAddrLow(11, 0)
     val transactionPa          = Cat(transactionPaHigh, transactionPaLow)
-    val transactionLineBasePa  = Cat(transactionPa(63, c.offsetBits), 0.U(c.offsetBits.W))
+    val transactionLineBasePa  = Cat(transactionPa(c.addrWidth - 1, c.offsetBits), 0.U(c.offsetBits.W))
     val transactionByteOffset  = transactionPa(c.offsetBits - 1, 0)
-    val mmuRespLineBasePa      = Cat(io.mmuResp.bits.pa(63, c.offsetBits), 0.U(c.offsetBits.W))
+    val mmuRespLineBasePa      = Cat(io.mmuResp.bits.pa(c.addrWidth - 1, c.offsetBits), 0.U(c.offsetBits.W))
 
     // paRead side-band transaction
     val paReadState = RegInit(PaReadState.sIdle)
-    val paReadAddrReg = RegInit(0.U(64.W))
+    val paReadAddrReg = RegInit(0.U(c.addrWidth.W))
 
     val paReadSet = if(c.setNum == 1) 0.U else paReadAddrReg(c.setEnd, c.setStart)
     val paReadTag = paReadAddrReg(c.tagEnd, c.tagStart)
-    val paReadLineBasePa = Cat(paReadAddrReg(63, c.offsetBits), 0.U(c.offsetBits.W))
+    val paReadLineBasePa = Cat(paReadAddrReg(c.addrWidth - 1, c.offsetBits), 0.U(c.offsetBits.W))
     val paReadByteOffset = paReadAddrReg(c.offsetBits - 1, 0)
 
     // replacement / working-set registers
@@ -134,7 +134,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val cleanWriteBackIsCleanAll = RegInit(false.B)
     val cleanWriteBackSet = RegInit(0.U(c.setBits.W))
     val cleanWriteBackWay = RegInit(0.U(c.wayBits.W))
-    val cleanWriteBackPa = RegInit(0.U(64.W))
+    val cleanWriteBackPa = RegInit(0.U(c.addrWidth.W))
     val cleanWriteBackData = RegInit(0.U((8 * c.dataBytes).W))
 
     // global invalidate / clean-all state
@@ -203,7 +203,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val sIdleSetTransactionWriteMask = WireDefault(0.U(8.W))
 
     val sIdleSetTransactionPaHighValid = WireDefault(false.B)
-    val sIdleSetTransactionPaHigh = WireDefault(0.U(52.W))
+    val sIdleSetTransactionPaHigh = WireDefault(0.U((c.addrWidth - 12).W))
 
     val sIdleReadSramValid = WireDefault(false.B)
     val sIdleReadSramSet = WireDefault(0.U(c.setBits.W))
@@ -216,7 +216,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val sReadSetTransactionWriteMask = WireDefault(0.U(8.W))
 
     val sReadSetTransactionPaHighValid = WireDefault(false.B)
-    val sReadSetTransactionPaHigh = WireDefault(0.U(52.W))
+    val sReadSetTransactionPaHigh = WireDefault(0.U((c.addrWidth - 12).W))
 
     val sReadReadSramValid = WireDefault(false.B)
     val sReadReadSramSet = WireDefault(0.U(c.setBits.W))
@@ -245,14 +245,14 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val sReadSetCleanWriteBackIsCleanAll = WireDefault(false.B)
     val sReadSetCleanWriteBackSet = WireDefault(0.U(c.setBits.W))
     val sReadSetCleanWriteBackWay = WireDefault(0.U(c.wayBits.W))
-    val sReadSetCleanWriteBackPa = WireDefault(0.U(64.W))
+    val sReadSetCleanWriteBackPa = WireDefault(0.U(c.addrWidth.W))
     val sReadSetCleanWriteBackData = WireDefault(0.U((8 * c.dataBytes).W))
 
     val sCleanAllSetCleanWriteBackValid = WireDefault(false.B)
     val sCleanAllSetCleanWriteBackIsCleanAll = WireDefault(true.B)
     val sCleanAllSetCleanWriteBackSet = WireDefault(0.U(c.setBits.W))
     val sCleanAllSetCleanWriteBackWay = WireDefault(0.U(c.wayBits.W))
-    val sCleanAllSetCleanWriteBackPa = WireDefault(0.U(64.W))
+    val sCleanAllSetCleanWriteBackPa = WireDefault(0.U(c.addrWidth.W))
     val sCleanAllSetCleanWriteBackData = WireDefault(0.U((8 * c.dataBytes).W))
 
     // sWrite -> merge a store into the working-set snapshot
@@ -332,7 +332,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
 
     // defaults
     val mmuHlt = !io.mmuReq.ready
-    val mmuPaHigh = io.mmuResp.bits.pa(63, 12)
+    val mmuPaHigh = io.mmuResp.bits.pa(c.addrWidth - 1, 12)
 
     io.cacheInterface.paReadReq.ready := false.B
     io.cacheInterface.readReq.ready := false.B

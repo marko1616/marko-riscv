@@ -193,10 +193,29 @@ TEST_CASES = [
 # C Extension
             "rv64uc-p-rvc",
             "rv64uc-v-rvc",
+# M Mode
+            "rv64mi-p-access",
+#           "rv64mi-p-breakpoint", Don't support debug yet.
+            "rv64mi-p-csr",
+            "rv64mi-p-illegal",
+            "rv64mi-p-instret_overflow",
+            "rv64mi-p-ld-misaligned",
+            "rv64mi-p-lh-misaligned",
+            "rv64mi-p-lw-misaligned",
+            "rv64mi-p-ma_addr",
+            "rv64mi-p-ma_fetch",
+            "rv64mi-p-mcsr",
+#           "rv64mi-p-pmpaddr", Don't support PMP yet.
+            "rv64mi-p-sbreak",
+            "rv64mi-p-scall",
+            "rv64mi-p-sd-misaligned",
+            "rv64mi-p-sh-misaligned",
+            "rv64mi-p-sw-misaligned",
+            "rv64mi-p-zicntr",
 # S Mode
-#           "rv64si-p-csr", Don't support PMP yet.
-#           "rv64si-p-dirty", Don't support PMP yet.
-#           "rv64si-p-icache-alias", Don't support PMP yet.
+            "rv64si-p-csr",
+            "rv64si-p-dirty",
+            "rv64si-p-icache-alias",
             "rv64si-p-ma_fetch",
             "rv64si-p-sbreak",
             "rv64si-p-scall",
@@ -227,7 +246,7 @@ def run_test(case_name):
         str(EMULATOR_PATH),
         "--rom-load", f"elf:{ROM_PATH}",
         "--ram-load", f"elf:{TESTS_PATH / case_name}",
-        "--max-clock", "0x100000",
+        "--max-clock", "0x80000",
         "--ram-dump", str(ram_dump_path),
         "--cleanup-dcache", str(tohost_addr)
     ]

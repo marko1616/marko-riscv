@@ -251,7 +251,10 @@ public:
             }
 
             auto enqueue = [this](uint8_t ch) { uart_->enqueue_char(ch); };
-            input_manager->poll(enqueue);
+            auto action = input_manager->poll(enqueue);
+            if (action == InputManager::InputAction::Exit) {
+                goto simulation_end;
+            }
 
             while (input_manager->is_paused()) {
                 print_all_debug(clock_cnt, dpi, axi);
@@ -262,15 +265,17 @@ public:
 
                 auto action = input_manager->wait_paused(enqueue);
                 switch (action) {
-                    case InputManager::PauseAction::Step:
+                    case InputManager::InputAction::PauseStep:
                         replay_buffer_.push_back({cycle_info});
                         execute_one_cycle(clock_cnt, args, dpi, axi);
                         clock_cnt++;
                         continue;
-                    case InputManager::PauseAction::Resume:
+                    case InputManager::InputAction::PauseResume:
                         break;
-                    case InputManager::PauseAction::Quit:
+                    case InputManager::InputAction::PauseQuit:
                         std::cerr << "\r\nQuit from debug pause.\r\n";
+                        goto simulation_end;
+                    case InputManager::InputAction::Exit:
                         goto simulation_end;
                 }
                 break;

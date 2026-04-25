@@ -46,8 +46,9 @@ build-simulator:
 		$(wildcard emulator/src/slaves/*.cpp) \
 		--build \
 		--trace \
-		-CFLAGS  "-g $(CXX_SANITIZE_FLAGS) -I$(CAPSTONE_DIR)/include -I$(CXXOPTS_DIR)/include -I$(BOOSTPFR_DIR)/include -Iinclude -std=c++23" \
-		-LDFLAGS "$(LD_SANITIZE_FLAGS) -L$(CAPSTONE_DIR) -lcapstone" \
+		--threads 2 \
+		-CFLAGS  "-g $(CXX_SANITIZE_FLAGS) -I$(CAPSTONE_DIR)/include -I$(CXXOPTS_DIR)/include -I$(BOOSTPFR_DIR)/include -Iinclude -std=c++23 -flto=full -march=native -mtune=native" \
+		-LDFLAGS "$(LD_SANITIZE_FLAGS) -L$(CAPSTONE_DIR) -lcapstone -flto=full -march=native -mtune=native" \
 		--MAKEFLAGS "CXX=clang++ LINK=clang++ OPT=-O3" # Clang is almost 5 times faster
 
 build-test-elves: $(ELFS)

@@ -13,12 +13,14 @@ icacheConfig:
   wayNum: 2
   setNum: 64
   byteNum: 64
+  tagWidth: 28
 
 dcacheConfig:
   addrWidth: 64
   wayNum: 2
   setNum: 64
   byteNum: 64
+  tagWidth: 28
 
 lsuIoConfig:
   read: true
@@ -76,9 +78,9 @@ pma:
     c: false
     a: false
 
-  # RAM: 64MB @ 0x80000000
+  # RAM: 256MB @ 0x80000000
   - addrLow:  0x80000000
-    addrHigh: 0x83FFFFFF
+    addrHigh: 0x90000000
     r: true
     w: true
     x: true

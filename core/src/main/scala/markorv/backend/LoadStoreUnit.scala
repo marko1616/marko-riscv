@@ -5,7 +5,7 @@ import chisel3.util._
 
 import markorv.utils.ChiselUtils._
 import markorv.config._
-import markorv.backend  ._
+import markorv.backend._
 import markorv.bus._
 import markorv.cache._
 import markorv.frontend.DecodedParams
@@ -19,15 +19,15 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
             val lsuOpcode = new LoadStoreOpcode
             val params = new EXUParams
         }))
-        val cacheReadReq = Decoupled(new DCacheReadReq())
+        val cacheReadReq = Decoupled(new DCacheReadReq)
         val cacheReadResp = Flipped(Valid(new DCacheReadResp()(c.dcacheConfig)))
         val cacheWriteReq = Decoupled(new DCacheWriteReq()(c.dcacheConfig))
         val cacheWriteResp = Flipped(Valid(new DCacheWriteResp()))
-        val cacheCleanReq = Decoupled(new DCacheCleanReq())
+        val cacheCleanReq = Decoupled(new DCacheCleanReq)
         val cacheCleanResp = Flipped(Valid(new DCacheCleanResp))
-        val cacheInvalidateReq = Decoupled(new DCacheInvalidateReq())
+        val cacheInvalidateReq = Decoupled(new DCacheInvalidateReq)
         val cacheInvalidateResp = Flipped(Valid(new DCacheInvalidateResp))
-        val cacheAmoFlushReq = Decoupled(new DCacheAmoFlushReq())
+        val cacheAmoFlushReq = Decoupled(new DCacheAmoFlushReq)
         val cacheAmoFlushResp = Flipped(Valid(new DCacheAmoFlushResp))
         val paddr = Input(UInt(64.W))
         val dirLoadStore = new IOInterface()(c.lsuIoConfig, true)
@@ -65,7 +65,7 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
     // Keep full VA so returned PA keeps the byte offset.
     val vaAddr = params.source1.asUInt
     val alignedCheckSucc = (vaAddr & ((1.U << size) - 1.U)) === 0.U
-    val alignExcCause = Mux(isLoad, 4.U, 6.U)
+    val alignExcCause = Mux(isLoad || isLr, 4.U, 6.U)
 
     val AMO_SC_FAILED = "h0000000000000001".U
     val AMO_SC_SUCCEEDED = "h0000000000000000".U
@@ -84,7 +84,7 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
     }
 
     def isStoreAccessFault(code: DCacheCode.Type): Bool = {
-        code === DCacheCode.pmaMmuWalkErr || code === DCacheCode.pmaLoadErr || code === DCacheCode.pmaStorErr
+        code === DCacheCode.pmaMmuWalkErr || code === DCacheCode.pmaStorErr
     }
 
     val cacheWriteData = Wire(UInt(64.W))
@@ -298,6 +298,9 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
                     state := State.sIdle
                 }.elsewhen(code === DCacheCode.pageLoadErr) {
                     raiseException(13.U)
+                    state := State.sIdle
+                }.elsewhen(isLoadAccessFault(code) && isLr) {
+                    raiseException(5.U)
                     state := State.sIdle
                 }.elsewhen(isStoreAccessFault(code)) {
                     raiseException(7.U)

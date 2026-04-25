@@ -123,7 +123,7 @@ class JTypeInstruction extends Instruction32 {
     def imm      = Cat(imm20, imm19_12, imm11, imm10_1, 0.U(1.W))
 }
 
-class DecodedParams extends Bundle {
+class DecodedParams(implicit val c: CoreConfig) extends Bundle {
     val source1 = UInt(64.W)
     val source2 = UInt(64.W)
     val rd = UInt(5.W)
@@ -152,7 +152,7 @@ class ExuOpcode extends Bundle {
     val mduOpcode = new MDUOpcode
 }
 
-class IssueTask extends Bundle {
+class IssueTask(implicit val c: CoreConfig) extends Bundle {
     val exu = new EXUEnum.Type
     val exuOpcode = new ExuOpcode
     val predTaken = Bool()
@@ -161,14 +161,14 @@ class IssueTask extends Bundle {
     val lregReq = new LogicRegRequests
 }
 
-class InstrDecodeTask extends Bundle {
+class InstrDecodeTask(implicit val c: CoreConfig) extends Bundle {
     val instr = new Instruction32
     val predTaken = Bool()
     val predPc = UInt(64.W)
     val pc = UInt(64.W)
 }
 
-class FetchQueueEntities extends Bundle {
+class FetchQueueEntities(implicit val c: CoreConfig) extends Bundle {
     val instr = new Instruction
     val predTaken = Bool()
     val predPc = UInt(64.W)

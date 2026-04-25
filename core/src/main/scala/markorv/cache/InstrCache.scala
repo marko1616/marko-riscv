@@ -33,10 +33,10 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
 
     // current transaction
     val transactionVaLow      = RegInit(0.U(12.W))
-    val transactionPaHigh     = RegInit(0.U(52.W))
+    val transactionPaHigh     = RegInit(0.U((c.addrWidth - 12).W))
     val transactionPaLow      = transactionVaLow(11, 0)
     val transactionPa         = Cat(transactionPaHigh, transactionPaLow)
-    val transactionLineBasePa = Cat(transactionPa(63, c.offsetBits), 0.U(c.offsetBits.W))
+    val transactionLineBasePa = Cat(transactionPa(c.addrWidth - 1, c.offsetBits), 0.U(c.offsetBits.W))
 
     val victimPtr = RegInit(0.U(c.wayBits.W))
 
@@ -76,7 +76,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     val sReadSetTransactionVaLow = WireDefault(0.U(12.W))
 
     val sReadSetTransactionPaHighValid = WireDefault(false.B)
-    val sReadSetTransactionPaHigh      = WireDefault(0.U(52.W))
+    val sReadSetTransactionPaHigh      = WireDefault(0.U((c.addrWidth - 12).W))
 
     val sReadReadSramValid = WireDefault(false.B)
     val sReadReadSramSet   = WireDefault(0.U(c.setBits.W))
@@ -107,7 +107,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
 
     // defaults
     val mmuHlt    = !io.mmuReq.ready
-    val mmuPaHigh = io.mmuResp.bits.pa(63, 12)
+    val mmuPaHigh = io.mmuResp.bits.pa(c.addrWidth - 1, 12)
 
     io.cacheInterface.readReq.ready := false.B
 

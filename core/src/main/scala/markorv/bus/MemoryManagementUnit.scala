@@ -9,7 +9,7 @@ import markorv.cache._
 
 class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
-        val paReadReq = Decoupled(new DCachePaReadReq())
+        val paReadReq = Decoupled(new DCachePaReadReq)
         val paReadResp = Flipped(Valid(new DCachePaReadResp()(c.dcacheConfig)))
 
         val mmuReqs = Vec(2, Flipped(Decoupled(new MMUReq)))
@@ -25,7 +25,7 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
 
     // Regs
     val state = RegInit(State.sIdle)
-    val dCachaTxnInProg = RegInit(false.B)
+    val dCacheTxnInProg = RegInit(false.B)
 
     val reqIdReg = RegInit(0.U(1.W))
 
@@ -261,15 +261,15 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
             val nextState = WireDefault(state)
             actionPmaWalkCheckAddr := transactionPgdAddr
 
-            actionWalkReadValid := true.B && walkPmaSucc && !dCachaTxnInProg
+            actionWalkReadValid := true.B && walkPmaSucc && !dCacheTxnInProg
             actionWalkReadAddr  := transactionPgdAddr
 
             when(io.paReadReq.fire) {
-                dCachaTxnInProg := true.B
+                dCacheTxnInProg := true.B
             }
 
             when(!walkPmaSucc) {
-                dCachaTxnInProg := false.B
+                dCacheTxnInProg := false.B
                 actionSetRespValid := true.B
                 actionSetRespBits  := mkWalkPmaFaultResp()
                 nextState := State.sResp
@@ -280,12 +280,11 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
                 val attrInvalid     = pteAttrInvalid(walkPte)
                 val leaf            = pteIsLeaf(walkPte)
                 val nonLeafInvalid  = !leaf && pteNonLeafInvalid(walkPte)
-                dCachaTxnInProg := false.B
+                dCacheTxnInProg := false.B
 
                 when(reservedInvalid || attrInvalid || nonLeafInvalid) {
                     actionSetRespValid := true.B
                     actionSetRespBits  := mkCommonFaultResp()
-
                     nextState := State.sResp
                 }.elsewhen(leaf) {
                     val superPageInvalid = walkPte.ppn1.orR || walkPte.ppn0.orR
@@ -294,23 +293,12 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
                     actionPmaCommCheckAddr := pa
                     actionSetTransactionPageTypeValid := true.B
                     actionSetTransactionPageType      := "b10".U
-
                     actionSetRespValid := true.B
-                    actionSetRespBits  := mkPageResp(
-                        pa,
-                        walkPte,
-                        Seq(
-                            !reservedInvalid,
-                            !attrInvalid,
-                            !superPageInvalid
-                        )
-                    )
-
+                    actionSetRespBits  := mkPageResp(pa, walkPte, Seq(!reservedInvalid, !attrInvalid, !superPageInvalid))
                     nextState := State.sResp
                 }.otherwise {
                     actionSetPmdBaseValid := true.B
                     actionSetPmdBase      := ptePpn(walkPte)
-
                     nextState := State.sPmdLookUp
                 }
             }
@@ -322,15 +310,15 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
             val nextState = WireDefault(state)
             actionPmaWalkCheckAddr := transactionPmdAddr
 
-            actionWalkReadValid := true.B && walkPmaSucc && !dCachaTxnInProg
+            actionWalkReadValid := true.B && walkPmaSucc && !dCacheTxnInProg
             actionWalkReadAddr  := transactionPmdAddr
 
             when(io.paReadReq.fire) {
-                dCachaTxnInProg := true.B
+                dCacheTxnInProg := true.B
             }
 
             when(!walkPmaSucc) {
-                dCachaTxnInProg := false.B
+                dCacheTxnInProg := false.B
                 actionSetRespValid := true.B
                 actionSetRespBits  := mkWalkPmaFaultResp()
                 nextState := State.sResp
@@ -341,12 +329,10 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
                 val attrInvalid     = pteAttrInvalid(walkPte)
                 val leaf            = pteIsLeaf(walkPte)
                 val nonLeafInvalid  = !leaf && pteNonLeafInvalid(walkPte)
-                dCachaTxnInProg := false.B
-
+                dCacheTxnInProg := false.B
                 when(reservedInvalid || attrInvalid || nonLeafInvalid) {
                     actionSetRespValid := true.B
                     actionSetRespBits  := mkCommonFaultResp()
-
                     nextState := State.sResp
                 }.elsewhen(leaf) {
                     val superPageInvalid = walkPte.ppn0.orR
@@ -355,23 +341,12 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
                     actionPmaCommCheckAddr := pa
                     actionSetTransactionPageTypeValid := true.B
                     actionSetTransactionPageType      := "b01".U
-
                     actionSetRespValid := true.B
-                    actionSetRespBits  := mkPageResp(
-                        pa,
-                        walkPte,
-                        Seq(
-                            !reservedInvalid,
-                            !attrInvalid,
-                            !superPageInvalid
-                        )
-                    )
-
+                    actionSetRespBits  := mkPageResp(pa, walkPte, Seq(!reservedInvalid, !attrInvalid, !superPageInvalid))
                     nextState := State.sResp
                 }.otherwise {
                     actionSetPteBaseValid := true.B
                     actionSetPteBase      := ptePpn(walkPte)
-
                     nextState := State.sPteLookUp
                 }
             }
@@ -383,15 +358,15 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
             val nextState = WireDefault(state)
             actionPmaWalkCheckAddr := transactionPteAddr
 
-            actionWalkReadValid := true.B && walkPmaSucc && !dCachaTxnInProg
+            actionWalkReadValid := true.B && walkPmaSucc && !dCacheTxnInProg
             actionWalkReadAddr  := transactionPteAddr
 
             when(io.paReadReq.fire) {
-                dCachaTxnInProg := true.B
+                dCacheTxnInProg := true.B
             }
 
             when(!walkPmaSucc) {
-                dCachaTxnInProg := false.B
+                dCacheTxnInProg := false.B
                 actionSetRespValid := true.B
                 actionSetRespBits  := mkWalkPmaFaultResp()
                 nextState := State.sResp
@@ -401,31 +376,18 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
                 val reservedInvalid = pteReservedInvalid(walkPte)
                 val attrInvalid     = pteAttrInvalid(walkPte)
                 val leaf            = pteIsLeaf(walkPte)
-                dCachaTxnInProg := false.B
-
+                dCacheTxnInProg := false.B
                 when(reservedInvalid || attrInvalid || !leaf) {
                     actionSetRespValid := true.B
                     actionSetRespBits  := mkCommonFaultResp()
-
                     nextState := State.sResp
                 }.otherwise {
                     val pa = mkPa4K(walkPte)
-
                     actionPmaCommCheckAddr := pa
                     actionSetTransactionPageTypeValid := true.B
                     actionSetTransactionPageType      := "b00".U
-
                     actionSetRespValid := true.B
-                    actionSetRespBits  := mkPageResp(
-                        pa,
-                        walkPte,
-                        Seq(
-                            !reservedInvalid,
-                            !attrInvalid,
-                            leaf
-                        )
-                    )
-
+                    actionSetRespBits  := mkPageResp(pa, walkPte, Seq(!reservedInvalid, !attrInvalid, leaf))
                     nextState := State.sResp
                 }
             }

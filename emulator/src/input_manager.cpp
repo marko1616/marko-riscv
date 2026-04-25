@@ -61,12 +61,12 @@ void InputManager::print_help() {
 void InputManager::handle_escape(uint8_t ch,
                                   const CharCallback& enqueue_to_uart,
                                   bool paused_context,
-                                  PauseAction* out_action) {
+                                  InputAction& out_action) {
     switch (ch) {
         case 'x':
             std::cerr << "\r\nTerminated by Ctrl+A x\r\n";
             disable_raw_mode();
-            std::exit(0);
+            out_action = InputAction::Exit;
             break;
 
         case CTRL_A:
@@ -79,7 +79,7 @@ void InputManager::handle_escape(uint8_t ch,
                 std::cerr << "\r\n[PAUSED] Entering debug mode. Ctrl+A h for help.\r\n";
             } else {
                 std::cerr << "\r\n[RESUMED]\r\n";
-                if (out_action) *out_action = PauseAction::Resume;
+                out_action = InputAction::PauseResume;
             }
             break;
 
@@ -100,7 +100,7 @@ void InputManager::handle_escape(uint8_t ch,
 bool InputManager::process_char(uint8_t ch,
                                  const CharCallback& enqueue_to_uart,
                                  bool paused_context,
-                                 PauseAction* out_action) {
+                                 InputAction& out_action) {
     if (escape_pending_) {
         escape_pending_ = false;
         handle_escape(ch, enqueue_to_uart, paused_context, out_action);
@@ -112,20 +112,20 @@ bool InputManager::process_char(uint8_t ch,
         return true; // consumed
     }
 
-    if (paused_context && out_action) {
+    if (paused_context) {
         switch (ch) {
             case '\r':
             case '\n':
             case 's':
-                *out_action = PauseAction::Step;
+                out_action = InputAction::PauseStep;
                 return true;
             case 'c':
                 paused_ = false;
                 std::cerr << "\r\n[RESUMED]\r\n";
-                *out_action = PauseAction::Resume;
+                out_action = InputAction::PauseResume;
                 return true;
             case 'q':
-                *out_action = PauseAction::Quit;
+                out_action = InputAction::PauseQuit;
                 return true;
             default:
                 // Ignore unknown keys in pause mode
@@ -137,25 +137,25 @@ bool InputManager::process_char(uint8_t ch,
     return false;
 }
 
-void InputManager::poll(const CharCallback& enqueue_to_uart) {
+InputManager::InputAction InputManager::poll(const CharCallback& enqueue_to_uart) {
+    InputAction action = InputAction::PauseStep;
     uint8_t ch;
     while (try_read(ch)) {
-        if (!process_char(ch, enqueue_to_uart, false, nullptr)) {
+        if (!process_char(ch, enqueue_to_uart, false, action)) {
             enqueue_to_uart(ch);
         }
-        // If we just entered paused mode during poll, stop polling guest chars
         if (paused_) break;
     }
+    return action;
 }
 
-InputManager::PauseAction InputManager::wait_paused(const CharCallback& enqueue_to_uart) {
-    PauseAction action = PauseAction::Step; // default if we somehow fall through
+InputManager::InputAction InputManager::wait_paused(const CharCallback& enqueue_to_uart) {
     while (true) {
         uint8_t ch;
         if (!blocking_read(ch)) continue;
 
-        PauseAction out = PauseAction::Step;
-        bool consumed = process_char(ch, enqueue_to_uart, true, &out);
+        InputAction out = InputAction::PauseStep;
+        bool consumed = process_char(ch, enqueue_to_uart, true, out);
 
         if (consumed) {
             // If escape is pending, keep waiting for the next char
@@ -163,5 +163,5 @@ InputManager::PauseAction InputManager::wait_paused(const CharCallback& enqueue_
             return out;
         }
     }
-    return action;
+    return InputAction::PauseStep; // default
 }
