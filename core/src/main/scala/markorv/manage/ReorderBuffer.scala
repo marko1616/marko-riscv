@@ -2,17 +2,12 @@ package markorv.manage
 
 import chisel3._
 import chisel3.util._
-import chisel3.util.circt.dpi._
 
 import markorv.utils.ChiselUtils._
 import markorv.backend.EXUEnum
 import markorv.trap._
 import markorv.config._
-
-class ReorderBufferDebug extends DPIClockedVoidFunctionImport {
-    val functionName = "update_rob"
-    override val inputNames = Some(Seq("entry", "index"))
-}
+import markorv.debug._
 
 class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     private val robIndexWidth = log2Ceil(c.robSize)
@@ -63,6 +58,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
         val interruptHlt = Input(Bool())
         val interruptXepc = Valid(UInt(64.W))
     })
+    val dbgIo = if (c.simulate) Some(IO(Output(new ReorderBufferDebugIO))) else None
 
     val nextBuffer = Wire(Vec(c.robSize, new ROBEntry))
     val buffer = RegInit(VecInit.tabulate(c.robSize){(_) => (new ROBEntry().zero)})
@@ -207,12 +203,11 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     buffer := nextBuffer
 
     // Debug
-    if(c.simulate) {
-        val debugger = new ReorderBufferDebug
-        for((e,i) <- buffer.zipWithIndex) {
-            debugger.call(e, i.U(32.W))
-        }
-
-        val retEntry = nextBuffer(deqPtr)
+    dbgIo.foreach { dbg =>
+        dbg.buffer := buffer
+        dbg.enqPtr := enqPtr
+        dbg.deqPtr := deqPtr
+        dbg.empty := empty
+        dbg.full := full
     }
 }

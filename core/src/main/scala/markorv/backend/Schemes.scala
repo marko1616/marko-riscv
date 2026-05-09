@@ -331,7 +331,7 @@ class LoadStoreOpcode extends Bundle {
 
         this.funct := 0.U(1.W) ## 0.U(1.W)
         this.size := instr.funct3
-        valid := this.funct =/= "b111".U // There is no ldu
+        valid := instr.funct3 =/= "b111".U // There is no ldu
         // Issuer will sum up register request values from this Instruction32
         regReq.lrs1 := instr.rs1
         params.source1 := instr.imm12.sextu(64)
@@ -345,7 +345,7 @@ class LoadStoreOpcode extends Bundle {
 
         this.funct := 1.U(1.W) ## 0.U(1.W)
         this.size := instr.funct3
-        valid := this.funct =/= "b111".U // There is no sdu
+        valid := instr.funct3 =/= "b111".U // There is no sdu
         regReq.lrs1 := instr.rs1
         regReq.lrs2 := instr.rs2
         // Issuer will sum up register request values from this Instruction32
@@ -445,7 +445,7 @@ class MISCOpcode extends Bundle {
             val mretValid = instr.funct7 === SystemFunct7Const.MRET && instr.rs2 === SystemRs2Const.MRET && instr.rs1 === SystemRs1Const.MRET && instr.rd === SystemRdConst.MRET
             val sretValid = instr.funct7 === SystemFunct7Const.SRET && instr.rs2 === SystemRs2Const.SRET && instr.rs1 === SystemRs1Const.SRET && instr.rd === SystemRdConst.SRET
             val wfiValid = instr.funct7 === SystemFunct7Const.WFI && instr.rs2 === SystemRs2Const.WFI && instr.rs1 === SystemRs1Const.WFI && instr.rd === SystemRdConst.WFI
-            val sfencevmaValid = instr.funct7 === SystemFunct7Const.SFENCEVMA &&instr.rd === SystemRdConst.SFENCEVMA
+            val sfencevmaValid = instr.funct7 === SystemFunct7Const.SFENCEVMA && instr.rd === SystemRdConst.SFENCEVMA
             val sysValid = ecallValid || ebreakValid || mretValid || wfiValid || sretValid || sfencevmaValid
             valid := sysValid
             this.miscSysFunct := Mux(sysValid, MuxCase(0.U, Seq(
@@ -456,6 +456,11 @@ class MISCOpcode extends Bundle {
                 sretValid -> 5.U,
                 sfencevmaValid -> 6.U
             )),0.U)
+
+            when(sysValid) {
+                regReq.lrs1 := instr.rs1
+                regReq.lrs2 := instr.rs2
+            }
         }
         valid
     }

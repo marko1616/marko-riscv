@@ -7,6 +7,14 @@
 #include "slave.hpp"
 
 #define PLIC_SOURCE_NUM 1024
+#define PLIC_CONTEXT_NUM 2
+#define PLIC_CONTEXT_M 0
+#define PLIC_CONTEXT_S 1
+
+struct PLICContext {
+    std::array<uint8_t, PLIC_SOURCE_NUM / 8> source_enable{};
+    uint32_t threshold = 0;
+};
 
 class VirtualPLIC : public InterruptController {
 private:
@@ -15,12 +23,14 @@ private:
     static constexpr auto enable_reg_range = std::ranges::iota_view<uint64_t, uint64_t>(0x2000, 0x1f2000);
     static constexpr auto context_reg_range = std::ranges::iota_view<uint64_t, uint64_t>(0x200000, 0x3FFF000);
 
-    std::array<uint8_t, PLIC_SOURCE_NUM / 8> source_enable{};
+    std::array<PLICContext, PLIC_CONTEXT_NUM> contexts{};
     std::array<uint32_t, PLIC_SOURCE_NUM> source_priority{};
     std::unordered_set<uint16_t> source_asserted{};
     std::vector<uint16_t> source_pending{};
     std::vector<uint16_t> source_processing{};
-    uint16_t threshold = 0;
+
+    [[nodiscard]] bool is_source_enabled(uint32_t context_id, uint16_t id) const;
+    [[nodiscard]] bool is_claimable(uint32_t context_id, uint16_t id) const;
 public:
     explicit VirtualPLIC(uint64_t base_addr);
 

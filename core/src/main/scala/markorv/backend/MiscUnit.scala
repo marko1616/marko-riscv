@@ -7,10 +7,11 @@ import markorv.utils.ChiselUtils._
 import markorv.trap._
 import markorv.config._
 import markorv.frontend.DecodedParams
-import markorv.ControlStatusRegistersIO
+import markorv.csr.ControlStatusRegistersIO
 import markorv.manage.RegisterCommit
 import markorv.manage.EXUParams
 import markorv.manage.DisconEventType
+import markorv.cache._
 
 object CsrOperation extends ChiselEnum {
     val csrrw = Value("h1".U)
@@ -60,10 +61,17 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
         val icacheInvalidateAllOutfire = Input(Bool())
         val dcacheCleanAll = Output(Bool())
         val dcacheCleanAllOutfire = Input(Bool())
+
+        // TLB invalidation interface (for SFENCE.VMA)
+        val tlbInvalidateReq  = Decoupled(new TlbInvalidateReq(c.asidWidth))
+        val tlbInvalidateResp = Flipped(Valid(new TlbInvalidateResp))
     })
     // M-mode by default on reset
     val privilegeReg = RegInit(3.U(2.W))
     val isFenceiCleanDcacheStage = RegInit(true.B)
+    // Tracks whether the TLB invalidation request has been accepted by MMU
+    val sfenceVmaFired = RegInit(false.B)
+
     val opcode = io.miscInstr.bits.miscOpcode
     val params = io.miscInstr.bits.params
 
@@ -125,6 +133,10 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     io.icacheInvalidateAll := false.B
     io.dcacheCleanAll := false.B
 
+    // TLB invalidation defaults
+    io.tlbInvalidateReq.valid := false.B
+    io.tlbInvalidateReq.bits  := new TlbInvalidateReq(c.asidWidth).zero
+
     when(validOp) {
         when(validCsrOp) {
             val csrSrc1 = params.source1
@@ -174,25 +186,58 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                     emitException(params.pc, params.pc, 3.U)
                 }
                 is(SystemOperation.mret) {
-                    when(privilegeReg === 3.U) {
-                        emitExcepReturn(TrapReturnType.mret, io.mepc)
-                    }.otherwise {
+                    when(privilegeReg =/= 3.U) {
                         emitIllegalInstr()
+                    }.otherwise {
+                        emitExcepReturn(TrapReturnType.mret, io.mepc)
                     }
                 }
                 is(SystemOperation.sret) {
-                    when(privilegeReg >= Mux(io.statusTsrField, 3.U, 1.U)) {
-                        emitExcepReturn(TrapReturnType.sret, io.sepc)
-                    }.otherwise {
+                    when(privilegeReg < Mux(io.statusTsrField, 3.U, 1.U)) {
                         emitIllegalInstr()
+                    }.otherwise {
+                        emitExcepReturn(TrapReturnType.sret, io.sepc)
                     }
                 }
                 is(SystemOperation.sfenceVma) {
-                    // TODO TLB
-                    when(io.statusTvmField && privilegeReg =/= 3.U) {
+                    when(privilegeReg < Mux(io.statusTvmField, 3.U, 1.U)) {
                         emitIllegalInstr()
                     }.otherwise {
-                        emitSync(params.pc + 4.U)
+                        io.miscInstr.ready := false.B
+
+                        val rs1Idx = opcode.rawInstr(19, 15)
+                        val rs2Idx = opcode.rawInstr(24, 20)
+                        val rs1IsX0 = rs1Idx === 0.U
+                        val rs2IsX0 = rs2Idx === 0.U
+
+                        // Derive invalidation mode from rs1/rs2 presence:
+                        //   rs1=x0, rs2=x0 -> byAll
+                        //   rs1!=x0, rs2=x0 -> byVaddr
+                        //   rs1=x0, rs2!=x0 -> byAsid
+                        //   rs1!=x0, rs2!=x0 -> byAsidAndVaddr
+                        val invMode = MuxCase(TlbInvalidateMode.byAll, Seq(
+                            (!rs1IsX0 && !rs2IsX0) -> TlbInvalidateMode.byAsidAndVaddr,
+                            (!rs1IsX0 && rs2IsX0)  -> TlbInvalidateMode.byVaddr,
+                            (rs1IsX0 && !rs2IsX0)  -> TlbInvalidateMode.byAsid
+                        ))
+
+                        when(!sfenceVmaFired) {
+                            // Stage 1: fire TLB invalidation request to MMU
+                            io.tlbInvalidateReq.valid      := true.B
+                            io.tlbInvalidateReq.bits.mode  := invMode
+                            io.tlbInvalidateReq.bits.vaddr := params.source1
+                            io.tlbInvalidateReq.bits.asid  := params.source2(c.asidWidth - 1, 0)
+
+                            when(io.tlbInvalidateReq.fire) {
+                                sfenceVmaFired := true.B
+                            }
+                        }.otherwise {
+                            // Stage 2: wait for MMU to complete invalidation across all TLBs
+                            when(io.tlbInvalidateResp.valid && io.tlbInvalidateResp.bits.done) {
+                                sfenceVmaFired := false.B
+                                emitSync(params.pc + 4.U)
+                            }
+                        }
                     }
                 }
                 is(SystemOperation.pmaFaultLowInstr) {

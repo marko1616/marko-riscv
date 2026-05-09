@@ -1,4 +1,4 @@
-package markorv
+package markorv.csr
 
 import chisel3._
 import chisel3.util._
@@ -49,7 +49,8 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         val meip = Input(Bool())
         val mtip = Input(Bool())
         val msip = Input(Bool())
-        val seip = Output(Bool())
+        val finalSeip = Output(Bool())
+        val seip = Input(Bool())
         val stip = Output(Bool())
         val ssip = Output(Bool())
 
@@ -64,7 +65,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         val retireEvent = Flipped(Valid(new RetireEvent))
     })
 
-    val seip = WireInit(false.B)
+    val finalSeip = WireInit(false.B)
     val stip = WireInit(false.B)
     val ssip = WireInit(false.B)
 
@@ -97,7 +98,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     val csrMcause   = new CSRMcause
     val csrMtval    = new CSRMtval
     // TODO PLIC Supervisor context
-    val csrMip      = new CSRMip(io.msip, io.mtip, io.meip, stip, false.B)
+    val csrMip      = new CSRMip(io.msip, io.mtip, io.meip, stip, io.seip)
 
     // Machine Configuration(MRW)
     val csrMenvcfg = new CSRMenvcfg
@@ -177,11 +178,11 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     }
 
     // Supervisor interrupt logic
-    seip := csrSip.seipField.read
+    finalSeip := csrSip.seipField.read
     stip := (csrStimecmp.cmpField.read <= io.time) && csrMenvcfg.stceField.read.asBool
     ssip := csrSip.ssipField.read
 
-    io.seip := seip
+    io.finalSeip := finalSeip
     io.stip := stip
     io.ssip := ssip
 

@@ -40,6 +40,9 @@ robSize: 16
 rsSize: 16
 renameTableSize: 16
 regFileSize: 64
+tlb4KEntries: 32
+tlb2MEntries: 8
+tlb1GEntries: 4
 
 pma:
   # ROM: 32KB @ 0x01000000

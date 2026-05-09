@@ -193,7 +193,7 @@ class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int) extends Module {
         val axiBus     = new AxiInterface(axiConfig)
     })
 
-    val writeChanOwner = RegInit(0.U.asTypeOf(Valid(UInt(log2Ceil(numChannel).W))))
+    val writeChanOwner = RegInit(Valid(UInt(log2Ceil(numChannel).W)).zero)
     val writeChanOwnerOH = UIntToOH(writeChanOwner.bits, numChannel)
 
     // Read channels

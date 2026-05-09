@@ -76,9 +76,9 @@ class TrapUnit(implicit val c: CoreConfig) extends Module {
 
     // S-mode: SEI(9) > STI(5) > SSI(1)
     when(sInterruptEnable) {
-        when(io.seip && io.sie(9) && io.mideleg(9)) { interruptCode := 9.U }                                                                                                                                           
-        .elsewhen(io.stip && io.sie(5) && io.mideleg(5)) { interruptCode := 5.U }                                                                                                                                      
-        .elsewhen(io.ssip && io.sie(1) && io.mideleg(1)) { interruptCode := 1.U }
+        when(io.seip && io.sie(9) && io.mideleg(9)) { doInterrupt(9.U) }                                                                                                                                           
+        .elsewhen(io.stip && io.sie(5) && io.mideleg(5)) { doInterrupt(5.U) }                                                                                                                                      
+        .elsewhen(io.ssip && io.sie(1) && io.mideleg(1)) { doInterrupt(1.U) }
     }
                                                                                                                                                                                                                     
     // M-mode: MEI(11) > MSI(3) > MTI(7) > SEI(9) > SSI(1) > STI(5)        

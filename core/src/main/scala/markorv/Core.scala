@@ -2,11 +2,11 @@ package markorv
 
 import chisel3._
 import chisel3.util._
-import chisel3.util.circt.dpi._
 import _root_.circt.stage.ChiselStage
 
 import markorv.utils.ChiselUtils._
 import markorv.config._
+import markorv.csr._
 import markorv.frontend._
 import markorv.backend._
 import markorv.bus._
@@ -14,26 +14,7 @@ import markorv.cache._
 import markorv.manage._
 import markorv.trap._
 import markorv.utils._
-
-class IssueEventDPI extends DPIClockedVoidFunctionImport {
-    val functionName = "fire_issue_event"
-    override val inputNames = Some(Seq("entry"))
-}
-
-class CommitEventDPI extends DPIClockedVoidFunctionImport {
-    val functionName = "fire_commit_event"
-    override val inputNames = Some(Seq("entry"))
-}
-
-class DisconEventDPI extends DPIClockedVoidFunctionImport {
-    val functionName = "fire_discon_event"
-    override val inputNames = Some(Seq("entry"))
-}
-
-class RetireEventDPI extends DPIClockedVoidFunctionImport {
-    val functionName = "fire_retire_event"
-    override val inputNames = Some(Seq("entry"))
-}
+import markorv.debug._
 
 class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
@@ -42,12 +23,14 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
         val meip = Input(Bool())
         val mtip = Input(Bool())
         val msip = Input(Bool())
+        val seip = Input(Bool())
 
         val time = Input(UInt(64.W))
 
         val dcacheCleanAllReq = if(c.simulate) Some(Input(Bool())) else None
         val dcacheCleanAllResp = if(c.simulate) Some(Output(Bool())) else None
     })
+    val dbgIo = if (c.simulate) Some(IO(Output(new MarkoRvCoreDebugIO))) else None
 
     // Submodule Instantiations
     // ========================
@@ -137,6 +120,8 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     // MMU
     mmu.io.ppn <> csrFile.io.ppn
     mmu.io.asid <> csrFile.io.asid
+    mmu.io.tlbInvalidateReq <> misc.io.tlbInvalidateReq
+    mmu.io.tlbInvalidateResp <> misc.io.tlbInvalidateResp
 
     // Trap
     trapUnit.io.pc <> ifu.io.pc
@@ -153,7 +138,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     trapUnit.io.meip <> io.meip
     trapUnit.io.mtip <> io.mtip
     trapUnit.io.msip <> io.msip
-    trapUnit.io.seip <> csrFile.io.seip
+    trapUnit.io.seip <> csrFile.io.finalSeip
     trapUnit.io.stip <> csrFile.io.stip
     trapUnit.io.ssip <> csrFile.io.ssip
     
@@ -263,7 +248,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     csrFile.io.meip <> io.meip
     csrFile.io.mtip <> io.mtip
     csrFile.io.msip <> io.msip
-
+    csrFile.io.seip <> io.seip
     csrFile.io.time <> io.time
 
     rob.io.exception <> trapUnit.io.exception
@@ -273,30 +258,22 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     // AMO
     lsu.io.invalidateReserved <> rob.io.trapRet.valid
 
-    if (c.simulate) {
-        val issueEventDPI = new IssueEventDPI
-        when(issuer.io.issueEvent.valid) {
-            issueEventDPI.call(
-                issuer.io.issueEvent.bits
-            )
+    // Debug
+    dbgIo.foreach { dbg =>
+        dbg.ifu := ifu.dbgIo.get
+        dbg.rf := regFile.dbgIo.get
+        dbg.rt := renameTable.dbgIo.get
+        dbg.rob := rob.dbgIo.get
+        dbg.rs := reservStation.dbgIo.get
+
+        dbg.events.issue := issuer.io.issueEvent
+
+        for ((dst, src) <- dbg.events.commits.zip(commitUnit.io.commitEvents)) {
+            dst := src
         }
 
-        for (commitEvent <- commitUnit.io.commitEvents) {
-            val commitEventDPI = new CommitEventDPI
-            when(commitEvent.valid) {
-                commitEventDPI.call(commitEvent.bits)
-            }
-        }
-
-        val disconEventDPI = new DisconEventDPI
-        when(rob.io.disconEvent.valid) {
-            disconEventDPI.call(rob.io.disconEvent.bits)
-        }
-
-        val retireEventDPI = new RetireEventDPI
-        when(rob.io.retireEvent.valid) {
-            retireEventDPI.call(rob.io.retireEvent.bits)
-        }
+        dbg.events.discon := rob.io.disconEvent
+        dbg.events.retire := rob.io.retireEvent
     }
 }
 

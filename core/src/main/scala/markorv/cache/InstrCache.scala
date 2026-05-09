@@ -40,11 +40,11 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
 
     val victimPtr = RegInit(0.U(c.wayBits.W))
 
-    val state = RegInit(State.sIdle)
+    val state = RegInit(State.sInvalidate)
     val invalidateIdx = RegInit(0.U(c.setBits.W))
 
-    val replaceSetTagVReg = RegInit(VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheTagValid))))
-    val replaceSetDataReg = RegInit(VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheData))))
+    val replaceSetTagVReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheTagValid().zero)))
+    val replaceSetDataReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheData().zero)))
 
     val sramReadTagV = Wire(Vec(c.wayNum, new CacheTagValid))
     val sramReadData = Wire(Vec(c.wayNum, new CacheData))
@@ -103,7 +103,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     val sInvalidateWriteValid = WireDefault(false.B)
     val sInvalidateWriteSet   = WireDefault(invalidateIdx)
     val sInvalidateWriteTagV  = Wire(Vec(c.wayNum, new CacheTagValid))
-    sInvalidateWriteTagV := VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheTagValid)))
+    sInvalidateWriteTagV := VecInit(Seq.fill(c.wayNum)(new CacheTagValid().zero))
 
     // defaults
     val mmuHlt    = !io.mmuReq.ready

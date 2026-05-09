@@ -13,7 +13,7 @@ class PMAChecker(pmaList: List[PmaConfig]) extends Module {
         val attr = Output(new PhyMemAttr)
     })
 
-    val defaultAttr = 0.U.asTypeOf(new PhyMemAttr)
+    val defaultAttr = new PhyMemAttr().zero
 
     val hits = pmaList.map { pma =>
         io.addr >= pma.addrLow.U && (io.addr + (1.U << io.size)) <= pma.addrHigh.U

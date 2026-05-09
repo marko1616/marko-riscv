@@ -13,7 +13,7 @@
 #include "slaves/virtual_ram.hpp"
 #include "slaves/virtual_uart.hpp"
 #include "input_manager.hpp"
-#include "dpi/manager.hpp"
+#include "debug/manager.hpp"
 
 csh capstone_handle;
 
@@ -144,7 +144,7 @@ std::string cycle_verbose(uint64_t cycle, uint64_t pc, std::optional<uint32_t> r
 
     if (!raw_instr) {
         result += "null\n";
-        return "";
+        return result;
     }
 
     uint8_t raw_code[4] = {
@@ -176,7 +176,9 @@ std::string cycle_verbose(uint64_t cycle, uint64_t pc, std::optional<uint32_t> r
 
 void init_stimulus(const std::unique_ptr<VMarkoRvCore> &top) {
     clear_axi(top);
+#ifdef debug_manager_SIM
     top->io_dcacheCleanAllReq = false;
+#endif
 }
 
 struct CycleSnapshot {
@@ -231,8 +233,8 @@ public:
     void run_simulation(parsedArgs args) {
         uint64_t clock_cnt = 0;
         axiSignal axi;
-        DpiManager& dpi = DpiManager::get_instance();
-        register_event_breakpoints(args, dpi);
+        DebugManager& debug_manager = DebugManager::get_instance();
+        register_event_breakpoints(args, debug_manager);
 
         uint64_t cleanup_dcache_at = args.max_clock - args.cleanup_dcache_addrs.size() * DCACHE_CLEANUP_TIME;
 
@@ -246,7 +248,7 @@ public:
             if (auto_pause_pending_.exchange(false, std::memory_order_relaxed)) {
                 std::cerr << std::format(
                     "[AUTO-PAUSE] Event breakpoint hit at cycle=0x{:x} pc=0x{:x}\r\n",
-                    clock_cnt, dpi.curr_pc);
+                    clock_cnt, debug_manager.curr_pc);
                 input_manager->force_pause();
             }
 
@@ -257,8 +259,8 @@ public:
             }
 
             while (input_manager->is_paused()) {
-                print_all_debug(clock_cnt, dpi, axi);
-                std::string cycle_info = cycle_verbose(clock_cnt, dpi.curr_pc, dpi.fetching_instr);
+                print_all_debug(clock_cnt, debug_manager, axi);
+                std::string cycle_info = cycle_verbose(clock_cnt, debug_manager.curr_pc, debug_manager.fetching_instr);
 
                 std::cerr << "[PAUSED cycle=0x" << std::hex << clock_cnt << std::dec
                           << "] s/Enter=step  c=continue  q=quit  Ctrl+A h=help\r\n";
@@ -267,7 +269,7 @@ public:
                 switch (action) {
                     case InputManager::InputAction::PauseStep:
                         replay_buffer_.push_back({cycle_info});
-                        execute_one_cycle(clock_cnt, args, dpi, axi);
+                        execute_one_cycle(clock_cnt, args, debug_manager, axi);
                         clock_cnt++;
                         continue;
                     case InputManager::InputAction::PauseResume:
@@ -283,23 +285,23 @@ public:
 
             {
                 bool verbose = args.verbose || input_manager->is_force_verbose();
-                std::string cycle_info = cycle_verbose(clock_cnt, dpi.curr_pc, dpi.fetching_instr);
+                std::string cycle_info = cycle_verbose(clock_cnt, debug_manager.curr_pc, debug_manager.fetching_instr);
                 replay_buffer_.push_back({cycle_info});
                 if (replay_buffer_.size() > REPLAY_BUFFER_SIZE) {
                     replay_buffer_.pop_front();
                 }
                 if (verbose) {
-                    auto pc = dpi.curr_pc;
-                    auto raw_instr = dpi.fetching_instr;
+                    auto pc = debug_manager.curr_pc;
+                    auto raw_instr = debug_manager.fetching_instr;
                     std::cout << cycle_info;
                 }
-                if (args.rob_debug) dpi.print_rob();
-                if (args.rs_debug)  dpi.print_rs();
-                if (args.rt_debug)  dpi.print_rt();
-                if (args.rf_debug)  dpi.print_rf();
+                if (args.rob_debug) debug_manager.print_rob();
+                if (args.rs_debug)  debug_manager.print_rs();
+                if (args.rt_debug)  debug_manager.print_rt();
+                if (args.rf_debug)  debug_manager.print_rf();
             }
 
-            execute_one_cycle(clock_cnt, args, dpi, axi);
+            execute_one_cycle(clock_cnt, args, debug_manager, axi);
             clock_cnt++;
         }
 
@@ -325,12 +327,12 @@ private:
     uint64_t ram_id;
     uint64_t uart_id;
 
-    std::atomic<bool> auto_pause_pending_{false}; // Possible accessed by DPI callbacks in other threads
+    std::atomic<bool> auto_pause_pending_{false}; // Possible accessed by debug_manager callbacks in other threads
     std::deque<CycleSnapshot> replay_buffer_;
 
     // Execute one posedge+negedge simulation cycle (does NOT increment clock_cnt)
     void execute_one_cycle(uint64_t clock_cnt, const parsedArgs& args,
-                           DpiManager& dpi, axiSignal& axi) {
+                           DebugManager& debug_manager, axiSignal& axi) {
         context->timeInc(1);
         top->clock = 1;
         top->eval();
@@ -349,6 +351,7 @@ private:
 
         if (!top->reset) {
             std::memset(&axi, 0, sizeof(axiSignal));
+            debug_manager.sample(top);
             read_axi(top, axi);
             slaves.sim_step(top, axi);
             if (args.axi_debug) axi_debug(axi);
@@ -368,16 +371,16 @@ private:
     }
 
     // Print all debug information (used in pause mode)
-    void print_all_debug(uint64_t clock_cnt, DpiManager& dpi, const axiSignal& axi) {
+    void print_all_debug(uint64_t clock_cnt, DebugManager& debug_manager, const axiSignal& axi) {
         std::cout << "\r\n===================================\r\n";
         for (const auto& snapshot : replay_buffer_) {
             std::cout << snapshot.cycle_info;
         }
         replay_buffer_.clear();
-        dpi.print_rob();
-        dpi.print_rs();
-        dpi.print_rt();
-        dpi.print_rf();
+        debug_manager.print_rob();
+        debug_manager.print_rs();
+        debug_manager.print_rt();
+        debug_manager.print_rf();
         axi_debug(axi);
         std::cout << "===================================\r\n";
     }
@@ -425,12 +428,12 @@ private:
         }
     }
 
-    void register_event_breakpoints(const parsedArgs& args, DpiManager& dpi)
+    void register_event_breakpoints(const parsedArgs& args, DebugManager& debug_manager)
     {
         for (const auto& bp : args.event_breakpoints) {
 
             if (bp.event_type == "issue") {
-                dpi.on_issue([this, bp](const IssueEvent& e) {
+                debug_manager.on_issue([this, bp](const IssueEvent& e) {
                     if (filter_matches(bp.filters, "prd_valid", e.prd_valid) &&
                         filter_matches(bp.filters, "prd",       e.prd))
                     {
@@ -439,7 +442,7 @@ private:
                 });
 
             } else if (bp.event_type == "commit") {
-                dpi.on_commit([this, bp](const CommitEvent& e) {
+                debug_manager.on_commit([this, bp](const CommitEvent& e) {
                     if (filter_matches(bp.filters, "prd_valid", e.prd_valid) &&
                         filter_matches(bp.filters, "prd",       e.prd))
                     {
@@ -448,7 +451,7 @@ private:
                 });
 
             } else if (bp.event_type == "discon") {
-                dpi.on_discon([this, bp](const DisconEvent& e) {
+                debug_manager.on_discon([this, bp](const DisconEvent& e) {
                     if (filter_matches(bp.filters, "discon_type",       e.discon_type) &&
                         filter_matches(bp.filters, "prd_valid",         e.prd_valid) &&
                         filter_matches(bp.filters, "prd",               e.prd) &&
@@ -460,7 +463,7 @@ private:
                 });
 
             } else if (bp.event_type == "retire") {
-                dpi.on_retire([this, bp](const RetireEvent& e) {
+                debug_manager.on_retire([this, bp](const RetireEvent& e) {
                     if (filter_matches(bp.filters, "is_exception", e.is_exception) &&
                         filter_matches(bp.filters, "prd_valid",    e.prd_valid) &&
                         filter_matches(bp.filters, "prd",          e.prd) &&

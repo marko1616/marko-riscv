@@ -2,15 +2,10 @@ package markorv.manage
 
 import chisel3._
 import chisel3.util._
-import chisel3.util.circt.dpi._
 
 import markorv.utils.ChiselUtils._
 import markorv.config._
-
-class RenameTableDebug extends DPIClockedVoidFunctionImport {
-    val functionName = "update_rt"
-    override val inputNames = Some(Seq("table", "index"))
-}
+import markorv.debug._
 
 class RenameTable(implicit val c: CoreConfig) extends Module {
     private val phyRegWidth = log2Ceil(c.regFileSize)
@@ -26,6 +21,7 @@ class RenameTable(implicit val c: CoreConfig) extends Module {
         val rmLastCkpt = Input(Bool())
         val restoreIndex = Flipped(Valid(UInt(renameIndexWidth.W)))
     })
+    val dbgIo = if (c.simulate) Some(IO(Output(new RenameTableDebugIO))) else None
 
     val table = RegInit(VecInit.tabulate(c.renameTableSize, 31){
         (x, y) => (if(x == 0) y else 0).U(phyRegWidth.W)
@@ -64,13 +60,10 @@ class RenameTable(implicit val c: CoreConfig) extends Module {
     }
 
     // Debug
-    if(c.simulate) {
-        for (i <- 0 until c.renameTableSize) {
-            val paddedTable = VecInit.tabulate(31){
-                x => table(i)(x).asTypeOf(UInt(32.W))
-            }
-            val debugger = new RenameTableDebug
-            debugger.call(paddedTable, i.U(32.W))
-        }
+    dbgIo.foreach { dbg =>
+        dbg.table := table
+        dbg.enqPtr := enqPtr
+        dbg.deqPtr := deqPtr
+        dbg.tailIndex := tailIndex
     }
 }

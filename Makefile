@@ -42,12 +42,11 @@ build-simulator:
 	cd core && mill -i markorv.runMain markorv.Main
 	verilator --cc -j $(NPROC) core/generated/MarkoRvCore.sv -I"$(GENERATED_DIR)" -I"$(VERIFICATION_DIR)" --exe \
 		$(wildcard emulator/src/*.cpp) \
-		$(wildcard emulator/src/dpi/*.cpp) \
+		$(wildcard emulator/src/debug/*.cpp) \
 		$(wildcard emulator/src/slaves/*.cpp) \
 		--build \
 		--trace \
-		--threads 2 \
-		-CFLAGS  "-g $(CXX_SANITIZE_FLAGS) -I$(CAPSTONE_DIR)/include -I$(CXXOPTS_DIR)/include -I$(BOOSTPFR_DIR)/include -Iinclude -std=c++23 -flto=full -march=native -mtune=native" \
+		-CFLAGS  "-g $(CXX_SANITIZE_FLAGS) -I$(CAPSTONE_DIR)/include -I$(CXXOPTS_DIR)/include -Iinclude -std=c++23 -flto=full -march=native -mtune=native" \
 		-LDFLAGS "$(LD_SANITIZE_FLAGS) -L$(CAPSTONE_DIR) -lcapstone -flto=full -march=native -mtune=native" \
 		--MAKEFLAGS "CXX=clang++ LINK=clang++ OPT=-O3" # Clang is almost 5 times faster
 

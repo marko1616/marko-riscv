@@ -5,6 +5,7 @@ import chisel3.util._
 
 import markorv.config._
 import markorv.bus.AxiResp
+import markorv.bus.Pte
 
 object CacheType extends Enumeration {
     val Icache, Dcache = Value
@@ -134,4 +135,87 @@ class DcacheInterface(implicit val c: CacheConfig) extends Bundle {
     val paReadReq = Flipped(Decoupled(new DCachePaReadReq))
     val paReadResp = Valid(new DCachePaReadResp())
     val paddr = UInt(64.W)
+}
+
+object TlbPageLevel extends ChiselEnum {
+    val page4KiB, page2MiB, page1GiB, pad = Value
+}
+
+object TlbInvalidateMode extends ChiselEnum {
+    val byAll, byAsid, byVaddr, byAsidAndVaddr = Value
+}
+
+class TlbPte extends Bundle {
+    val n    = Bool()
+    val pbmt = UInt(2.W)
+    val ppn2 = UInt(26.W)
+    val ppn1 = UInt(9.W)
+    val ppn0 = UInt(9.W)
+    val rsw  = UInt(2.W)
+    val d    = Bool()
+    val a    = Bool()
+    val g    = Bool()
+    val u    = Bool()
+    val x    = Bool()
+    val w    = Bool()
+    val r    = Bool()
+    val v    = Bool()
+
+    def ppn: UInt = Cat(ppn2, ppn1, ppn0)
+
+    def fromPte(pte: Pte): Unit = {
+        this.n    := pte.n
+        this.pbmt := pte.pbmt
+        this.ppn2 := pte.ppn2
+        this.ppn1 := pte.ppn1
+        this.ppn0 := pte.ppn0
+        this.rsw  := pte.rsw
+        this.d    := pte.d
+        this.a    := pte.a
+        this.g    := pte.g
+        this.u    := pte.u
+        this.x    := pte.x
+        this.w    := pte.w
+        this.r    := pte.r
+        this.v    := pte.v
+    }
+}
+
+class TlbEntry(implicit val c: TlbConfig) extends Bundle {
+    val valid = Bool()
+    val asid  = UInt(c.asidWidth.W)
+    val vpn   = UInt(c.vpnBits.W)
+    val level = new TlbPageLevel.Type
+    val pte   = new TlbPte
+}
+
+class TlbLookupReq(val asidWidth: Int) extends Bundle {
+    val vaddr = UInt(64.W)
+    val asid  = UInt(asidWidth.W)
+}
+
+class TlbLookupResp(val asidWidth: Int) extends Bundle {
+    val hit   = Bool()
+    val vaddr = UInt(64.W)
+    val asid  = UInt(asidWidth.W)
+    val paddr = UInt(64.W)
+    val level = new TlbPageLevel.Type
+    val pte   = new TlbPte
+}
+
+class TlbAllocateReq(val asidWidth: Int) extends Bundle {
+    val vaddr  = UInt(64.W)
+    val asid   = UInt(asidWidth.W)
+    val level  = new TlbPageLevel.Type
+    val pte    = new TlbPte
+}
+
+class TlbInvalidateReq(val asidWidth: Int) extends Bundle {
+    val mode  = new TlbInvalidateMode.Type
+    val asid  = UInt(asidWidth.W)
+    val vaddr = UInt(64.W)
+}
+
+class TlbInvalidateResp extends Bundle {
+    val done = Bool()
 }

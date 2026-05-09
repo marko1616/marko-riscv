@@ -2,20 +2,10 @@ package markorv.frontend
 
 import chisel3._
 import chisel3.util._
-import chisel3.util.circt.dpi._
 
 import markorv.utils.ChiselUtils._
 import markorv.config._
-
-class PcDebug extends DPIClockedVoidFunctionImport {
-    val functionName = "update_pc"
-    override val inputNames = Some(Seq("pc"))
-}
-
-class FetchDebug extends DPIClockedVoidFunctionImport {
-    val functionName = "update_fetching_instr"
-    override val inputNames = Some(Seq("valid", "instr"))
-}
+import markorv.debug._
 
 class InstrFetchUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
@@ -26,6 +16,7 @@ class InstrFetchUnit(implicit val c: CoreConfig) extends Module {
         val flush = Input(Bool())
         val flushPc = Input(UInt(64.W))
     })
+    val dbgIo = if (c.simulate) Some(IO(Output(new InstrFetchUnitDebugIO))) else None
 
     val pc = RegInit(c.resetVector.U(64.W))
     val nextPc = Wire(UInt(64.W))
@@ -55,11 +46,9 @@ class InstrFetchUnit(implicit val c: CoreConfig) extends Module {
 
     pc := Mux(io.flush, io.flushPc, nextPc)
 
-    if(c.simulate) {
-        val pcDebugger = new PcDebug
-        val fetchDebugger = new FetchDebug
-
-        pcDebugger.call(pc)
-        fetchDebugger.call(fetchValid, io.fetchBundle.bits.instr.rawBits)
+    dbgIo.foreach { dbg =>
+        dbg.pc := pc
+        dbg.fetchValid := fetchValid
+        dbg.fetchingInstr := io.fetchBundle.bits.instr.rawBits
     }
 }

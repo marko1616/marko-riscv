@@ -78,6 +78,24 @@ case class CacheConfig(
     def maxRepresentableAddr: BigInt = (BigInt(1) << (tagBits + indexBits)) - 1
 }
 
+case class TlbConfig(
+    addrWidth: Int,
+    entryNum: Int,
+    asidWidth: Int
+) {
+    require(addrWidth >= 39, "TLB currently assumes SV39 and addrWidth must be >= 39")
+    require(entryNum > 0, "TLB entryNum must be positive")
+    require(isPow2(entryNum), "TLB entryNum must be power of 2")
+    require(asidWidth > 0, "TLB asidWidth must be positive")
+    require(asidWidth <= 16, "TLB asidWidth must be <= 16")
+
+    def pageOffsetBits: Int = 12
+    def sv39VpnHigh: Int = 38
+    def vpnBits: Int = 27
+    def ppnBits: Int = addrWidth - pageOffsetBits
+    def entryIdxBits: Int = math.max(1, log2Ceil(entryNum))
+}
+
 case class PmaConfig(
     addrLow: BigInt,
     addrHigh: BigInt,
@@ -109,7 +127,10 @@ case class CoreConfig(
     rsSize: Int,
     renameTableSize: Int,
     regFileSize: Int,
-    pma: List[PmaConfig]
+    pma: List[PmaConfig],
+    tlb4KEntries: Int,
+    tlb2MEntries: Int,
+    tlb1GEntries: Int
 ) {
     require(asidWidth > 0, "Asid width must > 0")
     require(asidWidth <= 16, "Asid width must <= 16")
@@ -118,6 +139,26 @@ case class CoreConfig(
     require(isPow2(renameTableSize), "RenameTable size must be a positive power of 2")
     require(isPow2(regFileSize), "Physical register number must be a positive power of 2")
     require(regFileSize >= 32, "Physical register number must be at least 32")
+
+    require(tlb4KEntries > 0 && isPow2(tlb4KEntries), "tlb4KEntries must be a positive power of 2")
+    require(tlb2MEntries > 0 && isPow2(tlb2MEntries), "tlb2MEntries must be a positive power of 2")
+    require(tlb1GEntries > 0 && isPow2(tlb1GEntries), "tlb1GEntries must be a positive power of 2")
+
+    def tlb4KConfig: TlbConfig = TlbConfig(
+        addrWidth = dcacheConfig.addrWidth,
+        entryNum  = tlb4KEntries,
+        asidWidth = asidWidth
+    )
+    def tlb2MConfig: TlbConfig = TlbConfig(
+        addrWidth = dcacheConfig.addrWidth,
+        entryNum  = tlb2MEntries,
+        asidWidth = asidWidth
+    )
+    def tlb1GConfig: TlbConfig = TlbConfig(
+        addrWidth = dcacheConfig.addrWidth,
+        entryNum  = tlb1GEntries,
+        asidWidth = asidWidth
+    )
 
     pma.combinations(2).foreach {
         case List(a, b) =>

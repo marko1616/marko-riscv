@@ -2,17 +2,12 @@ package markorv.manage
 
 import chisel3._
 import chisel3.util._
-import chisel3.util.circt.dpi._
 
 import markorv.utils.ChiselUtils._
 import markorv.utils._
 import markorv.config._
 import markorv.backend._
-
-class ReservationStationDebug extends DPIClockedVoidFunctionImport {
-    val functionName = "update_rs"
-    override val inputNames = Some(Seq("entry", "index"))
-}
+import markorv.debug._
 
 class ReservationStation(implicit val c: CoreConfig) extends Module {
     private val phyRegWidth = log2Ceil(c.regFileSize)
@@ -68,6 +63,7 @@ class ReservationStation(implicit val c: CoreConfig) extends Module {
         // ========================
         val flush = Input(Bool())
     })
+    val dbgIo = if (c.simulate) Some(IO(Output(new ReservationStationDebugIO))) else None
 
     val regStates = io.regStates
     val buffer    = RegInit(VecInit.tabulate(c.rsSize)(_ => new ReservationStationEntry().zero))
@@ -168,10 +164,7 @@ class ReservationStation(implicit val c: CoreConfig) extends Module {
     }
 
     // Debug
-    if(c.simulate) {
-        val debugger = new ReservationStationDebug
-        for((e,i) <- buffer.zipWithIndex) {
-            debugger.call(e, i.U(32.W))
-        }
+    dbgIo.foreach { dbg =>
+        dbg.buffer := buffer
     }
 }

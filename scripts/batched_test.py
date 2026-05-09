@@ -246,7 +246,7 @@ def run_test(case_name):
         str(EMULATOR_PATH),
         "--rom-load", f"elf:{ROM_PATH}",
         "--ram-load", f"elf:{TESTS_PATH / case_name}",
-        "--max-clock", "0x80000",
+        "--max-clock", "0x1a000",
         "--ram-dump", str(ram_dump_path),
         "--cleanup-dcache", str(tohost_addr)
     ]

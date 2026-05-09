@@ -125,9 +125,9 @@ class DataCache(implicit val c: CacheConfig) extends Module {
 
     val victimPtr = RegInit(0.U(c.wayBits.W))
 
-    val workSetTagVReg = RegInit(VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheTagValid))))
-    val workSetDataReg = RegInit(VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheData))))
-    val workSetDirtyReg = RegInit(VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheDirty))))
+    val workSetTagVReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheTagValid().zero)))
+    val workSetDataReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheData().zero)))
+    val workSetDirtyReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheDirty().zero)))
 
     // clean-writeback context
 
@@ -139,16 +139,16 @@ class DataCache(implicit val c: CacheConfig) extends Module {
 
     // global invalidate / clean-all state
 
-    val state = RegInit(State.sIdle)
+    val state = RegInit(State.sInvalidateAll)
     val invalidateAllSetIdx = RegInit(0.U(c.setBits.W))
 
     val cleanAllSetIdx = RegInit(0.U(c.setBits.W))
     val cleanAllWayPtr = RegInit(0.U(c.wayBits.W))
     val cleanAllSetLoaded = RegInit(false.B)
 
-    val cleanAllSetTagVReg = RegInit(VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheTagValid))))
-    val cleanAllSetDataReg = RegInit(VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheData))))
-    val cleanAllSetDirtyReg = RegInit(VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheDirty))))
+    val cleanAllSetTagVReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheTagValid().zero)))
+    val cleanAllSetDataReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheData().zero)))
+    val cleanAllSetDirtyReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheDirty().zero)))
 
     // SRAM read wires
 
@@ -294,7 +294,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val sCleanWriteBackDirtyWriteSet = WireDefault(cleanWriteBackSet)
     val sCleanWriteBackDirtyWrite = Wire(Vec(c.wayNum, new CacheDirty))
     for (i <- 0 until c.wayNum) {
-        sCleanWriteBackDirtyWrite(i) := 0.U.asTypeOf(new CacheDirty)
+        sCleanWriteBackDirtyWrite(i) := new CacheDirty().zero
     }
 
     val sCleanWriteBackSetCleanAllDirtyValid = WireDefault(false.B)
@@ -315,8 +315,8 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val sInvalidateAllWriteSet = WireDefault(invalidateAllSetIdx)
     val sInvalidateAllWriteTagV = Wire(Vec(c.wayNum, new CacheTagValid))
     val sInvalidateAllWriteDirty = Wire(Vec(c.wayNum, new CacheDirty))
-    sInvalidateAllWriteTagV := VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheTagValid)))
-    sInvalidateAllWriteDirty := VecInit(Seq.fill(c.wayNum)(0.U.asTypeOf(new CacheDirty)))
+    sInvalidateAllWriteTagV := VecInit(Seq.fill(c.wayNum)(new CacheTagValid().zero))
+    sInvalidateAllWriteDirty := VecInit(Seq.fill(c.wayNum)(new CacheDirty().zero))
 
     // sCleanAll -> snapshot one whole set, and optionally start reading the next set
     val sCleanAllSetSnapshotValid = WireDefault(false.B)
