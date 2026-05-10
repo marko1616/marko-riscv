@@ -111,7 +111,7 @@ RUN sudo apt update && sudo apt install -y \
     libglib2.0-dev \
     libslirp-dev
 
-RUN git clone https://github.com/riscv/riscv-gnu-toolchain.git
+RUN git clone https://github.com/riscv/riscv-gnu-toolchain.git --depth 1
 
 WORKDIR /home/build-user/riscv-gnu-toolchain
 

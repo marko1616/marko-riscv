@@ -186,11 +186,10 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     renameTable.io.createCkpt <> issuer.io.createRtCkpt
     renameTable.io.restoreIndex <> rob.io.rtRestoreIndex
     renameTable.io.rmLastCkpt <> rob.io.rtRmLastCkpt
-    renameTable.io.readIndices(1) := 0.U
 
     // Register File Interface
-    regStateCtrl.io.renameTableReadIndex <> renameTable.io.readIndices(0)
-    regStateCtrl.io.renameTableReadEntry <> renameTable.io.readEntries(0)
+    regStateCtrl.io.renameTableReadIndex <> renameTable.io.readIndex
+    regStateCtrl.io.renameTableReadEntry <> renameTable.io.readEntry
     regStateCtrl.io.issueEvent <> issuer.io.issueEvent
     regStateCtrl.io.commitEvents <> commitUnit.io.commitEvents
     regStateCtrl.io.retireEvent <> rob.io.retireEvent
@@ -308,7 +307,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     commitUnit.io.robCommits <> rob.io.commits
 
     // CSR and Privilege
-    csrFile.io.retireEvent := rob.io.retireEvent
+    csrFile.io.retireEvent <> rob.io.retireEvent
     csrFile.io.csrio <> misc.io.csrio
     csrFile.io.privilege <> misc.io.getPrivilege
     csrFile.io.mepc <> misc.io.mepc

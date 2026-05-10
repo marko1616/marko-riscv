@@ -221,10 +221,6 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val reqPaReadSet =
         if (c.setNum == 1) 0.U else reqPaReadPa(c.setEnd, c.setStart)
 
-    val paReadSramReadTagV  = Wire(Vec(c.wayNum, new CacheTagValid))
-    val paReadSramReadData  = Wire(Vec(c.wayNum, new CacheData))
-    val paReadSramReadDirty = Wire(Vec(c.wayNum, new CacheDirty))
-
     val paReadReadSramValid = WireDefault(false.B)
     val paReadReadSramSet   = WireDefault(0.U(c.setBits.W))
 
@@ -1164,14 +1160,14 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val paReadHit     = Wire(Bool())
     val paReadHitData = Wire(UInt((8 * c.dataBytes).W))
 
-    val paReadHits = paReadSramReadTagV.map { e =>
+    val paReadHits = sramReadTagV.map { e =>
         e.valid && (e.tag === paReadTag)
     }
 
     paReadHit := paReadHits.reduce(_ || _)
     paReadHitData := Mux(
       paReadHit,
-      Mux1H(paReadHits, paReadSramReadData.map(_.data)),
+      Mux1H(paReadHits, sramReadData.map(_.data)),
       0.U
     )
 
@@ -1358,31 +1354,23 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val finalMainSramReadValid =
         sIdleReadSramValid ||
             sReadReadSramValid ||
-            sCleanAllReadSramValid
+            sCleanAllReadSramValid ||
+            paReadReadSramValid
 
     val finalMainSramReadSet = WireDefault(0.U(c.setBits.W))
-
-    when(sIdleReadSramValid) {
-        finalMainSramReadSet := sIdleReadSramSet
-    }
-    when(sReadReadSramValid) {
-        finalMainSramReadSet := sReadReadSramSet
-    }
-    when(sCleanAllReadSramValid) {
-        finalMainSramReadSet := sCleanAllReadSramSet
-    }
+    finalMainSramReadSet := Mux1H(
+      Seq(
+        sIdleReadSramValid     -> sIdleReadSramSet,
+        sReadReadSramValid     -> sReadReadSramSet,
+        sCleanAllReadSramValid -> sCleanAllReadSramSet,
+        paReadReadSramValid    -> paReadReadSramSet
+      )
+    )
 
     sramReadTagV := tagVArray.read(finalMainSramReadSet, finalMainSramReadValid)
     sramReadData := dataArray.read(finalMainSramReadSet, finalMainSramReadValid)
     sramReadDirty := dirtyArray.read(
       finalMainSramReadSet,
       finalMainSramReadValid
-    )
-
-    paReadSramReadTagV := tagVArray.read(paReadReadSramSet, paReadReadSramValid)
-    paReadSramReadData := dataArray.read(paReadReadSramSet, paReadReadSramValid)
-    paReadSramReadDirty := dirtyArray.read(
-      paReadReadSramSet,
-      paReadReadSramValid
     )
 }

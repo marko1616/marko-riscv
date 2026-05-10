@@ -246,8 +246,6 @@ public:
         DebugManager &debug_manager = DebugManager::get_instance();
         register_event_breakpoints(debug_manager);
 
-        uint64_t cleanup_dcache_at = args.max_clock - args.cleanup_dcache_addrs.size() * DCACHE_CLEANUP_TIME;
-
         while (!Verilated::gotFinish() && clock_cnt < args.max_clock) {
             if (clock_cnt < 4) {
                 top->reset = 1;

@@ -6,4 +6,3 @@ services:
       - "8022:22"
     volumes:
       - .:/home/build-user/code
-    privileged: true

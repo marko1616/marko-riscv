@@ -327,7 +327,9 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
                             state := State.sAmoWrite
                         }.otherwise {
                             finishOp(AMO_SC_FAILED)
-                            state := State.sIdle
+                            setReservedValid    := true.B
+                            newReservedValidVal := false.B
+                            state               := State.sIdle
                         }
                     }.otherwise {
                         state := State.sAmoRead

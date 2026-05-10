@@ -85,7 +85,7 @@ uint64_t VirtualAxiSlaves::calculate_next_addr(uint64_t base_addr, uint8_t size,
         return base_addr + beat * bytes_per_beat;
     case BURST_WRAP: {
         // Wrap burst: address wraps within a fixed-size region
-        const uint64_t num_beats = is_read ? current_read.len : current_write.len + 1;
+        const uint64_t num_beats = is_read ? current_read.len + 1 : current_write.len + 1;
         const uint64_t wrap_boundary = num_beats * bytes_per_beat;
         const uint64_t aligned_base = base_addr & ~(wrap_boundary - 1);
         const uint64_t offset = beat * bytes_per_beat;

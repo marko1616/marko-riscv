@@ -83,7 +83,7 @@ pma:
 
   # RAM: 256MB @ 0x80000000
   - addrLow:  0x80000000
-    addrHigh: 0x90000000
+    addrHigh: 0x8FFFFFFF
     r: true
     w: true
     x: true

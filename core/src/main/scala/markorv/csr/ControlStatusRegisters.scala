@@ -193,8 +193,13 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     io.statusTsrField := csrMstatus.tsrField.read
 
     // Counter Logic
-    csrMcycle.field.reg := csrMcycle.field.reg + 1.U
-    when(io.retireEvent.valid && io.retireEvent.bits.incInstRet) {
+    when(csrMcountinhibit.read(0)) {
+        csrMcycle.field.reg := csrMcycle.field.reg + 1.U
+    }
+    when(
+      io.retireEvent.valid && io.retireEvent.bits.incInstRet && csrMcountinhibit
+          .read(2)
+    ) {
         csrMinstret.field.reg := csrMinstret.field.reg + 1.U
     }
 
