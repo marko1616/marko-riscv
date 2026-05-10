@@ -1,0 +1,44 @@
+---
+Language: Cpp
+Standard: Latest
+AccessModifierOffset: -4
+AlignEscapedNewlines: Left
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: Inline
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+BreakConstructorInitializers: BeforeColon
+BreakStringLiterals: false
+ColumnLimit: 120
+PackConstructorInitializers: CurrentLine
+ConstructorInitializerIndentWidth: 4
+ContinuationIndentWidth: 4
+DerivePointerAlignment: false
+ForEachMacros:
+  - 'json_object_foreach'
+  - 'json_object_foreach_safe'
+  - 'json_array_foreach'
+  - 'HASH_ITER'
+IndentWidth: 4
+TabWidth: 4
+PenaltyBreakAssignment: 10
+PenaltyBreakBeforeFirstCallParameter: 30
+PenaltyBreakComment: 10
+PenaltyBreakFirstLessLess: 0
+PenaltyBreakString: 10
+PenaltyExcessCharacter: 100
+PenaltyReturnTypeOnItsOwnLine: 60
+PointerAlignment: Right
+ReflowComments: false
+SortIncludes: false
+SortUsingDeclarations: false
+SpaceAfterTemplateKeyword: false
+SpacesInContainerLiterals: false
+StatementMacros:
+  - 'Q_OBJECT'
+TypenameMacros:
+  - 'DARRAY'
+UseTab: Never

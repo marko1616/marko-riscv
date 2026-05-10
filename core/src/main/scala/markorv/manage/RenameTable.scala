@@ -3,39 +3,39 @@ package markorv.manage
 import chisel3._
 import chisel3.util._
 
-import markorv.utils.ChiselUtils._
-import markorv.config._
-import markorv.debug._
+import markorv.config.CoreConfig
+import markorv.debug.RenameTableDebugIO
+import markorv.utils.ChiselUtils.DataOperationExtension
 
 class RenameTable(implicit val c: CoreConfig) extends Module {
-    private val phyRegWidth = log2Ceil(c.regFileSize)
+    private val phyRegWidth      = log2Ceil(c.regFileSize)
     private val renameIndexWidth = log2Ceil(c.renameTableSize)
 
     val io = IO(new Bundle {
         val readIndices = Input(Vec(2, UInt(renameIndexWidth.W)))
-        val readEntries = Output(Vec(2, Vec(31,UInt(phyRegWidth.W))))
-        val tailIndex = Output(UInt(renameIndexWidth.W))
-        val tailEntry = Output(Vec(31,UInt(phyRegWidth.W)))
+        val readEntries = Output(Vec(2, Vec(31, UInt(phyRegWidth.W))))
+        val tailIndex   = Output(UInt(renameIndexWidth.W))
+        val tailEntry   = Output(Vec(31, UInt(phyRegWidth.W)))
 
-        val createCkpt = Flipped(Decoupled(Vec(31,UInt(phyRegWidth.W))))
-        val rmLastCkpt = Input(Bool())
+        val createCkpt   = Flipped(Decoupled(Vec(31, UInt(phyRegWidth.W))))
+        val rmLastCkpt   = Input(Bool())
         val restoreIndex = Flipped(Valid(UInt(renameIndexWidth.W)))
     })
-    val dbgIo = if (c.simulate) Some(IO(Output(new RenameTableDebugIO))) else None
+    val dbgIo =
+        if (c.simulate) Some(IO(Output(new RenameTableDebugIO))) else None
 
-    val table = RegInit(VecInit.tabulate(c.renameTableSize, 31){
-        (x, y) => (if(x == 0) y else 0).U(phyRegWidth.W)
+    val table = RegInit(VecInit.tabulate(c.renameTableSize, 31) { (x, y) =>
+        (if (x == 0) y else 0).U(phyRegWidth.W)
     })
-    val enqPtr = RegInit(1.U(renameIndexWidth.W))
-    val deqPtr = RegInit(0.U(renameIndexWidth.W))
-    val mayFull = RegInit(false.B)
-    val ptrMatch = enqPtr === deqPtr
-    val full = ptrMatch && mayFull
+    val enqPtr    = RegInit(1.U(renameIndexWidth.W))
+    val deqPtr    = RegInit(0.U(renameIndexWidth.W))
+    val mayFull   = RegInit(false.B)
+    val ptrMatch  = enqPtr === deqPtr
+    val full      = ptrMatch && mayFull
     val tailIndex = enqPtr - 1.U
 
-    for((readIndex, readEntry) <- io.readIndices.zip(io.readEntries)) {
+    for ((readIndex, readEntry) <- io.readIndices.zip(io.readEntries))
         readEntry := table(readIndex)
-    }
 
     io.tailIndex := tailIndex
     io.tailEntry := table(tailIndex)
@@ -43,27 +43,27 @@ class RenameTable(implicit val c: CoreConfig) extends Module {
     io.createCkpt.ready := !full
     when(io.createCkpt.valid && !full) {
         table(enqPtr) := io.createCkpt.bits
-        enqPtr := enqPtr + 1.U
-        mayFull := true.B
+        enqPtr        := enqPtr + 1.U
+        mayFull       := true.B
     }
 
     when(io.rmLastCkpt) {
-        deqPtr := deqPtr + 1.U
+        deqPtr  := deqPtr + 1.U
         mayFull := false.B
     }
 
     when(io.restoreIndex.valid) {
-        enqPtr := 1.U
-        deqPtr := 0.U
+        enqPtr   := 1.U
+        deqPtr   := 0.U
         table(0) := table(io.restoreIndex.bits)
-        mayFull := false.B
+        mayFull  := false.B
     }
 
     // Debug
     dbgIo.foreach { dbg =>
-        dbg.table := table
-        dbg.enqPtr := enqPtr
-        dbg.deqPtr := deqPtr
+        dbg.table     := table
+        dbg.enqPtr    := enqPtr
+        dbg.deqPtr    := deqPtr
         dbg.tailIndex := tailIndex
     }
 }

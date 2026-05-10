@@ -4,17 +4,35 @@ import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 
-import markorv.utils.ChiselUtils._
-import markorv.config._
-import markorv.csr._
-import markorv.frontend._
-import markorv.backend._
-import markorv.bus._
-import markorv.cache._
-import markorv.manage._
-import markorv.trap._
-import markorv.utils._
-import markorv.debug._
+import markorv.backend.{
+    ArithmeticLogicUnit,
+    BranchUnit,
+    LoadStoreUnit,
+    MISCUnit,
+    MultiplyDivisionUnit
+}
+import markorv.bus.{AxiCtrl, AxiInterface, MemoryManagementUnit}
+import markorv.cache.{DataCache, InstrCache}
+import markorv.config.{ConfigLoader, CoreConfig}
+import markorv.csr.ControlStatusRegisters
+import markorv.debug.MarkoRvCoreDebugIO
+import markorv.frontend.{
+    InstrDecoder,
+    InstrFetchQueue,
+    InstrFetchUnit,
+    InstrPrefetchUnit
+}
+import markorv.manage.{
+    CommitUnit,
+    Issuer,
+    RegFile,
+    RegStateController,
+    RenameTable,
+    ReorderBuffer,
+    ReservationStation
+}
+import markorv.trap.TrapUnit
+import markorv.utils.PipelineConnect
 
 class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
@@ -27,10 +45,11 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
         val time = Input(UInt(64.W))
 
-        val dcacheCleanAllReq = if(c.simulate) Some(Input(Bool())) else None
-        val dcacheCleanAllResp = if(c.simulate) Some(Output(Bool())) else None
+        val dcacheCleanAllReq  = if (c.simulate) Some(Input(Bool())) else None
+        val dcacheCleanAllResp = if (c.simulate) Some(Output(Bool())) else None
     })
-    val dbgIo = if (c.simulate) Some(IO(Output(new MarkoRvCoreDebugIO))) else None
+    val dbgIo =
+        if (c.simulate) Some(IO(Output(new MarkoRvCoreDebugIO))) else None
 
     // Submodule Instantiations
     // ========================
@@ -43,29 +62,29 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     val mmu    = Module(new MemoryManagementUnit)
 
     // Frontend Pipeline
-    val ipu = Module(new InstrPrefetchUnit)
-    val ifq = Module(new InstrFetchQueue)
-    val ifu = Module(new InstrFetchUnit)
+    val ipu     = Module(new InstrPrefetchUnit)
+    val ifq     = Module(new InstrFetchQueue)
+    val ifu     = Module(new InstrFetchUnit)
     val decoder = Module(new InstrDecoder)
 
     // Dataflow schedule pipeline & Register file
-    val regFile = Module(new RegFile)
-    val issuer = Module(new Issuer)
+    val regFile       = Module(new RegFile)
+    val issuer        = Module(new Issuer)
     val reservStation = Module(new ReservationStation)
-    val commitUnit = Module(new CommitUnit)
-    val renameTable = Module(new RenameTable)
-    val rob = Module(new ReorderBuffer)
-    val regStateCtrl = Module(new RegStateController)
+    val commitUnit    = Module(new CommitUnit)
+    val renameTable   = Module(new RenameTable)
+    val rob           = Module(new ReorderBuffer)
+    val regStateCtrl  = Module(new RegStateController)
 
     // Execution Units
-    val alu = Module(new ArithmeticLogicUnit)
-    val lsu = Module(new LoadStoreUnit)
-    val bru = Module(new BranchUnit)
+    val alu  = Module(new ArithmeticLogicUnit)
+    val lsu  = Module(new LoadStoreUnit)
+    val bru  = Module(new BranchUnit)
     val misc = Module(new MISCUnit)
-    val mdu = Module(new MultiplyDivisionUnit)
+    val mdu  = Module(new MultiplyDivisionUnit)
 
     // CSR & Trap controller.
-    val csrFile = Module(new ControlStatusRegisters)
+    val csrFile  = Module(new ControlStatusRegisters)
     val trapUnit = Module(new TrapUnit)
 
     // Module Connections
@@ -112,7 +131,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     dCache.io.statusMprvField <> csrFile.io.statusMprvField
     dCache.io.statusSumField <> csrFile.io.statusSumField
     dCache.io.statusMxrField <> csrFile.io.statusMxrField
-    if(c.simulate) {
+    if (c.simulate) {
         dCache.io.cleanAll <> (io.dcacheCleanAllReq.get || misc.io.dcacheCleanAll)
         dCache.io.cleanAllOutfire <> io.dcacheCleanAllResp.get
     }
@@ -141,7 +160,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     trapUnit.io.seip <> csrFile.io.finalSeip
     trapUnit.io.stip <> csrFile.io.stip
     trapUnit.io.ssip <> csrFile.io.ssip
-    
+
     rob.io.trapRet <> csrFile.io.trapRet
 
     // Frontend Pipeline Connections
@@ -155,10 +174,13 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     ifu.io.flush := flush
     ifu.io.fetchBundle <> ifq.io.fetchBundle
-    ifu.io.flushPc := MuxCase(0.U, Seq(
+    ifu.io.flushPc := MuxCase(
+      0.U,
+      Seq(
         trapUnit.io.flush -> trapUnit.io.flushPc,
-        rob.io.flush -> rob.io.flushPc
-    ))
+        rob.io.flush      -> rob.io.flushPc
+      )
+    )
 
     // Rename Table Interface
     renameTable.io.createCkpt <> issuer.io.createRtCkpt
@@ -169,10 +191,10 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     // Register File Interface
     regStateCtrl.io.renameTableReadIndex <> renameTable.io.readIndices(0)
     regStateCtrl.io.renameTableReadEntry <> renameTable.io.readEntries(0)
-    regStateCtrl.io.issueEvent   <> issuer.io.issueEvent
+    regStateCtrl.io.issueEvent <> issuer.io.issueEvent
     regStateCtrl.io.commitEvents <> commitUnit.io.commitEvents
-    regStateCtrl.io.retireEvent  <> rob.io.retireEvent
-    regStateCtrl.io.disconEvent  <> rob.io.disconEvent
+    regStateCtrl.io.retireEvent <> rob.io.retireEvent
+    regStateCtrl.io.disconEvent <> rob.io.disconEvent
 
     regFile.io.setStates <> regStateCtrl.io.setStates
     regFile.io.getStates <> regStateCtrl.io.getStates
@@ -201,38 +223,88 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // Main Pipeline Stages
     PipelineConnect(
-        ifu.io.decodeTask,
-        decoder.io.decodeTask,
-        decoder.io.outfire,
-        flush
+      ifu.io.decodeTask,
+      decoder.io.decodeTask,
+      decoder.io.outfire,
+      flush
     )
 
     PipelineConnect(
-        decoder.io.issueTask,
-        issuer.io.issueTask,
-        issuer.io.outfire,
-        flush
+      decoder.io.issueTask,
+      issuer.io.issueTask,
+      issuer.io.outfire,
+      flush
     )
 
     // Execution Unit Dispatch
-    PipelineConnect(reservStation.io.aluOut, alu.io.aluInstr, alu.io.outfire, flush)
-    PipelineConnect(reservStation.io.bruOut, bru.io.branchInstr, bru.io.outfire, flush)
-    PipelineConnect(reservStation.io.lsuOut, lsu.io.lsuInstr, lsu.io.outfire, flush)
-    PipelineConnect(reservStation.io.mduOut, mdu.io.muInstr, mdu.io.outfire, flush)
-    PipelineConnect(reservStation.io.miscOut, misc.io.miscInstr, misc.io.outfire, flush)
+    PipelineConnect(
+      reservStation.io.aluOut,
+      alu.io.aluInstr,
+      alu.io.outfire,
+      flush
+    )
+    PipelineConnect(
+      reservStation.io.bruOut,
+      bru.io.branchInstr,
+      bru.io.outfire,
+      flush
+    )
+    PipelineConnect(
+      reservStation.io.lsuOut,
+      lsu.io.lsuInstr,
+      lsu.io.outfire,
+      flush
+    )
+    PipelineConnect(
+      reservStation.io.mduOut,
+      mdu.io.muInstr,
+      mdu.io.outfire,
+      flush
+    )
+    PipelineConnect(
+      reservStation.io.miscOut,
+      misc.io.miscInstr,
+      misc.io.outfire,
+      flush
+    )
 
     mdu.io.flush <> flush
 
     // Commit Stage
-    PipelineConnect(alu.io.commit, commitUnit.io.alu, commitUnit.io.outfires(0), flush)
-    PipelineConnect(bru.io.commit, commitUnit.io.bru, commitUnit.io.outfires(1), flush)
-    PipelineConnect(lsu.io.commit, commitUnit.io.lsu, commitUnit.io.outfires(2), flush)
-    PipelineConnect(mdu.io.commit, commitUnit.io.mdu, commitUnit.io.outfires(3), flush)
-    PipelineConnect(misc.io.commit, commitUnit.io.misc, commitUnit.io.outfires(4), flush)
+    PipelineConnect(
+      alu.io.commit,
+      commitUnit.io.alu,
+      commitUnit.io.outfires(0),
+      flush
+    )
+    PipelineConnect(
+      bru.io.commit,
+      commitUnit.io.bru,
+      commitUnit.io.outfires(1),
+      flush
+    )
+    PipelineConnect(
+      lsu.io.commit,
+      commitUnit.io.lsu,
+      commitUnit.io.outfires(2),
+      flush
+    )
+    PipelineConnect(
+      mdu.io.commit,
+      commitUnit.io.mdu,
+      commitUnit.io.outfires(3),
+      flush
+    )
+    PipelineConnect(
+      misc.io.commit,
+      commitUnit.io.misc,
+      commitUnit.io.outfires(4),
+      flush
+    )
 
-    commitUnit.io.robReadIndices  <> rob.io.readIndices
+    commitUnit.io.robReadIndices <> rob.io.readIndices
     commitUnit.io.robReadEntries <> rob.io.readEntries
-    commitUnit.io.regWrites  <> regFile.io.writePorts
+    commitUnit.io.regWrites <> regFile.io.writePorts
     commitUnit.io.robCommits <> rob.io.commits
 
     // CSR and Privilege
@@ -261,16 +333,15 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     // Debug
     dbgIo.foreach { dbg =>
         dbg.ifu := ifu.dbgIo.get
-        dbg.rf := regFile.dbgIo.get
-        dbg.rt := renameTable.dbgIo.get
+        dbg.rf  := regFile.dbgIo.get
+        dbg.rt  := renameTable.dbgIo.get
         dbg.rob := rob.dbgIo.get
-        dbg.rs := reservStation.dbgIo.get
+        dbg.rs  := reservStation.dbgIo.get
 
         dbg.events.issue := issuer.io.issueEvent
 
-        for ((dst, src) <- dbg.events.commits.zip(commitUnit.io.commitEvents)) {
+        for ((dst, src) <- dbg.events.commits.zip(commitUnit.io.commitEvents))
             dst := src
-        }
 
         dbg.events.discon := rob.io.disconEvent
         dbg.events.retire := rob.io.retireEvent
@@ -278,13 +349,18 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 }
 
 object Main extends App {
-    val configPath = if (args.nonEmpty) args(0) else "../assets/core_config.yaml"
+    val configPath =
+        if (args.nonEmpty) args(0) else "../assets/core_config.yaml"
     ConfigLoader.loadCoreConfigFromFile(configPath) match {
         case Right(config) =>
             ChiselStage.emitSystemVerilogFile(
-                new MarkoRvCore()(using config),
-                Array("--target-dir", "generated"),
-                Array("-disable-all-randomization", "--strip-debug-info", "-enable-layers=Verification")
+              new MarkoRvCore()(using config),
+              Array("--target-dir", "generated"),
+              Array(
+                "-disable-all-randomization",
+                "--strip-debug-info",
+                "-enable-layers=Verification"
+              )
             )
             println(s"Config loaded: $config")
         case Left(error) =>

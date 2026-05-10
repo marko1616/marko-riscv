@@ -1,29 +1,35 @@
 #include "clint.hpp"
 
-VirtualCLINT::VirtualCLINT(uint64_t base_addr, double timer_scale, bool stable_clock) : Slave(base_addr), timer_scale(timer_scale), stable_clock(stable_clock) {
+VirtualCLINT::VirtualCLINT(uint64_t base_addr, double timer_scale, bool stable_clock)
+    : Slave(base_addr),
+      timer_scale(timer_scale),
+      stable_clock(stable_clock)
+{
     range = std::ranges::iota_view<uint64_t, uint64_t>(0x0, 0xc0000);
 }
 
-uint64_t VirtualCLINT::read(uint64_t addr, uint8_t size) {
-    if(addr == MTIME_OFFSET)
+uint64_t VirtualCLINT::read(uint64_t addr, uint8_t size)
+{
+    if (addr == MTIME_OFFSET)
         return mtime;
 
-    if(addr == MTIMECMP_OFFSET)
+    if (addr == MTIMECMP_OFFSET)
         return mtimecmp;
 
-    if(addr == MSIP_OFFSET)
+    if (addr == MSIP_OFFSET)
         return msip;
 
     return 0;
 }
 
-void VirtualCLINT::write(uint64_t addr, uint64_t data, uint8_t size, uint8_t strb) {
-    if(addr == MTIMECMP_OFFSET) {
+void VirtualCLINT::write(uint64_t addr, uint64_t data, uint8_t size, uint8_t strb)
+{
+    if (addr == MTIMECMP_OFFSET) {
         mtimecmp = data;
         return;
     }
 
-    if(addr == MSIP_OFFSET) {
+    if (addr == MSIP_OFFSET) {
         msip = data;
         return;
     }
@@ -31,7 +37,8 @@ void VirtualCLINT::write(uint64_t addr, uint64_t data, uint8_t size, uint8_t str
     return;
 }
 
-void VirtualCLINT::step(const std::unique_ptr<VMarkoRvCore> &top) {
+void VirtualCLINT::step(const std::unique_ptr<VMarkoRvCore> &top)
+{
     auto now = std::chrono::steady_clock::now();
     if (stable_clock) {
         mtime_accumulator += timer_scale;
@@ -40,10 +47,7 @@ void VirtualCLINT::step(const std::unique_ptr<VMarkoRvCore> &top) {
         mtime_accumulator -= static_cast<double>(increment);
     } else {
         mtime = static_cast<uint64_t>(
-            std::chrono::duration_cast<std::chrono::microseconds>(
-                now.time_since_epoch()
-            ).count() * timer_scale
-        );
+            std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count() * timer_scale);
     }
 
     if (mtime >= mtimecmp)

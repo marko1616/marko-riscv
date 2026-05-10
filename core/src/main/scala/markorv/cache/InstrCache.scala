@@ -3,24 +3,25 @@ package markorv.cache
 import chisel3._
 import chisel3.util._
 
-import markorv.utils.ChiselUtils._
-import markorv.utils.ConfigUtils._
-import markorv.config._
-import markorv.bus._
-import markorv.cache._
+import markorv.bus.{IOInterface, MmuMode, MmuReq, MmuResp, ReadParams}
+import markorv.bus.AxiResp.AxiRespOps
+import markorv.config.CacheConfig
+import markorv.utils.ChiselUtils.DataOperationExtension
+import markorv.utils.ConfigUtils.getCacheIoConfig
 
 class InstrCache(implicit val c: CacheConfig) extends Module {
     val io = IO(new Bundle {
         val cacheInterface = new IcacheInterface
-        val ioInterface = new IOInterface()(getCacheIoConfig(c, CacheType.Icache), true)
+        val ioInterface =
+            new IOInterface()(getCacheIoConfig(c, CacheType.Icache), true)
 
-        val privilege = Input(UInt(2.W))
+        val privilege     = Input(UInt(2.W))
         val satpModeField = Input(UInt(4.W))
 
-        val mmuReq = Decoupled(new MMUReq)
+        val mmuReq  = Decoupled(new MmuReq)
         val mmuResp = Flipped(Valid(new MmuResp))
 
-        val invalidateAll = Input(Bool())
+        val invalidateAll        = Input(Bool())
         val invalidateAllOutfire = Output(Bool())
     })
 
@@ -32,24 +33,29 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     val dataArray = SyncReadMem(c.setNum, Vec(c.wayNum, new CacheData))
 
     // current transaction
-    val transactionVaLow      = RegInit(0.U(12.W))
-    val transactionPaHigh     = RegInit(0.U((c.addrWidth - 12).W))
-    val transactionPaLow      = transactionVaLow(11, 0)
-    val transactionPa         = Cat(transactionPaHigh, transactionPaLow)
-    val transactionLineBasePa = Cat(transactionPa(c.addrWidth - 1, c.offsetBits), 0.U(c.offsetBits.W))
+    val transactionVaLow  = RegInit(0.U(12.W))
+    val transactionPaHigh = RegInit(0.U((c.addrWidth - 12).W))
+    val transactionPaLow  = transactionVaLow(11, 0)
+    val transactionPa     = Cat(transactionPaHigh, transactionPaLow)
+    val transactionLineBasePa =
+        Cat(transactionPa(c.addrWidth - 1, c.offsetBits), 0.U(c.offsetBits.W))
 
     val victimPtr = RegInit(0.U(c.wayBits.W))
 
-    val state = RegInit(State.sInvalidate)
+    val state         = RegInit(State.sInvalidate)
     val invalidateIdx = RegInit(0.U(c.setBits.W))
 
-    val replaceSetTagVReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheTagValid().zero)))
-    val replaceSetDataReg = RegInit(VecInit(Seq.fill(c.wayNum)(new CacheData().zero)))
+    val replaceSetTagVReg = RegInit(
+      VecInit(Seq.fill(c.wayNum)(new CacheTagValid().zero))
+    )
+    val replaceSetDataReg = RegInit(
+      VecInit(Seq.fill(c.wayNum)(new CacheData().zero))
+    )
 
     val sramReadTagV = Wire(Vec(c.wayNum, new CacheTagValid))
     val sramReadData = Wire(Vec(c.wayNum, new CacheData))
 
-    val latchedValid = RegInit(false.B)
+    val latchedValid    = RegInit(false.B)
     val latchedReadTagV = Reg(Vec(c.wayNum, new CacheTagValid))
     val latchedReadData = Reg(Vec(c.wayNum, new CacheData))
 
@@ -59,7 +65,8 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     val reqReadVa  = io.cacheInterface.readReq.bits.vaddr
     val reqReadSet = if (c.setNum == 1) 0.U else reqReadVa(c.setEnd, c.setStart)
 
-    val transactionSet = if (c.setNum == 1) 0.U else transactionPa(c.setEnd, c.setStart)
+    val transactionSet =
+        if (c.setNum == 1) 0.U else transactionPa(c.setEnd, c.setStart)
     val transactionTag = transactionPa(c.tagEnd, c.tagStart)
 
     // state local actions
@@ -103,7 +110,9 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     val sInvalidateWriteValid = WireDefault(false.B)
     val sInvalidateWriteSet   = WireDefault(invalidateIdx)
     val sInvalidateWriteTagV  = Wire(Vec(c.wayNum, new CacheTagValid))
-    sInvalidateWriteTagV := VecInit(Seq.fill(c.wayNum)(new CacheTagValid().zero))
+    sInvalidateWriteTagV := VecInit(
+      Seq.fill(c.wayNum)(new CacheTagValid().zero)
+    )
 
     // defaults
     val mmuHlt    = !io.mmuReq.ready
@@ -115,12 +124,14 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     io.cacheInterface.readResp.bits  := new ICacheReadResp().zero
 
     io.ioInterface.read.get.params.valid := false.B
-    io.ioInterface.read.get.params.bits  := new ReadParams()(using getCacheIoConfig(c, CacheType.Icache)).zero
+    io.ioInterface.read.get.params.bits := new ReadParams()(
+      using getCacheIoConfig(c, CacheType.Icache)
+    ).zero
 
     io.invalidateAllOutfire := false.B
 
     io.mmuReq.valid := false.B
-    io.mmuReq.bits  := new MMUReq().zero
+    io.mmuReq.bits  := new MmuReq().zero
 
     // Priv check && MMU mode selection
     // SV39 only, same assumption as DataCache
@@ -132,11 +143,13 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     val mmuPrivValidM = true.B
     val mmuPrivValidS = !io.mmuResp.bits.user
     val mmuPrivValidU = io.mmuResp.bits.user
-    val mmuPrivValid = MuxLookup(io.privilege, false.B)(Seq(
+    val mmuPrivValid = MuxLookup(io.privilege, false.B)(
+      Seq(
         "b00".U -> mmuPrivValidU,
         "b01".U -> mmuPrivValidS,
         "b11".U -> mmuPrivValidM
-    )) || !useProt
+      )
+    ) || !useProt
 
     val mmuWalkPmaFault = io.mmuResp.bits.walkPmaFault
 
@@ -144,9 +157,9 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     // valid leaf + privilege match + A + X
     val instTransactionPteValid =
         mmuRespPteValid &&
-        mmuPrivValid &&
-        io.mmuResp.bits.accessed &&
-        io.mmuResp.bits.pteExec
+            mmuPrivValid &&
+            io.mmuResp.bits.accessed &&
+            io.mmuResp.bits.pteExec
 
     // NOTE:
     // Prefer pmaExec for instruction fetch.
@@ -169,7 +182,8 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     // request arbitration / ready
     // same style as new DataCache: only hit can fully complete in sRead and accept next read
     val lookupCompletesThisCycle = io.mmuResp.valid && readHit
-    val canAcceptLocalReq = (state === State.sIdle) || ((state === State.sRead) && lookupCompletesThisCycle)
+    val canAcceptLocalReq =
+        (state === State.sIdle) || ((state === State.sRead) && lookupCompletesThisCycle)
 
     io.cacheInterface.readReq.ready := canAcceptLocalReq && !mmuHlt
 
@@ -185,7 +199,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
 
             when(readReqValid) {
                 transactionReqVaValid := true.B
-                transactionReqVa := reqReadVa
+                transactionReqVa      := reqReadVa
             }
 
             when(readReqFire) {
@@ -201,50 +215,62 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
             }
 
             when(transactionReqVaValid) {
-                io.mmuReq.valid := true.B
+                io.mmuReq.valid     := true.B
                 io.mmuReq.bits.va   := transactionReqVa
                 io.mmuReq.bits.mode := mmuMode
             }
 
-            val nextState = Mux(transactionReqVaFired, State.sRead,
-                Mux(io.invalidateAll, State.sInvalidate, State.sIdle))
+            val nextState = Mux(
+              transactionReqVaFired,
+              State.sRead,
+              Mux(io.invalidateAll, State.sInvalidate, State.sIdle)
+            )
             state := nextState
         }
 
         is(State.sRead) {
-            val lookupTxnDoneHere   = WireDefault(false.B)
+            val lookupTxnDoneHere     = WireDefault(false.B)
             val transactionReqVaValid = WireInit(false.B)
             val transactionReqVaFired = WireInit(false.B)
             val transactionReqVa      = WireInit(0.U(64.W))
             val normalNextState       = WireDefault(State.sRead)
 
             when(!latchedValid) {
-                latchedValid := true.B
+                latchedValid    := true.B
                 latchedReadTagV := sramReadTagV
                 latchedReadData := sramReadData
             }
 
             when(io.mmuResp.valid) {
-                val pteFault      = !instTransactionPteValid
-                val pmaFault      = mmuRespPteValid && mmuPrivValid && !instTransactionPmaValid
-                val pmaCacheFault = instTransactionPteValid && !transactionPmaCacheable
+                val pteFault = !instTransactionPteValid
+                val pmaFault =
+                    mmuRespPteValid && mmuPrivValid && !instTransactionPmaValid
+                val pmaCacheFault =
+                    instTransactionPteValid && !transactionPmaCacheable
 
                 // Error priority:
                 // pmaWalkErr > pmaInstErr > pageInstErr > pmaCacheErr
-                val transactionFault = mmuWalkPmaFault || pmaFault || pteFault || pmaCacheFault
+                val transactionFault =
+                    mmuWalkPmaFault || pmaFault || pteFault || pmaCacheFault
 
-                val faultCode = MuxCase(ICacheCode.pmaMmuWalkErr, Seq(
+                val faultCode = MuxCase(
+                  ICacheCode.pmaMmuWalkErr,
+                  Seq(
                     mmuWalkPmaFault -> ICacheCode.pmaMmuWalkErr,
                     pmaFault        -> ICacheCode.pmaInstErr,
                     pteFault        -> ICacheCode.pageInstErr,
                     pmaCacheFault   -> ICacheCode.pmaCacheErr
-                ))
+                  )
+                )
 
                 val noFaultRespValid = !transactionFault && readHit
-                val respValid = transactionFault || noFaultRespValid
+                val respValid        = transactionFault || noFaultRespValid
 
-                val respCode = Mux(transactionFault, faultCode,
-                    Mux(readHit, ICacheCode.cacheHitOk, ICacheCode.cacheMissOk))
+                val respCode = Mux(
+                  transactionFault,
+                  faultCode,
+                  Mux(readHit, ICacheCode.cacheHitOk, ICacheCode.cacheMissOk)
+                )
                 val respData = Mux(!transactionFault && readHit, hitData, 0.U)
 
                 latchedValid := false.B
@@ -257,11 +283,11 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
 
                 when(!transactionFault) {
                     sReadSetTransactionPaHighValid := true.B
-                    sReadSetTransactionPaHigh := mmuPaHigh
+                    sReadSetTransactionPaHigh      := mmuPaHigh
 
                     when(!readHit) {
                         sReadSetReplaceSetValid := true.B
-                        normalNextState := State.sReplace
+                        normalNextState         := State.sReplace
                     }
                 }
             }
@@ -269,7 +295,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
             when(lookupTxnDoneHere) {
                 when(readReqValid) {
                     transactionReqVaValid := true.B
-                    transactionReqVa := reqReadVa
+                    transactionReqVa      := reqReadVa
                 }
 
                 when(readReqFire) {
@@ -286,20 +312,24 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
             }
 
             when(transactionReqVaValid) {
-                io.mmuReq.valid := true.B
+                io.mmuReq.valid     := true.B
                 io.mmuReq.bits.va   := transactionReqVa
                 io.mmuReq.bits.mode := mmuMode
             }
 
-            val pipelineNextState = Mux(transactionReqVaFired, State.sRead,
-                Mux(io.invalidateAll, State.sInvalidate, State.sIdle))
+            val pipelineNextState = Mux(
+              transactionReqVaFired,
+              State.sRead,
+              Mux(io.invalidateAll, State.sInvalidate, State.sIdle)
+            )
 
-            val finalNextState = Mux(lookupTxnDoneHere, pipelineNextState, normalNextState)
+            val finalNextState =
+                Mux(lookupTxnDoneHere, pipelineNextState, normalNextState)
             state := finalNextState
         }
 
         is(State.sReplace) {
-            io.ioInterface.read.get.params.valid := true.B
+            io.ioInterface.read.get.params.valid     := true.B
             io.ioInterface.read.get.params.bits.addr := transactionLineBasePa
             io.ioInterface.read.get.params.bits.size := c.offsetBits.U
 
@@ -307,25 +337,29 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
                 val refillOk = io.ioInterface.read.get.resp.bits.resp.isOk()
 
                 sReplaceWriteValid := true.B
-                for (i <- 0 until c.wayNum) {
+                for (i <- 0 until c.wayNum)
                     when(i.U === victimPtr) {
                         sReplaceWriteTagV(i).tag   := transactionTag
                         sReplaceWriteTagV(i).valid := refillOk
-                        sReplaceWriteData(i).data  := io.ioInterface.read.get.resp.bits.data
+                        sReplaceWriteData(
+                          i
+                        ).data := io.ioInterface.read.get.resp.bits.data
                     }
-                }
 
                 if (c.wayNum > 1) {
                     victimPtr := victimPtr + 1.U
                 }
 
                 io.cacheInterface.readResp.valid := true.B
-                io.cacheInterface.readResp.bits.code.fromAxiResp(io.ioInterface.read.get.resp.bits.resp, false.B)
+                io.cacheInterface.readResp.bits.code.fromAxiResp(
+                  io.ioInterface.read.get.resp.bits.resp,
+                  false.B
+                )
                 io.cacheInterface.readResp.bits.data := io.ioInterface.read.get.resp.bits.data
 
                 when(io.invalidateAll) {
                     invalidateIdx := 0.U
-                    state := State.sInvalidate
+                    state         := State.sInvalidate
                 }.otherwise {
                     state := State.sIdle
                 }
@@ -338,7 +372,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
 
             when(invalidateIdx === (c.setNum - 1).U) {
                 io.invalidateAllOutfire := true.B
-                state := State.sIdle
+                state                   := State.sIdle
             }.otherwise {
                 invalidateIdx := invalidateIdx + 1.U
             }
@@ -346,9 +380,14 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     }
 
     // Commit
-    val finalSetTransactionValid = sIdleSetTransactionValid || sReadSetTransactionValid
+    val finalSetTransactionValid =
+        sIdleSetTransactionValid || sReadSetTransactionValid
     when(finalSetTransactionValid) {
-        transactionVaLow := Mux(sIdleSetTransactionValid, sIdleSetTransactionVaLow, sReadSetTransactionVaLow)
+        transactionVaLow := Mux(
+          sIdleSetTransactionValid,
+          sIdleSetTransactionVaLow,
+          sReadSetTransactionVaLow
+        )
     }
 
     when(sReadSetTransactionPaHighValid) {

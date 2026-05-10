@@ -3,8 +3,8 @@ package markorv.bus
 import chisel3._
 import chisel3.util._
 
-import markorv.utils.ChiselUtils._
-import markorv.config._
+import markorv.config.PmaConfig
+import markorv.utils.ChiselUtils.DataOperationExtension
 
 class PMAChecker(pmaList: List[PmaConfig]) extends Module {
     val io = IO(new Bundle {
@@ -21,7 +21,7 @@ class PMAChecker(pmaList: List[PmaConfig]) extends Module {
 
     val attrs = pmaList.map { pma =>
         val a = Wire(new PhyMemAttr)
-        a := defaultAttr
+        a   := defaultAttr
         a.r := pma.r.B
         a.w := pma.w.B
         a.x := pma.x.B
@@ -30,5 +30,5 @@ class PMAChecker(pmaList: List[PmaConfig]) extends Module {
         a
     }
 
-    io.attr := Mux(hits.reduce(_||_), Mux1H(hits zip attrs), defaultAttr)
+    io.attr := Mux(hits.reduce(_ || _), Mux1H(hits zip attrs), defaultAttr)
 }

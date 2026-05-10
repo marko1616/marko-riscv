@@ -3,9 +3,9 @@ package markorv.frontend
 import chisel3._
 import chisel3.util._
 
-import markorv.utils.ChiselUtils._
-import markorv.config._
-import markorv.backend._
+import markorv.backend.EXUEnum
+import markorv.config.CoreConfig
+import markorv.utils.ChiselUtils.DataOperationExtension
 
 class InstrDecoder(implicit val c: CoreConfig) extends Module with BaseOpcode {
     val io = IO(new Bundle {
@@ -18,7 +18,13 @@ class InstrDecoder(implicit val c: CoreConfig) extends Module with BaseOpcode {
     case class DecodeEntry(
         opcode: UInt,
         matchFn: Instruction32 => Bool,
-        handler: (Instruction32, ExuOpcode, LogicRegRequests, DecodedParams, UInt) => Bool,
+        handler: (
+            Instruction32,
+            ExuOpcode,
+            LogicRegRequests,
+            DecodedParams,
+            UInt
+        ) => Bool,
         unit: EXUEnum.Type
     )
 
@@ -27,118 +33,130 @@ class InstrDecoder(implicit val c: CoreConfig) extends Module with BaseOpcode {
     val opcode = instr.rawBits(6, 0)
 
     val decodedResults = Seq(
-        DecodeEntry(
+      DecodeEntry(
         OP_LUI,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.aluOpcode.fromLui(i, lregReq, params, pc),
         EXUEnum.alu
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_AUIPC,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.aluOpcode.fromAuipc(i, lregReq, params, pc),
         EXUEnum.alu
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_IMM,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.aluOpcode.fromImm(i, lregReq, params, pc),
         EXUEnum.alu
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_IMM32,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.aluOpcode.fromImm32(i, lregReq, params, pc),
         EXUEnum.alu
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP,
         i => i.rawBits(31, 25) =/= "b0000001".U,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.aluOpcode.fromReg(i, lregReq, params, pc),
         EXUEnum.alu
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP,
         i => i.rawBits(31, 25) === "b0000001".U,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.mduOpcode.fromReg(i, lregReq, params, pc),
         EXUEnum.mdu
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_32,
         i => i.rawBits(31, 25) =/= "b0000001".U,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.aluOpcode.fromReg32(i, lregReq, params, pc),
         EXUEnum.alu
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_32,
         i => i.rawBits(31, 25) === "b0000001".U,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.mduOpcode.fromReg32(i, lregReq, params, pc),
         EXUEnum.mdu
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_LOAD,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.lsuOpcode.fromLoad(i, lregReq, params, pc),
         EXUEnum.lsu
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_STOR,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.lsuOpcode.fromStore(i, lregReq, params, pc),
         EXUEnum.lsu
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_JAL,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.branchOpcode.fromJal(i, lregReq, params, pc),
         EXUEnum.bru
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_JALR,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
-            exuOpcode.branchOpcode.fromJalr(i, lregReq, params, pc, i.status === InstrStatus.instrOk16),
+            exuOpcode.branchOpcode.fromJalr(
+              i,
+              lregReq,
+              params,
+              pc,
+              i.status === InstrStatus.instrOk16
+            ),
         EXUEnum.bru
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_BRANCH,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
-            exuOpcode.branchOpcode.fromBranch(i, lregReq, params, pc, i.status === InstrStatus.instrOk16),
+            exuOpcode.branchOpcode.fromBranch(
+              i,
+              lregReq,
+              params,
+              pc,
+              i.status === InstrStatus.instrOk16
+            ),
         EXUEnum.bru
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_SYSTEM,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.miscOpcode.fromSys(i, lregReq, params, pc),
         EXUEnum.misc
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_MISC_MEM,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.miscOpcode.fromMISCMem(i, lregReq, params, pc),
         EXUEnum.misc
-        ),
-        DecodeEntry(
+      ),
+      DecodeEntry(
         OP_AMO,
         _ => true.B,
         (i, exuOpcode, lregReq, params, pc) =>
             exuOpcode.lsuOpcode.fromAmo(i, lregReq, params, pc),
         EXUEnum.lsu
-        )
+      )
     ).map { entry =>
         val hit       = WireDefault(false.B)
         val lregReq   = WireInit(new LogicRegRequests().zero)
@@ -146,7 +164,14 @@ class InstrDecoder(implicit val c: CoreConfig) extends Module with BaseOpcode {
         val exu       = WireDefault(entry.unit)
         val exuOpcode = WireInit(new ExuOpcode().zero)
         params.pc := pc
-        hit := io.decodeTask.valid && (opcode === entry.opcode) && entry.matchFn(instr) && entry.handler(instr, exuOpcode, lregReq, params, pc)
+        hit := io.decodeTask.valid && (opcode === entry.opcode) && entry
+            .matchFn(instr) && entry.handler(
+          instr,
+          exuOpcode,
+          lregReq,
+          params,
+          pc
+        )
         (hit, lregReq, params, exu, exuOpcode)
     }
 
@@ -160,10 +185,13 @@ class InstrDecoder(implicit val c: CoreConfig) extends Module with BaseOpcode {
 
     val selectedLregReq   = Mux1H(hits, lregReqs)
     val selectedParams    = Mux1H(hits, paramsList)
-    val selectedExu       = suppressEnumCastWarning { Mux1H(hits, exus) }
+    val selectedExu       = suppressEnumCastWarning(Mux1H(hits, exus))
     val selectedExuOpcode = Mux1H(hits, exuOpcodes)
 
-    val isPmaFault = instr.status.in(InstrStatus.instrPmaFaultLow, InstrStatus.instrPmaFaultHigh)
+    val isPmaFault = instr.status.in(
+      InstrStatus.instrPmaFaultLow,
+      InstrStatus.instrPmaFaultHigh
+    )
     val pmaFaultInstrLregReq   = WireInit(new LogicRegRequests().zero)
     val pmaFaultInstrParams    = WireInit(new DecodedParams().zero)
     val pmaFaultInstrExu       = WireDefault(EXUEnum.misc)
@@ -171,14 +199,17 @@ class InstrDecoder(implicit val c: CoreConfig) extends Module with BaseOpcode {
 
     pmaFaultInstrParams.pc := pc
     pmaFaultInstrExuOpcode.miscOpcode.fromPmaFault(
-        instr,
-        pmaFaultInstrLregReq,
-        pmaFaultInstrParams,
-        pc,
-        instr.status === InstrStatus.instrPmaFaultHigh
+      instr,
+      pmaFaultInstrLregReq,
+      pmaFaultInstrParams,
+      pc,
+      instr.status === InstrStatus.instrPmaFaultHigh
     )
 
-    val isPageFault = instr.status.in(InstrStatus.instrPageFaultLow, InstrStatus.instrPageFaultHigh)
+    val isPageFault = instr.status.in(
+      InstrStatus.instrPageFaultLow,
+      InstrStatus.instrPageFaultHigh
+    )
     val pageFaultInstrLregReq   = WireInit(new LogicRegRequests().zero)
     val pageFaultInstrParams    = WireInit(new DecodedParams().zero)
     val pageFaultInstrExu       = WireDefault(EXUEnum.misc)
@@ -186,11 +217,11 @@ class InstrDecoder(implicit val c: CoreConfig) extends Module with BaseOpcode {
 
     pageFaultInstrParams.pc := pc
     pageFaultInstrExuOpcode.miscOpcode.fromPageFault(
-        instr,
-        pageFaultInstrLregReq,
-        pageFaultInstrParams,
-        pc,
-        instr.status === InstrStatus.instrPageFaultHigh
+      instr,
+      pageFaultInstrLregReq,
+      pageFaultInstrParams,
+      pc,
+      instr.status === InstrStatus.instrPageFaultHigh
     )
 
     val illegalInstrLregReq   = WireInit(new LogicRegRequests().zero)
@@ -200,43 +231,55 @@ class InstrDecoder(implicit val c: CoreConfig) extends Module with BaseOpcode {
 
     illegalInstrParams.pc := pc
     illegalInstrExuOpcode.miscOpcode.fromIllegal(
-        instr,
-        illegalInstrLregReq,
-        illegalInstrParams,
-        pc
+      instr,
+      illegalInstrLregReq,
+      illegalInstrParams,
+      pc
     )
 
-    val finalLregReq = MuxCase(selectedLregReq, Seq(
+    val finalLregReq = MuxCase(
+      selectedLregReq,
+      Seq(
         isPmaFault  -> pmaFaultInstrLregReq,
         isPageFault -> pageFaultInstrLregReq,
         !validInstr -> illegalInstrLregReq
-    ))
+      )
+    )
 
-    val finalParams = MuxCase(selectedParams, Seq(
+    val finalParams = MuxCase(
+      selectedParams,
+      Seq(
         isPmaFault  -> pmaFaultInstrParams,
         isPageFault -> pageFaultInstrParams,
         !validInstr -> illegalInstrParams
-    ))
+      )
+    )
 
-    val finalExu = MuxCase(selectedExu, Seq(
+    val finalExu = MuxCase(
+      selectedExu,
+      Seq(
         isPmaFault  -> pmaFaultInstrExu,
         isPageFault -> pageFaultInstrExu,
         !validInstr -> illegalInstrExu
-    ))
+      )
+    )
 
-    val finalExuOpcode = MuxCase(selectedExuOpcode, Seq(
+    val finalExuOpcode = MuxCase(
+      selectedExuOpcode,
+      Seq(
         isPmaFault  -> pmaFaultInstrExuOpcode,
         isPageFault -> pageFaultInstrExuOpcode,
         !validInstr -> illegalInstrExuOpcode
-    ))
+      )
+    )
 
     val issueTask = WireInit(new IssueTask().zero)
-    issueTask.lregReq    := finalLregReq
-    issueTask.params     := finalParams
-    issueTask.exu := suppressEnumCastWarning { finalExu.asTypeOf(EXUEnum()) }
-    issueTask.exuOpcode  := finalExuOpcode
-    issueTask.predTaken  := io.decodeTask.bits.predTaken
-    issueTask.predPc     := io.decodeTask.bits.predPc
+    issueTask.lregReq   := finalLregReq
+    issueTask.params    := finalParams
+    issueTask.exu       := suppressEnumCastWarning(finalExu.asTypeOf(EXUEnum()))
+    issueTask.exuOpcode := finalExuOpcode
+    issueTask.predTaken := io.decodeTask.bits.predTaken
+    issueTask.predPc    := io.decodeTask.bits.predPc
 
     io.issueTask.bits := issueTask
 

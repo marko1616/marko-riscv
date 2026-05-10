@@ -1,14 +1,14 @@
 #pragma once
-#include <memory>
-#include <vector>
-#include <optional>
 #include <cstdint>
 #include <ctime>
 #include <iostream>
+#include <memory>
+#include <optional>
+#include <vector>
 
 #include "VMarkoRvCore.h"
-#include "config.hpp"
 #include "axi_signal.hpp"
+#include "config.hpp"
 #include "slaves/slave.hpp"
 
 class VirtualAxiSlaves {

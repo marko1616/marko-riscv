@@ -1,7 +1,7 @@
 #pragma once
+#include <cstdint>
 #include <iostream>
 #include <ranges>
-#include <cstdint>
 #include <unordered_set>
 
 #include "slave.hpp"
@@ -31,6 +31,7 @@ private:
 
     [[nodiscard]] bool is_source_enabled(uint32_t context_id, uint16_t id) const;
     [[nodiscard]] bool is_claimable(uint32_t context_id, uint16_t id) const;
+
 public:
     explicit VirtualPLIC(uint64_t base_addr);
 

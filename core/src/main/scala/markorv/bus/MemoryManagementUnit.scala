@@ -3,9 +3,18 @@ package markorv.bus
 import chisel3._
 import chisel3.util._
 
-import markorv.utils.ChiselUtils._
-import markorv.config._
-import markorv.cache._
+import markorv.cache.{
+    DCachePaReadReq,
+    DCachePaReadResp,
+    TlbAllocateReq,
+    TlbInvalidateReq,
+    TlbInvalidateResp,
+    TlbPageLevel,
+    TlbPte,
+    TranslationLookasideBuffer
+}
+import markorv.config.{CoreConfig, TlbConfig}
+import markorv.utils.ChiselUtils.DataOperationExtension
 
 class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
     implicit val tlb4KCfg: TlbConfig = c.tlb4KConfig
@@ -16,20 +25,21 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
         val paReadReq  = Decoupled(new DCachePaReadReq)
         val paReadResp = Flipped(Valid(new DCachePaReadResp()(c.dcacheConfig)))
 
-        val mmuReqs  = Vec(2, Flipped(Decoupled(new MMUReq)))
+        val mmuReqs  = Vec(2, Flipped(Decoupled(new MmuReq)))
         val mmuResps = Vec(2, Valid(new MmuResp))
 
         val ppn  = Input(UInt(44.W))
         val asid = Input(UInt(c.asidWidth.W))
 
         // TLB invalidation interface (from SFENCE.VMA)
-        val tlbInvalidateReq  = Flipped(Decoupled(new TlbInvalidateReq(c.asidWidth)))
+        val tlbInvalidateReq =
+            Flipped(Decoupled(new TlbInvalidateReq(c.asidWidth)))
         val tlbInvalidateResp = Valid(new TlbInvalidateResp)
     })
 
     object State extends ChiselEnum {
-        val sIdle, sTlbLookup, sPgdLookUp, sPmdLookUp, sPteLookUp,
-            sAllocate, sMissResp, sInvalidate, sInvalidateResp = Value
+        val sIdle, sTlbLookup, sPgdLookUp, sPmdLookUp, sPteLookUp, sAllocate,
+            sMissResp, sInvalidate, sInvalidateResp = Value
     }
 
     // Regs
@@ -37,7 +47,7 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
     val dCacheTxnInProg = RegInit(false.B)
 
     val tlbLookupsFired = RegInit(false.B)
-    val reqIdReg = RegInit(0.U(1.W))
+    val reqIdReg        = RegInit(0.U(1.W))
 
     val transactionVaReg      = Reg(UInt(64.W))
     val transactionModeReg    = Reg(new MmuMode.Type)
@@ -66,7 +76,7 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
     val invalidateReqReg      = Reg(new TlbInvalidateReq(c.asidWidth))
 
     // Arbiter
-    val reqArb = Module(new RRArbiter(new MMUReq, 2))
+    val reqArb = Module(new RRArbiter(new MmuReq, 2))
     reqArb.io.in.zipWithIndex.foreach { case (in, i) => in <> io.mmuReqs(i) }
 
     val reqVa        = reqArb.io.out.bits.va
@@ -87,13 +97,13 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
     val transactionPteAddr = transactionPteBase + (transactionPteIdx << 3)
 
     // PMA -- main checker for current transaction (TLB hit / page walk leaf / etc.)
-    val pmaCommChecker = Module(new PMAChecker(c.pma))
+    val pmaCommChecker         = Module(new PMAChecker(c.pma))
     val actionPmaCommCheckAddr = WireDefault(0.U(64.W))
     pmaCommChecker.io.addr := actionPmaCommCheckAddr
     pmaCommChecker.io.size := 3.U
 
     // PMA -- dedicated checker for acceptReq bare-mode path (breaks combinational cycle)
-    val pmaAcceptChecker = Module(new PMAChecker(c.pma))
+    val pmaAcceptChecker         = Module(new PMAChecker(c.pma))
     val actionPmaAcceptCheckAddr = WireDefault(0.U(64.W))
     pmaAcceptChecker.io.addr := actionPmaAcceptCheckAddr
     pmaAcceptChecker.io.size := 3.U
@@ -101,24 +111,24 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
     val pmaWalkChecker = Module(new PMAChecker(c.pma))
     // Must be norm mem
     val walkPmaSucc = pmaWalkChecker.io.attr.r && pmaWalkChecker.io.attr.w &&
-                      pmaWalkChecker.io.attr.x && pmaWalkChecker.io.attr.a &&
-                      pmaWalkChecker.io.attr.c
+        pmaWalkChecker.io.attr.x && pmaWalkChecker.io.attr.a &&
+        pmaWalkChecker.io.attr.c
     val actionPmaWalkCheckAddr = WireDefault(0.U(64.W))
     pmaWalkChecker.io.addr := actionPmaWalkCheckAddr
     pmaWalkChecker.io.size := 3.U
 
     // Action wires
-    val actionSetTransactionValid        = WireDefault(false.B)
-    val actionSetTransactionReqId        = WireDefault(0.U(2.W))
-    val actionSetTransactionVa           = WireDefault(0.U(64.W))
-    val actionSetTransactionMode         = WireDefault(MmuMode.bare)
-    val actionSetTransactionRootPpn      = WireDefault(0.U(44.W))
-    val actionSetTransactionPgdIdx       = WireDefault(0.U(9.W))
-    val actionSetTransactionPmdIdx       = WireDefault(0.U(9.W))
-    val actionSetTransactionPteIdx       = WireDefault(0.U(9.W))
-    val actionSetTransactionOffsetIdx    = WireDefault(0.U(12.W))
+    val actionSetTransactionValid         = WireDefault(false.B)
+    val actionSetTransactionReqId         = WireDefault(0.U(2.W))
+    val actionSetTransactionVa            = WireDefault(0.U(64.W))
+    val actionSetTransactionMode          = WireDefault(MmuMode.bare)
+    val actionSetTransactionRootPpn       = WireDefault(0.U(44.W))
+    val actionSetTransactionPgdIdx        = WireDefault(0.U(9.W))
+    val actionSetTransactionPmdIdx        = WireDefault(0.U(9.W))
+    val actionSetTransactionPteIdx        = WireDefault(0.U(9.W))
+    val actionSetTransactionOffsetIdx     = WireDefault(0.U(12.W))
     val actionSetTransactionPageTypeValid = WireDefault(false.B)
-    val actionSetTransactionPageType     = WireDefault(0.U(2.W))
+    val actionSetTransactionPageType      = WireDefault(0.U(2.W))
 
     val actionSetPmdBaseValid = WireDefault(false.B)
     val actionSetPmdBase      = WireDefault(0.U(44.W))
@@ -136,7 +146,7 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
     val actionWalkPteBits = Wire(new Pte)
     actionWalkPteBits := new Pte().zero
 
-    val tlbInvPending = io.tlbInvalidateReq.valid
+    val tlbInvPending    = io.tlbInvalidateReq.valid
     val tlbHitRespFiring = WireDefault(false.B)
 
     // Defaults
@@ -150,18 +160,18 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
     io.mmuResps(reqIdReg).valid := (state === State.sMissResp)
     io.mmuResps(reqIdReg).bits  := respReg
 
-    reqArb.io.out.ready := (((state === State.sIdle)) ||
-                           (state === State.sMissResp) ||
-                           tlbHitRespFiring) && !tlbInvPending
+    reqArb.io.out.ready := ((state === State.sIdle) ||
+        (state === State.sMissResp) ||
+        tlbHitRespFiring) && !tlbInvPending
 
     // Default TLB connections
     allTlbs.foreach { tlb =>
-        tlb.io.lookupReq.valid      := false.B
-        tlb.io.lookupReq.bits       := 0.U.asTypeOf(tlb.io.lookupReq.bits)
-        tlb.io.allocateReq.valid    := false.B
-        tlb.io.allocateReq.bits     := 0.U.asTypeOf(tlb.io.allocateReq.bits)
-        tlb.io.invalidateReq.valid  := false.B
-        tlb.io.invalidateReq.bits   := 0.U.asTypeOf(tlb.io.invalidateReq.bits)
+        tlb.io.lookupReq.valid     := false.B
+        tlb.io.lookupReq.bits      := 0.U.asTypeOf(tlb.io.lookupReq.bits)
+        tlb.io.allocateReq.valid   := false.B
+        tlb.io.allocateReq.bits    := 0.U.asTypeOf(tlb.io.allocateReq.bits)
+        tlb.io.invalidateReq.valid := false.B
+        tlb.io.invalidateReq.bits  := 0.U.asTypeOf(tlb.io.invalidateReq.bits)
     }
 
     // Invalidation output defaults
@@ -189,140 +199,158 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
     // Bare-mode response using pmaCommChecker (used from sIdle / sMissResp paths)
     def mkBareResp(pa: UInt): MmuResp = {
         val r = WireDefault(new MmuResp().zero)
-        r.pa         := pa
-        r.valid      := true.B
+        r.pa           := pa
+        r.valid        := true.B
         r.walkPmaFault := false.B
-        r.pmaRead    := pmaCommChecker.io.attr.r
-        r.pmaWrite   := pmaCommChecker.io.attr.w
-        r.pmaExec    := pmaCommChecker.io.attr.x
-        r.pteRead    := true.B
-        r.pteWrite   := true.B
-        r.pteExec    := true.B
-        r.user       := true.B
-        r.global     := true.B
-        r.dirty      := true.B
-        r.accessed   := true.B
-        r.cache      := pmaCommChecker.io.attr.c
-        r.atomic     := pmaCommChecker.io.attr.a
+        r.pmaRead      := pmaCommChecker.io.attr.r
+        r.pmaWrite     := pmaCommChecker.io.attr.w
+        r.pmaExec      := pmaCommChecker.io.attr.x
+        r.pteRead      := true.B
+        r.pteWrite     := true.B
+        r.pteExec      := true.B
+        r.user         := true.B
+        r.global       := true.B
+        r.dirty        := true.B
+        r.accessed     := true.B
+        r.cache        := pmaCommChecker.io.attr.c
+        r.atomic       := pmaCommChecker.io.attr.a
         r
     }
 
     // Bare-mode response using pmaAcceptChecker (used from acceptReq to break comb cycle)
     def mkBareRespAccept(pa: UInt): MmuResp = {
         val r = WireDefault(new MmuResp().zero)
-        r.pa         := pa
-        r.valid      := true.B
+        r.pa           := pa
+        r.valid        := true.B
         r.walkPmaFault := false.B
-        r.pmaRead    := pmaAcceptChecker.io.attr.r
-        r.pmaWrite   := pmaAcceptChecker.io.attr.w
-        r.pmaExec    := pmaAcceptChecker.io.attr.x
-        r.pteRead    := true.B
-        r.pteWrite   := true.B
-        r.pteExec    := true.B
-        r.user       := true.B
-        r.global     := true.B
-        r.dirty      := true.B
-        r.accessed   := true.B
-        r.cache      := pmaAcceptChecker.io.attr.c
-        r.atomic     := pmaAcceptChecker.io.attr.a
+        r.pmaRead      := pmaAcceptChecker.io.attr.r
+        r.pmaWrite     := pmaAcceptChecker.io.attr.w
+        r.pmaExec      := pmaAcceptChecker.io.attr.x
+        r.pteRead      := true.B
+        r.pteWrite     := true.B
+        r.pteExec      := true.B
+        r.user         := true.B
+        r.global       := true.B
+        r.dirty        := true.B
+        r.accessed     := true.B
+        r.cache        := pmaAcceptChecker.io.attr.c
+        r.atomic       := pmaAcceptChecker.io.attr.a
         r
     }
 
     def mkPageResp(pa: UInt, pte: Pte, mmuChecks: Seq[Bool]): MmuResp = {
-        val r = WireDefault(new MmuResp().zero)
+        val r        = WireDefault(new MmuResp().zero)
         val mmuValid = mmuChecks.reduce(_ && _)
-        r.pa         := Mux(mmuValid, pa, 0.U)
-        r.valid      := mmuValid
+        r.pa           := Mux(mmuValid, pa, 0.U)
+        r.valid        := mmuValid
         r.walkPmaFault := false.B
-        r.pmaRead    := pmaCommChecker.io.attr.r
-        r.pmaWrite   := pmaCommChecker.io.attr.w
-        r.pmaExec    := pmaCommChecker.io.attr.x
-        r.pteRead    := pte.r
-        r.pteWrite   := pte.w
-        r.pteExec    := pte.x
-        r.user       := pte.u
-        r.global     := pte.g
-        r.dirty      := pte.d
-        r.accessed   := pte.a
-        r.cache      := pmaCommChecker.io.attr.c
-        r.atomic     := pmaCommChecker.io.attr.a
+        r.pmaRead      := pmaCommChecker.io.attr.r
+        r.pmaWrite     := pmaCommChecker.io.attr.w
+        r.pmaExec      := pmaCommChecker.io.attr.x
+        r.pteRead      := pte.r
+        r.pteWrite     := pte.w
+        r.pteExec      := pte.x
+        r.user         := pte.u
+        r.global       := pte.g
+        r.dirty        := pte.d
+        r.accessed     := pte.a
+        r.cache        := pmaCommChecker.io.attr.c
+        r.atomic       := pmaCommChecker.io.attr.a
         r
     }
 
     // Build MmuResp from a TLB hit -- PMA is re-checked combinationally
     def mkTlbHitResp(paddr: UInt, tlbPte: TlbPte): MmuResp = {
         val r = WireDefault(new MmuResp().zero)
-        r.pa         := paddr
-        r.valid      := true.B
+        r.pa           := paddr
+        r.valid        := true.B
         r.walkPmaFault := false.B
-        r.pmaRead    := pmaCommChecker.io.attr.r
-        r.pmaWrite   := pmaCommChecker.io.attr.w
-        r.pmaExec    := pmaCommChecker.io.attr.x
-        r.pteRead    := tlbPte.r
-        r.pteWrite   := tlbPte.w
-        r.pteExec    := tlbPte.x
-        r.user       := tlbPte.u
-        r.global     := tlbPte.g
-        r.dirty      := tlbPte.d
-        r.accessed   := tlbPte.a
-        r.cache      := pmaCommChecker.io.attr.c
-        r.atomic     := pmaCommChecker.io.attr.a
+        r.pmaRead      := pmaCommChecker.io.attr.r
+        r.pmaWrite     := pmaCommChecker.io.attr.w
+        r.pmaExec      := pmaCommChecker.io.attr.x
+        r.pteRead      := tlbPte.r
+        r.pteWrite     := tlbPte.w
+        r.pteExec      := tlbPte.x
+        r.user         := tlbPte.u
+        r.global       := tlbPte.g
+        r.dirty        := tlbPte.d
+        r.accessed     := tlbPte.a
+        r.cache        := pmaCommChecker.io.attr.c
+        r.atomic       := pmaCommChecker.io.attr.a
         r
     }
 
-    def pteReservedInvalid(pte: Pte): Bool = pte.n || pte.pbmt.orR || pte.pad.orR
-    def pteAttrInvalid(pte: Pte): Bool     = !pte.v || (!pte.r && pte.w)
-    def pteIsLeaf(pte: Pte): Bool          = pte.r || pte.x
-    def pteNonLeafInvalid(pte: Pte): Bool  = pte.u || pte.a || pte.d
+    def pteReservedInvalid(pte: Pte): Bool =
+        pte.n || pte.pbmt.orR || pte.pad.orR
+    def pteAttrInvalid(pte: Pte): Bool    = !pte.v || (!pte.r && pte.w)
+    def pteIsLeaf(pte: Pte): Bool         = pte.r || pte.x
+    def pteNonLeafInvalid(pte: Pte): Bool = pte.u || pte.a || pte.d
 
     def mkPa1G(pte: Pte): UInt =
-        Cat(0.U(8.W), pte.ppn2, transactionPmdIdx, transactionPteIdx, transactionOffsetIdx)
+        Cat(
+          0.U(8.W),
+          pte.ppn2,
+          transactionPmdIdx,
+          transactionPteIdx,
+          transactionOffsetIdx
+        )
     def mkPa2M(pte: Pte): UInt =
-        Cat(0.U(8.W), pte.ppn2, pte.ppn1, transactionPteIdx, transactionOffsetIdx)
+        Cat(
+          0.U(8.W),
+          pte.ppn2,
+          pte.ppn1,
+          transactionPteIdx,
+          transactionOffsetIdx
+        )
     def mkPa4K(pte: Pte): UInt =
         Cat(0.U(8.W), pte.ppn2, pte.ppn1, pte.ppn0, transactionOffsetIdx)
 
     def acceptReqBase(va: UInt, id: UInt, mode: MmuMode.Type): Unit = {
-        actionSetTransactionValid     := true.B
-        actionSetTransactionReqId     := id
-        actionSetTransactionVa        := va
-        actionSetTransactionMode      := mode
-        actionSetTransactionRootPpn   := io.ppn
-        actionSetTransactionPgdIdx    := va(38, 30)
-        actionSetTransactionPmdIdx    := va(29, 21)
-        actionSetTransactionPteIdx    := va(20, 12)
-        actionSetTransactionOffsetIdx := va(11, 0)
+        actionSetTransactionValid         := true.B
+        actionSetTransactionReqId         := id
+        actionSetTransactionVa            := va
+        actionSetTransactionMode          := mode
+        actionSetTransactionRootPpn       := io.ppn
+        actionSetTransactionPgdIdx        := va(38, 30)
+        actionSetTransactionPmdIdx        := va(29, 21)
+        actionSetTransactionPteIdx        := va(20, 12)
+        actionSetTransactionOffsetIdx     := va(11, 0)
         actionSetTransactionPageTypeValid := true.B
         actionSetTransactionPageType      := 0.U
     }
 
     // Accept a new request: bare mode resolves immediately.
-    def acceptReq(nextState: State.Type, va: UInt, mode: MmuMode.Type, id: UInt): Unit = {
+    def acceptReq(
+        nextState: State.Type,
+        va: UInt,
+        mode: MmuMode.Type,
+        id: UInt
+    ): Unit = {
         acceptReqBase(va, id, mode)
 
         when(mode === MmuMode.bare) {
             actionPmaAcceptCheckAddr := va
-            actionSetRespValid := true.B
-            actionSetRespBits  := mkBareRespAccept(va)
-            nextState := State.sMissResp
+            actionSetRespValid       := true.B
+            actionSetRespBits        := mkBareRespAccept(va)
+            nextState                := State.sMissResp
         }.elsewhen(mode === MmuMode.sv39) {
             when(!isCanonicalSv39(va)) {
                 actionSetRespValid := true.B
                 actionSetRespBits  := mkCommonFaultResp()
-                tlbLookupsFired := false.B
-                nextState := State.sMissResp
+                tlbLookupsFired    := false.B
+                nextState          := State.sMissResp
             }.otherwise {
                 // Initiate parallel TLB lookup on all 3 TLBs
                 val earlyFired = fireTlbLookups(va, io.asid)
                 tlbLookupsFired := earlyFired
-                nextState := State.sTlbLookup
+                nextState       := State.sTlbLookup
             }
         }.otherwise {
             // Caution! shouldn't reach here
             actionSetRespValid := true.B
             actionSetRespBits  := mkCommonFaultResp()
-            tlbLookupsFired := false.B
-            nextState := State.sMissResp
+            tlbLookupsFired    := false.B
+            nextState          := State.sMissResp
         }
     }
 
@@ -332,9 +360,9 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
 
         when(allReady) {
             Seq(
-                (tlb4K, tlb4KCfg),
-                (tlb2M, tlb2MCfg),
-                (tlb1G, tlb1GCfg)
+              (tlb4K, tlb4KCfg),
+              (tlb2M, tlb2MCfg),
+              (tlb1G, tlb1GCfg)
             ).foreach { case (tlb, cfg) =>
                 tlb.io.lookupReq.valid      := true.B
                 tlb.io.lookupReq.bits.vaddr := va
@@ -356,7 +384,7 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
                 invalidateReqReg      := io.tlbInvalidateReq.bits
                 invalidateAcceptedVec := VecInit(Seq.fill(3)(false.B))
                 invalidateRespSeenVec := VecInit(Seq.fill(3)(false.B))
-                nextState := State.sInvalidate
+                nextState             := State.sInvalidate
             }.elsewhen(reqArb.io.out.fire) {
                 acceptReq(nextState, reqVa, reqMode, reqId)
             }
@@ -370,7 +398,7 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
 
             when(!tlbLookupsFired) {
                 val fired = fireTlbLookups(transactionVaReg, io.asid)
-                when(fired) { tlbLookupsFired := true.B }
+                when(fired)(tlbLookupsFired := true.B)
             }
 
             val resp4K = tlb4K.io.lookupResp
@@ -388,17 +416,23 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
 
                 when(anyHit) {
                     // Priority: 4K > 2M > 1G (most specific first)
-                    val hitPaddr = MuxCase(0.U, Seq(
+                    val hitPaddr = MuxCase(
+                      0.U,
+                      Seq(
                         hit4K -> resp4K.bits.paddr,
                         hit2M -> resp2M.bits.paddr,
                         hit1G -> resp1G.bits.paddr
-                    ))
+                      )
+                    )
 
-                    val hitPte = MuxCase(new TlbPte().zero, Seq(
+                    val hitPte = MuxCase(
+                      new TlbPte().zero,
+                      Seq(
                         hit4K -> resp4K.bits.pte,
                         hit2M -> resp2M.bits.pte,
                         hit1G -> resp1G.bits.pte
-                    ))
+                      )
+                    )
 
                     // Re-check PMA for the physical address (uses pmaCommChecker)
                     actionPmaCommCheckAddr := hitPaddr
@@ -436,13 +470,13 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
             actionWalkReadValid := walkPmaSucc && !dCacheTxnInProg
             actionWalkReadAddr  := transactionPgdAddr
 
-            when(io.paReadReq.fire) { dCacheTxnInProg := true.B }
+            when(io.paReadReq.fire)(dCacheTxnInProg := true.B)
 
             when(!walkPmaSucc) {
-                dCacheTxnInProg := false.B
+                dCacheTxnInProg    := false.B
                 actionSetRespValid := true.B
                 actionSetRespBits  := mkWalkPmaFaultResp()
-                nextState := State.sMissResp
+                nextState          := State.sMissResp
             }
 
             when(io.paReadResp.valid) {
@@ -455,30 +489,33 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
                 when(reservedInvalid || attrInvalid || nonLeafInvalid) {
                     actionSetRespValid := true.B
                     actionSetRespBits  := mkCommonFaultResp()
-                    nextState := State.sMissResp
+                    nextState          := State.sMissResp
                 }.elsewhen(leaf) {
                     val superPageInvalid = walkPte.ppn1.orR || walkPte.ppn0.orR
-                    val pa = mkPa1G(walkPte)
-                    actionPmaCommCheckAddr := pa
+                    val pa               = mkPa1G(walkPte)
+                    actionPmaCommCheckAddr            := pa
                     actionSetTransactionPageTypeValid := true.B
                     actionSetTransactionPageType      := "b10".U
-                    actionSetRespValid := true.B
-                    actionSetRespBits  := mkPageResp(pa, walkPte,
-                        Seq(!reservedInvalid, !attrInvalid, !superPageInvalid))
+                    actionSetRespValid                := true.B
+                    actionSetRespBits := mkPageResp(
+                      pa,
+                      walkPte,
+                      Seq(!reservedInvalid, !attrInvalid, !superPageInvalid)
+                    )
 
                     // Save PTE for TLB allocation
                     actionSaveWalkPte := true.B
                     actionWalkPteBits := walkPte
 
                     nextState := Mux(
-                        !reservedInvalid && !attrInvalid && !superPageInvalid,
-                        State.sAllocate,
-                        State.sMissResp
+                      !reservedInvalid && !attrInvalid && !superPageInvalid,
+                      State.sAllocate,
+                      State.sMissResp
                     )
                 }.otherwise {
                     actionSetPmdBaseValid := true.B
                     actionSetPmdBase      := ptePpn(walkPte)
-                    nextState := State.sPmdLookUp
+                    nextState             := State.sPmdLookUp
                 }
             }
 
@@ -493,13 +530,13 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
             actionWalkReadValid := walkPmaSucc && !dCacheTxnInProg
             actionWalkReadAddr  := transactionPmdAddr
 
-            when(io.paReadReq.fire) { dCacheTxnInProg := true.B }
+            when(io.paReadReq.fire)(dCacheTxnInProg := true.B)
 
             when(!walkPmaSucc) {
-                dCacheTxnInProg := false.B
+                dCacheTxnInProg    := false.B
                 actionSetRespValid := true.B
                 actionSetRespBits  := mkWalkPmaFaultResp()
-                nextState := State.sMissResp
+                nextState          := State.sMissResp
             }
 
             when(io.paReadResp.valid) {
@@ -512,29 +549,32 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
                 when(reservedInvalid || attrInvalid || nonLeafInvalid) {
                     actionSetRespValid := true.B
                     actionSetRespBits  := mkCommonFaultResp()
-                    nextState := State.sMissResp
+                    nextState          := State.sMissResp
                 }.elsewhen(leaf) {
                     val superPageInvalid = walkPte.ppn0.orR
-                    val pa = mkPa2M(walkPte)
-                    actionPmaCommCheckAddr := pa
+                    val pa               = mkPa2M(walkPte)
+                    actionPmaCommCheckAddr            := pa
                     actionSetTransactionPageTypeValid := true.B
                     actionSetTransactionPageType      := "b01".U
-                    actionSetRespValid := true.B
-                    actionSetRespBits  := mkPageResp(pa, walkPte,
-                        Seq(!reservedInvalid, !attrInvalid, !superPageInvalid))
+                    actionSetRespValid                := true.B
+                    actionSetRespBits := mkPageResp(
+                      pa,
+                      walkPte,
+                      Seq(!reservedInvalid, !attrInvalid, !superPageInvalid)
+                    )
 
                     actionSaveWalkPte := true.B
                     actionWalkPteBits := walkPte
 
                     nextState := Mux(
-                        !reservedInvalid && !attrInvalid && !superPageInvalid,
-                        State.sAllocate,
-                        State.sMissResp
+                      !reservedInvalid && !attrInvalid && !superPageInvalid,
+                      State.sAllocate,
+                      State.sMissResp
                     )
                 }.otherwise {
                     actionSetPteBaseValid := true.B
                     actionSetPteBase      := ptePpn(walkPte)
-                    nextState := State.sPteLookUp
+                    nextState             := State.sPteLookUp
                 }
             }
 
@@ -549,13 +589,13 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
             actionWalkReadValid := walkPmaSucc && !dCacheTxnInProg
             actionWalkReadAddr  := transactionPteAddr
 
-            when(io.paReadReq.fire) { dCacheTxnInProg := true.B }
+            when(io.paReadReq.fire)(dCacheTxnInProg := true.B)
 
             when(!walkPmaSucc) {
-                dCacheTxnInProg := false.B
+                dCacheTxnInProg    := false.B
                 actionSetRespValid := true.B
                 actionSetRespBits  := mkWalkPmaFaultResp()
-                nextState := State.sMissResp
+                nextState          := State.sMissResp
             }
 
             when(io.paReadResp.valid) {
@@ -567,15 +607,18 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
                 when(reservedInvalid || attrInvalid || !leaf) {
                     actionSetRespValid := true.B
                     actionSetRespBits  := mkCommonFaultResp()
-                    nextState := State.sMissResp
+                    nextState          := State.sMissResp
                 }.otherwise {
                     val pa = mkPa4K(walkPte)
-                    actionPmaCommCheckAddr := pa
+                    actionPmaCommCheckAddr            := pa
                     actionSetTransactionPageTypeValid := true.B
                     actionSetTransactionPageType      := "b00".U
-                    actionSetRespValid := true.B
-                    actionSetRespBits  := mkPageResp(pa, walkPte,
-                        Seq(!reservedInvalid, !attrInvalid, leaf))
+                    actionSetRespValid                := true.B
+                    actionSetRespBits := mkPageResp(
+                      pa,
+                      walkPte,
+                      Seq(!reservedInvalid, !attrInvalid, leaf)
+                    )
 
                     actionSaveWalkPte := true.B
                     actionWalkPteBits := walkPte
@@ -593,8 +636,12 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
 
             // Determine target TLB and page level based on transactionPageType
             val level = WireDefault(TlbPageLevel.page4KiB)
-            when(transactionPageType === "b01".U) { level := TlbPageLevel.page2MiB }
-            when(transactionPageType === "b10".U) { level := TlbPageLevel.page1GiB }
+            when(transactionPageType === "b01".U) {
+                level := TlbPageLevel.page2MiB
+            }
+            when(transactionPageType === "b10".U) {
+                level := TlbPageLevel.page1GiB
+            }
 
             val is4K = transactionPageType === "b00".U
             val is2M = transactionPageType === "b01".U
@@ -634,11 +681,14 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
             }
 
             // Proceed to sMissResp once target TLB accepts
-            val targetFired = MuxCase(false.B, Seq(
+            val targetFired = MuxCase(
+              false.B,
+              Seq(
                 is4K -> tlb4K.io.allocateReq.fire,
                 is2M -> tlb2M.io.allocateReq.fire,
                 is1G -> tlb1G.io.allocateReq.fire
-            ))
+              )
+            )
 
             when(targetFired) {
                 nextState := State.sMissResp
@@ -666,18 +716,18 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
         is(State.sInvalidate) {
             val nextState = WireDefault(state)
 
-            val invalidateReqFireVec  = Wire(Vec(3, Bool()))
+            val invalidateReqFireVec   = Wire(Vec(3, Bool()))
             val invalidateRespValidVec = Wire(Vec(3, Bool()))
-            val acceptedNextVec       = Wire(Vec(3, Bool()))
-            val respSeenNextVec       = Wire(Vec(3, Bool()))
+            val acceptedNextVec        = Wire(Vec(3, Bool()))
+            val respSeenNextVec        = Wire(Vec(3, Bool()))
 
             invalidateReqFireVec   := VecInit(Seq.fill(3)(false.B))
             invalidateRespValidVec := VecInit(Seq.fill(3)(false.B))
 
             Seq(
-                (tlb4K, 0),
-                (tlb2M, 1),
-                (tlb1G, 2)
+              (tlb4K, 0),
+              (tlb2M, 1),
+              (tlb1G, 2)
             ).foreach { case (tlb, idx) =>
                 invalidateRespValidVec(idx) := tlb.io.invalidateResp.valid
 
@@ -692,8 +742,12 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
             }
 
             for (i <- 0 until 3) {
-                acceptedNextVec(i) := invalidateAcceptedVec(i) || invalidateReqFireVec(i)
-                respSeenNextVec(i) := invalidateRespSeenVec(i) || invalidateRespValidVec(i)
+                acceptedNextVec(i) := invalidateAcceptedVec(
+                  i
+                ) || invalidateReqFireVec(i)
+                respSeenNextVec(i) := invalidateRespSeenVec(
+                  i
+                ) || invalidateRespValidVec(i)
             }
 
             invalidateAcceptedVec := acceptedNextVec
@@ -711,7 +765,7 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
         is(State.sInvalidateResp) {
             io.tlbInvalidateResp.valid     := true.B
             io.tlbInvalidateResp.bits.done := true.B
-            state := State.sIdle
+            state                          := State.sIdle
         }
     }
 

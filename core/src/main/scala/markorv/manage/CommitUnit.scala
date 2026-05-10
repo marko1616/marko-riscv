@@ -3,13 +3,9 @@ package markorv.manage
 import chisel3._
 import chisel3.util._
 
-import markorv.utils.ChiselUtils._
-import markorv.config._
-import markorv.backend.ALUCommit
-import markorv.backend.BRUCommit
-import markorv.backend.LSUCommit
-import markorv.backend.MDUCommit
-import markorv.backend.MISCCommit
+import markorv.backend.{ALUCommit, BRUCommit, LSUCommit, MDUCommit, MISCCommit}
+import markorv.config.CoreConfig
+import markorv.utils.ChiselUtils.DataOperationExtension
 
 class CommitUnit(implicit val c: CoreConfig) extends Module {
     private val robIndexWidth = log2Ceil(c.robSize)
@@ -21,7 +17,7 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
         val mdu  = Flipped(Decoupled(new MDUCommit))
         val misc = Flipped(Decoupled(new MISCCommit))
 
-        val robReadIndices  = Output(Vec(5, UInt(robIndexWidth.W)))
+        val robReadIndices = Output(Vec(5, UInt(robIndexWidth.W)))
         val robReadEntries = Input(Vec(5, new ROBEntry))
 
         val commitEvents = Vec(5, Valid(new CommitEvent))
@@ -42,14 +38,14 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
         val robReadEntry = io.robReadEntries(i)
 
         in.ready := true.B
-        outfire := in.valid
+        outfire  := in.valid
 
         robReadIndex       := in.bits.robIndex
         regWrite.valid     := in.valid && robReadEntry.prdValid
         regWrite.bits.addr := robReadEntry.prd
         regWrite.bits.data := in.bits.data
 
-        commitEvent.valid := in.valid
+        commitEvent.valid         := in.valid
         commitEvent.bits.prdValid := robReadEntry.prdValid
         commitEvent.bits.prd      := robReadEntry.prd
 
@@ -61,7 +57,7 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
 
         if (in.bits.isInstanceOf[CommitWithDiscon]) {
             val d = in.bits.asInstanceOf[CommitWithDiscon]
-            fCtrl.discon := d.discon
+            fCtrl.discon     := d.discon
             fCtrl.disconType := d.disconType
         }
         if (in.bits.isInstanceOf[CommitWithException]) {

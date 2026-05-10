@@ -3,19 +3,19 @@ package markorv.manage
 import chisel3._
 import chisel3.util._
 
-import markorv.config._
+import markorv.config.CoreConfig
 
 class RegStateController(implicit val c: CoreConfig) extends Module {
     private val renameIndexWidth = log2Ceil(c.renameTableSize)
-    private val phyRegWidth = log2Ceil(c.regFileSize)
+    private val phyRegWidth      = log2Ceil(c.regFileSize)
 
     val io = IO(new Bundle {
         // Events
         // ========================
-        val issueEvent = Flipped(Valid(new IssueEvent))
+        val issueEvent   = Flipped(Valid(new IssueEvent))
         val commitEvents = Flipped(Vec(5, Valid(new CommitEvent)))
-        val retireEvent = Flipped(Valid(new RetireEvent))
-        val disconEvent = Flipped(Valid(new DisconEvent))
+        val retireEvent  = Flipped(Valid(new RetireEvent))
+        val disconEvent  = Flipped(Valid(new DisconEvent))
 
         // Rename checkpoint lookup
         // ========================
@@ -24,8 +24,12 @@ class RegStateController(implicit val c: CoreConfig) extends Module {
 
         // Physical register state interface
         // ========================
-        val setStates = Valid(Vec(c.regFileSize, new PhyRegState.Type)) // updated state output
-        val getStates = Input(Vec(c.regFileSize, new PhyRegState.Type)) // current state input
+        val setStates = Valid(
+          Vec(c.regFileSize, new PhyRegState.Type)
+        ) // updated state output
+        val getStates = Input(
+          Vec(c.regFileSize, new PhyRegState.Type)
+        ) // current state input
     })
 
     // Default assignment
@@ -38,16 +42,15 @@ class RegStateController(implicit val c: CoreConfig) extends Module {
     }
 
     // Handle commit events
-    for (commitEvent <- io.commitEvents) {
+    for (commitEvent <- io.commitEvents)
         when(commitEvent.valid && commitEvent.bits.prdValid) {
             val prd = commitEvent.bits.prd
             nextStates(prd) := PhyRegState.Committed
         }
-    }
 
     // Handle retire event
     when(io.retireEvent.valid && io.retireEvent.bits.prdValid) {
-        val prd = io.retireEvent.bits.prd
+        val prd     = io.retireEvent.bits.prd
         val prevprd = io.retireEvent.bits.prevprd
         nextStates(prd) := PhyRegState.Allocated
         when(prd =/= prevprd) {
@@ -58,14 +61,14 @@ class RegStateController(implicit val c: CoreConfig) extends Module {
     // Handle discontinue (rollback)
     io.renameTableReadIndex := io.disconEvent.bits.renameCkptIndex
     when(io.disconEvent.valid) {
-        val disconStates = WireInit(VecInit.fill(c.regFileSize)(PhyRegState.Free))
-        for (i <- 0 until 31) {
+        val disconStates =
+            WireInit(VecInit.fill(c.regFileSize)(PhyRegState.Free))
+        for (i <- 0 until 31)
             disconStates(io.renameTableReadEntry(i)) := PhyRegState.Allocated
-        }
-        io.setStates.bits := disconStates
-        io.setStates.valid := true.B
+        io.setStates.bits                            := disconStates
+        io.setStates.valid                           := true.B
     }.otherwise {
-        io.setStates.bits := nextStates
+        io.setStates.bits  := nextStates
         io.setStates.valid := true.B
     }
 }

@@ -3,15 +3,17 @@ package markorv.frontend
 import chisel3._
 import chisel3.util._
 
-import markorv.utils.ChiselUtils._
-import markorv.config._
-import markorv.cache._
-import markorv.backend.EXUEnum
-import markorv.backend.ALUOpcode
-import markorv.backend.MDUOpcode
-import markorv.backend.LoadStoreOpcode
-import markorv.backend.BranchOpcode
-import markorv.backend.MISCOpcode
+import markorv.backend.{
+    ALUOpcode,
+    BranchOpcode,
+    EXUEnum,
+    LoadStoreOpcode,
+    MDUOpcode,
+    MISCOpcode
+}
+import markorv.cache.ICacheCode
+import markorv.config.CoreConfig
+import markorv.utils.ChiselUtils.DataOperationExtension
 
 trait BaseOpcode {
     val OP_LUI      = "b0110111".U(7.W)
@@ -31,7 +33,8 @@ trait BaseOpcode {
 }
 
 object InstrStatus extends ChiselEnum {
-    val instrOk32, instrOk16, instrPageFaultLow, instrPmaFaultLow, instrPageFaultHigh, instrPmaFaultHigh, reserved1, reserved2 = Value
+    val instrOk32, instrOk16, instrPageFaultLow, instrPmaFaultLow,
+        instrPageFaultHigh, instrPmaFaultHigh, reserved1, reserved2 = Value
 }
 
 class PreFetchedLine(implicit val config: CoreConfig) extends Bundle {
@@ -41,20 +44,20 @@ class PreFetchedLine(implicit val config: CoreConfig) extends Bundle {
 
 class Instruction extends Bundle {
     val rawBits = UInt(32.W)
-    val status = new InstrStatus.Type
+    val status  = new InstrStatus.Type
 
     def isCompressed: Bool = rawBits(1, 0) =/= "b11".U
-    def expandedBits: UInt = Mux(isCompressed, CompressedDecoder.expand(rawBits), rawBits)
+    def expandedBits: UInt =
+        Mux(isCompressed, CompressedDecoder.expand(rawBits), rawBits)
     def opcodeBits: UInt = expandedBits(6, 0)
 
     def instructionLengthBytes: UInt = Mux(isCompressed, 2.U, 4.U)
-    def fromUInt(rawBits: UInt) = {
+    def fromUInt(rawBits: UInt) =
         when(rawBits(1, 0) =/= "b11".U) {
             this.rawBits := rawBits(15, 0)
         }.otherwise {
             this.rawBits := rawBits
         }
-    }
 
     def asInstruction32: Instruction32 = {
         val instr32 = WireInit(new Instruction32().zero)
@@ -66,11 +69,10 @@ class Instruction extends Bundle {
 
 class Instruction32 extends Bundle {
     val rawBits = UInt(32.W)
-    val status = new InstrStatus.Type
+    val status  = new InstrStatus.Type
 
-    def fromUInt(rawBits: UInt) = {
+    def fromUInt(rawBits: UInt) =
         this.rawBits := rawBits
-    }
     def opcode: UInt = rawBits(6, 0)
 }
 
@@ -110,7 +112,7 @@ class BTypeInstruction extends Instruction32 {
 }
 
 class UTypeInstruction extends Instruction32 {
-    def rd  = rawBits(11, 7)
+    def rd    = rawBits(11, 7)
     def imm20 = rawBits(31, 12)
 }
 
@@ -126,8 +128,8 @@ class JTypeInstruction extends Instruction32 {
 class DecodedParams(implicit val c: CoreConfig) extends Bundle {
     val source1 = UInt(64.W)
     val source2 = UInt(64.W)
-    val rd = UInt(5.W)
-    val pc = UInt(64.W)
+    val rd      = UInt(5.W)
+    val pc      = UInt(64.W)
 }
 
 class LogicRegRequests extends Bundle {
@@ -138,38 +140,38 @@ class LogicRegRequests extends Bundle {
 class PhyRegRequests(implicit val c: CoreConfig) extends Bundle {
     val prs1Valid = Bool()
     val prs2Valid = Bool()
-    val prs1IsRd = Bool()
-    val prs2IsRd = Bool()
-    val prs1 = UInt(log2Ceil(c.regFileSize).W)
-    val prs2 = UInt(log2Ceil(c.regFileSize).W)
+    val prs1IsRd  = Bool()
+    val prs2IsRd  = Bool()
+    val prs1      = UInt(log2Ceil(c.regFileSize).W)
+    val prs2      = UInt(log2Ceil(c.regFileSize).W)
 }
 
 class ExuOpcode extends Bundle {
-    val aluOpcode = new ALUOpcode
-    val lsuOpcode = new LoadStoreOpcode
-    val miscOpcode = new MISCOpcode
+    val aluOpcode    = new ALUOpcode
+    val lsuOpcode    = new LoadStoreOpcode
+    val miscOpcode   = new MISCOpcode
     val branchOpcode = new BranchOpcode
-    val mduOpcode = new MDUOpcode
+    val mduOpcode    = new MDUOpcode
 }
 
 class IssueTask(implicit val c: CoreConfig) extends Bundle {
-    val exu = new EXUEnum.Type
+    val exu       = new EXUEnum.Type
     val exuOpcode = new ExuOpcode
     val predTaken = Bool()
-    val predPc = UInt(64.W)
-    val params = new DecodedParams
-    val lregReq = new LogicRegRequests
+    val predPc    = UInt(64.W)
+    val params    = new DecodedParams
+    val lregReq   = new LogicRegRequests
 }
 
 class InstrDecodeTask(implicit val c: CoreConfig) extends Bundle {
-    val instr = new Instruction32
+    val instr     = new Instruction32
     val predTaken = Bool()
-    val predPc = UInt(64.W)
-    val pc = UInt(64.W)
+    val predPc    = UInt(64.W)
+    val pc        = UInt(64.W)
 }
 
 class FetchQueueEntities(implicit val c: CoreConfig) extends Bundle {
-    val instr = new Instruction
+    val instr     = new Instruction
     val predTaken = Bool()
-    val predPc = UInt(64.W)
+    val predPc    = UInt(64.W)
 }

@@ -11,7 +11,7 @@ abstract class CSRField(val width: Int) {
 // Storage: Constant
 
 class CSRConstField(width: Int, val constValue: UInt) extends CSRField(width) {
-    override def read: UInt = constValue(width - 1, 0)
+    override def read: UInt                  = constValue(width - 1, 0)
     override def write(newValue: UInt): Bool = true.B
 }
 
@@ -32,7 +32,7 @@ class CSRRegField(width: Int, resetValue: UInt = 0.U) extends CSRField(width) {
 // Storage: Mapped (read-only)
 
 class CSRROMappedField(width: Int, val data: UInt) extends CSRField(width) {
-    override def read: UInt = data
+    override def read: UInt                  = data
     override def write(newValue: UInt): Bool = false.B
 }
 
@@ -48,7 +48,8 @@ class CSRRWMappedField(width: Int, val data: UInt) extends CSRField(width) {
 
 // Storage: Mapped (read-write register with logical-OR external data)
 
-class CSRRWORMappedField(width: Int, val data: UInt, resetValue: UInt = 0.U) extends CSRField(width) {
+class CSRRWORMappedField(width: Int, val data: UInt, resetValue: UInt = 0.U)
+    extends CSRField(width) {
     val reg: UInt = RegInit(resetValue(width - 1, 0))
 
     override def read: UInt = data | reg
@@ -72,7 +73,7 @@ abstract class CSR {
     def write(newValue: UInt): Bool = {
         val shouldWrite = validateWrite(newValue)
         val legalized   = legalizeWrite(newValue)
-        var offset = 0
+        var offset      = 0
         fields.foreach { field =>
             val bits = legalized(offset + field.width - 1, offset)
             offset += field.width
@@ -101,7 +102,11 @@ abstract class CSR {
     }
 
     // Helper: replace a field's bits in a value, return the new full-width value
-    protected def replaceField(value: UInt, field: CSRField, newBits: UInt): UInt = {
+    protected def replaceField(
+        value: UInt,
+        field: CSRField,
+        newBits: UInt
+    ): UInt = {
         val off        = fieldOffset(field)
         val totalWidth = fields.map(_.width).sum
         if (off == 0 && field.width == totalWidth) {
@@ -111,7 +116,11 @@ abstract class CSR {
         } else if (off + field.width == totalWidth) {
             Cat(newBits, value(off - 1, 0))
         } else {
-            Cat(value(totalWidth - 1, off + field.width), newBits, value(off - 1, 0))
+            Cat(
+              value(totalWidth - 1, off + field.width),
+              newBits,
+              value(off - 1, 0)
+            )
         }
     }
 }
@@ -176,11 +185,34 @@ class CSRMstatus extends CSR {
     val sdField    = new CSRZeroField(1)
 
     val fields: Seq[CSRField] = Seq(
-        pad0, sieField, pad1, mieField, pad2, spieField, ubeField,
-        mpieField, sppField, vsField, mppField, fsField, xsField,
-        mprvField, sumField, mxrField, tvmField, twField, tsrField,
-        spelpField, sdtField, pad3, uxlField, sxlField, sbeField, 
-        mbeField, pad4, sdField
+      pad0,
+      sieField,
+      pad1,
+      mieField,
+      pad2,
+      spieField,
+      ubeField,
+      mpieField,
+      sppField,
+      vsField,
+      mppField,
+      fsField,
+      xsField,
+      mprvField,
+      sumField,
+      mxrField,
+      tvmField,
+      twField,
+      tsrField,
+      spelpField,
+      sdtField,
+      pad3,
+      uxlField,
+      sxlField,
+      sbeField,
+      mbeField,
+      pad4,
+      sdField
     )
 
     // MPP WARL: value 2 is reserved → keep old value
@@ -214,60 +246,93 @@ class CSRMedeleg extends CSR {
     val storeAccessFaultField = new CSRRegField(1)
     val ecallFromUModeField   = new CSRRegField(1)
     val ecallFromSModeField   = new CSRRegField(1)
-    val ecallFromVSModeField  = new CSRZeroField(1) // Virtual Supervisor mode is not supported
-    val ecallFromMModeField   = new CSRZeroField(1) // Can't delegate M-mode exceptions
-    val pad                   = new CSRRegField(52)
+    val ecallFromVSModeField =
+        new CSRZeroField(1) // Virtual Supervisor mode is not supported
+    val ecallFromMModeField =
+        new CSRZeroField(1) // Can't delegate M-mode exceptions
+    val pad = new CSRRegField(52)
 
     val fields: Seq[CSRField] = Seq(
-        instrMisalignedField, instrAccessFaultField, illegalInstrField, breakpointField,
-        loadMisalignedField, loadAccessFaultField, storeMisalignedField, storeAccessFaultField,
-        ecallFromUModeField, ecallFromSModeField, ecallFromVSModeField, ecallFromMModeField,
-        pad
+      instrMisalignedField,
+      instrAccessFaultField,
+      illegalInstrField,
+      breakpointField,
+      loadMisalignedField,
+      loadAccessFaultField,
+      storeMisalignedField,
+      storeAccessFaultField,
+      ecallFromUModeField,
+      ecallFromSModeField,
+      ecallFromVSModeField,
+      ecallFromMModeField,
+      pad
     )
 }
 class CSRMideleg extends CSR {
     val addr = "h303".U(12.W)
 
-    val pad0       = new CSRZeroField(1)
-    val ssieField  = new CSRRegField(1)
-    val pad1       = new CSRZeroField(1)
-    val msieField  = new CSRZeroField(1)
-    val pad2       = new CSRZeroField(1)
-    val stieField  = new CSRRegField(1)
-    val pad3       = new CSRZeroField(1)
-    val mtieField  = new CSRZeroField(1)
-    val pad4       = new CSRZeroField(1)
-    val seieField  = new CSRRegField(1)
-    val pad5       = new CSRZeroField(1)
-    val meieField  = new CSRZeroField(1)
-    val pad6       = new CSRZeroField(52)
+    val pad0      = new CSRZeroField(1)
+    val ssieField = new CSRRegField(1)
+    val pad1      = new CSRZeroField(1)
+    val msieField = new CSRZeroField(1)
+    val pad2      = new CSRZeroField(1)
+    val stieField = new CSRRegField(1)
+    val pad3      = new CSRZeroField(1)
+    val mtieField = new CSRZeroField(1)
+    val pad4      = new CSRZeroField(1)
+    val seieField = new CSRRegField(1)
+    val pad5      = new CSRZeroField(1)
+    val meieField = new CSRZeroField(1)
+    val pad6      = new CSRZeroField(52)
 
     val fields: Seq[CSRField] = Seq(
-        pad0, ssieField, pad1, msieField, pad2, stieField,
-        pad3, mtieField, pad4, seieField, pad5, meieField, pad6
+      pad0,
+      ssieField,
+      pad1,
+      msieField,
+      pad2,
+      stieField,
+      pad3,
+      mtieField,
+      pad4,
+      seieField,
+      pad5,
+      meieField,
+      pad6
     )
 }
 
 class CSRMie extends CSR {
     val addr = "h304".U(12.W)
 
-    val pad0       = new CSRZeroField(1)
-    val ssieField  = new CSRRegField(1)
-    val pad1       = new CSRZeroField(1)
-    val msieField  = new CSRRegField(1)
-    val pad2       = new CSRZeroField(1)
-    val stieField  = new CSRRegField(1)
-    val pad3       = new CSRZeroField(1)
-    val mtieField  = new CSRRegField(1)
-    val pad4       = new CSRZeroField(1)
-    val seieField  = new CSRRegField(1)
-    val pad5       = new CSRZeroField(1)
-    val meieField  = new CSRRegField(1)
-    val pad6       = new CSRZeroField(52)
+    val pad0      = new CSRZeroField(1)
+    val ssieField = new CSRRegField(1)
+    val pad1      = new CSRZeroField(1)
+    val msieField = new CSRRegField(1)
+    val pad2      = new CSRZeroField(1)
+    val stieField = new CSRRegField(1)
+    val pad3      = new CSRZeroField(1)
+    val mtieField = new CSRRegField(1)
+    val pad4      = new CSRZeroField(1)
+    val seieField = new CSRRegField(1)
+    val pad5      = new CSRZeroField(1)
+    val meieField = new CSRRegField(1)
+    val pad6      = new CSRZeroField(52)
 
     val fields: Seq[CSRField] = Seq(
-        pad0, ssieField, pad1, msieField, pad2, stieField,
-        pad3, mtieField, pad4, seieField, pad5, meieField, pad6
+      pad0,
+      ssieField,
+      pad1,
+      msieField,
+      pad2,
+      stieField,
+      pad3,
+      mtieField,
+      pad4,
+      seieField,
+      pad5,
+      meieField,
+      pad6
     )
 }
 
@@ -305,12 +370,12 @@ class CSRMcountinhibit extends CSRZeroCSR("h320".U(12.W))
 // Machine Trap Handling (MRW)
 
 class CSRMscratch extends CSRAnyCSR("h340".U(12.W))
-class CSRMepc     extends CSR {
+class CSRMepc extends CSR {
     val addr = "h341".U(12.W)
 
-    val pad0 = new CSRZeroField(1)
+    val pad0     = new CSRZeroField(1)
     val epcField = new CSRRegField(63)
-    val fields = Seq(pad0, epcField)
+    val fields   = Seq(pad0, epcField)
 }
 
 class CSRMcause extends CSR {
@@ -326,11 +391,11 @@ class CSRMcause extends CSR {
         val code      = newValue(62, 0)
 
         val legalInterrupt = VecInit(
-            Seq(1, 3, 5, 7, 9, 11).map(_.U(63.W))
+          Seq(1, 3, 5, 7, 9, 11).map(_.U(63.W))
         ).exists(_ === code)
 
         val legalException = VecInit(
-            Seq(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 15).map(_.U(63.W))
+          Seq(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 15).map(_.U(63.W))
         ).exists(_ === code)
 
         Mux(interrupt, legalInterrupt, legalException)
@@ -338,31 +403,48 @@ class CSRMcause extends CSR {
 }
 
 class CSRMtval extends CSR {
-    val addr = "h343".U(12.W)
+    val addr       = "h343".U(12.W)
     val mtvalField = new CSRRegField(64)
-    val fields = Seq(mtvalField)
+    val fields     = Seq(mtvalField)
 }
 
-class CSRMip(msipData: UInt, mtipData: UInt, meipData: UInt, stipData: UInt, seipData: UInt) extends CSR {
+class CSRMip(
+    msipData: UInt,
+    mtipData: UInt,
+    meipData: UInt,
+    stipData: UInt,
+    seipData: UInt
+) extends CSR {
     val addr = "h344".U(12.W)
 
-    val pad0       = new CSRZeroField(1)
-    val ssipField  = new CSRRegField(1)
-    val pad1       = new CSRZeroField(1)
-    val msipField  = new CSRROMappedField(1, msipData)
-    val pad2       = new CSRZeroField(1)
-    val stipField  = new CSRROMappedField(1, stipData)
-    val pad3       = new CSRZeroField(1)
-    val mtipField  = new CSRROMappedField(1, mtipData)
-    val pad4       = new CSRZeroField(1)
-    val seipField  = new CSRRWORMappedField(1, seipData)
-    val pad5       = new CSRZeroField(1)
-    val meipField  = new CSRROMappedField(1, meipData)
-    val pad6       = new CSRZeroField(52)
+    val pad0      = new CSRZeroField(1)
+    val ssipField = new CSRRegField(1)
+    val pad1      = new CSRZeroField(1)
+    val msipField = new CSRROMappedField(1, msipData)
+    val pad2      = new CSRZeroField(1)
+    val stipField = new CSRROMappedField(1, stipData)
+    val pad3      = new CSRZeroField(1)
+    val mtipField = new CSRROMappedField(1, mtipData)
+    val pad4      = new CSRZeroField(1)
+    val seipField = new CSRRWORMappedField(1, seipData)
+    val pad5      = new CSRZeroField(1)
+    val meipField = new CSRROMappedField(1, meipData)
+    val pad6      = new CSRZeroField(52)
 
     val fields: Seq[CSRField] = Seq(
-        pad0, ssipField, pad1, msipField, pad2, stipField,
-        pad3, mtipField, pad4, seipField, pad5, meipField, pad6
+      pad0,
+      ssipField,
+      pad1,
+      msipField,
+      pad2,
+      stipField,
+      pad3,
+      mtipField,
+      pad4,
+      seipField,
+      pad5,
+      meipField,
+      pad6
     )
 }
 
@@ -384,13 +466,25 @@ class CSRMenvcfg extends CSR {
     val dteField   = new CSRZeroField(1)
     val cdeField   = new CSRZeroField(1)
     val adueField  = new CSRZeroField(1)
-    val pbmteField  = new CSRZeroField(1)
-    val stceField   = new CSRRegField(1)
+    val pbmteField = new CSRZeroField(1)
+    val stceField  = new CSRRegField(1)
 
     val fields: Seq[CSRField] = Seq(
-        fiomField, pad0, lpeField, sseField, cbieField, cbcfeField,
-        cbzeField, pad1, pmmField, pad2, dteField, cdeField,
-        adueField, pbmteField, stceField
+      fiomField,
+      pad0,
+      lpeField,
+      sseField,
+      cbieField,
+      cbcfeField,
+      cbzeField,
+      pad1,
+      pmmField,
+      pad2,
+      dteField,
+      cdeField,
+      adueField,
+      pbmteField,
+      stceField
     )
 }
 
@@ -422,25 +516,49 @@ class CSRSstatus(csrMstatus: CSRMstatus) extends CSR {
     val sdField    = new CSRZeroField(1)
 
     val fields: Seq[CSRField] = Seq(
-        pad0, sieField, pad1, spieField, ubeField, pad2, sppField,
-        vsField, pad3, fsField, xsField, pad4, sumField, mxrField,
-        pad5, spelpField, sdtField, pad6, uxlField, pad7, sdField
+      pad0,
+      sieField,
+      pad1,
+      spieField,
+      ubeField,
+      pad2,
+      sppField,
+      vsField,
+      pad3,
+      fsField,
+      xsField,
+      pad4,
+      sumField,
+      mxrField,
+      pad5,
+      spelpField,
+      sdtField,
+      pad6,
+      uxlField,
+      pad7,
+      sdField
     )
 }
 
 class CSRSie(csrMie: CSRMie) extends CSR {
     val addr = "h104".U(12.W)
 
-    val pad0       = new CSRZeroField(1)
-    val ssieField  = new CSRRWMappedField(1, csrMie.ssieField.reg)
-    val pad1       = new CSRZeroField(3)
-    val stieField  = new CSRRWMappedField(1, csrMie.stieField.reg)
-    val pad2       = new CSRZeroField(3)
-    val seieField  = new CSRRWMappedField(1, csrMie.seieField.reg)
-    val pad3       = new CSRZeroField(54)
+    val pad0      = new CSRZeroField(1)
+    val ssieField = new CSRRWMappedField(1, csrMie.ssieField.reg)
+    val pad1      = new CSRZeroField(3)
+    val stieField = new CSRRWMappedField(1, csrMie.stieField.reg)
+    val pad2      = new CSRZeroField(3)
+    val seieField = new CSRRWMappedField(1, csrMie.seieField.reg)
+    val pad3      = new CSRZeroField(54)
 
     val fields: Seq[CSRField] = Seq(
-        pad0, ssieField, pad1, stieField, pad2, seieField, pad3
+      pad0,
+      ssieField,
+      pad1,
+      stieField,
+      pad2,
+      seieField,
+      pad3
     )
 }
 
@@ -488,8 +606,16 @@ class CSRSenvcfg extends CSR {
     val pad2       = new CSRZeroField(30)
 
     val fields: Seq[CSRField] = Seq(
-        fiomField, pad0, lpeField, sseField, cbieField, cbcfeField,
-        cbzeField, pad1, pmmField, pad2
+      fiomField,
+      pad0,
+      lpeField,
+      sseField,
+      cbieField,
+      cbcfeField,
+      cbzeField,
+      pad1,
+      pmmField,
+      pad2
     )
 }
 
@@ -499,9 +625,9 @@ class CSRSscratch extends CSRAnyCSR("h140".U(12.W))
 class CSRSepc extends CSR {
     val addr = "h141".U(12.W)
 
-    val pad0 = new CSRZeroField(1)
+    val pad0     = new CSRZeroField(1)
     val epcField = new CSRRegField(63)
-    val fields = Seq(pad0, epcField)
+    val fields   = Seq(pad0, epcField)
 }
 
 class CSRScause extends CSR {
@@ -517,11 +643,11 @@ class CSRScause extends CSR {
         val code      = newValue(62, 0)
 
         val legalInterrupt = VecInit(
-            Seq(1, 5, 9).map(_.U(63.W))
+          Seq(1, 5, 9).map(_.U(63.W))
         ).exists(_ === code)
 
         val legalException = VecInit(
-            Seq(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 15).map(_.U(63.W))
+          Seq(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 15).map(_.U(63.W))
         ).exists(_ === code)
 
         Mux(interrupt, legalInterrupt, legalException)
@@ -529,24 +655,30 @@ class CSRScause extends CSR {
 }
 
 class CSRStval extends CSR {
-    val addr = "h143".U(12.W)
-    val stvalField = new CSRRegField(64)
+    val addr                  = "h143".U(12.W)
+    val stvalField            = new CSRRegField(64)
     val fields: Seq[CSRField] = Seq(stvalField)
 }
 
 class CSRSip(csrMip: CSRMip) extends CSR {
     val addr = "h144".U(12.W)
 
-    val pad0       = new CSRZeroField(1)
-    val ssipField  = new CSRRWMappedField(1, csrMip.ssipField.reg)
-    val pad1       = new CSRZeroField(3)
-    val stipField  = new CSRROMappedField(1, csrMip.stipField.read)
-    val pad2       = new CSRZeroField(3)
-    val seipField  = new CSRROMappedField(1, csrMip.seipField.read)
-    val pad3       = new CSRZeroField(54)
+    val pad0      = new CSRZeroField(1)
+    val ssipField = new CSRRWMappedField(1, csrMip.ssipField.reg)
+    val pad1      = new CSRZeroField(3)
+    val stipField = new CSRROMappedField(1, csrMip.stipField.read)
+    val pad2      = new CSRZeroField(3)
+    val seipField = new CSRROMappedField(1, csrMip.seipField.read)
+    val pad3      = new CSRZeroField(54)
 
     val fields: Seq[CSRField] = Seq(
-        pad0, ssipField, pad1, stipField, pad2, seipField, pad3
+      pad0,
+      ssipField,
+      pad1,
+      stipField,
+      pad2,
+      seipField,
+      pad3
     )
 }
 
@@ -555,20 +687,30 @@ class CSRSip(csrMip: CSRMip) extends CSR {
 class CSRSatp(asidWidth: Int) extends CSR {
     val addr = "h180".U(12.W)
 
-    val ppnField = new CSRRegField(44, 0.U)
+    val ppnField  = new CSRRegField(44, 0.U)
     val asidField = new CSRRegField(asidWidth, 0.U)
-    val pad0 = if (asidWidth != 16) Some(new CSRZeroField(16 - asidWidth)) else None
+    val pad0 =
+        if (asidWidth != 16) Some(new CSRZeroField(16 - asidWidth)) else None
     val modeField = new CSRRegField(4, 0.U)
-    val fields: Seq[CSRField] = if (asidWidth != 16) Seq(
-            ppnField, asidField, pad0.get, modeField
-        ) else Seq(
-            ppnField, asidField, modeField
-        )
+    val fields: Seq[CSRField] =
+        if (asidWidth != 16)
+            Seq(
+              ppnField,
+              asidField,
+              pad0.get,
+              modeField
+            )
+        else
+            Seq(
+              ppnField,
+              asidField,
+              modeField
+            )
 
     // MODE WARL: 0: Bare, 8: Sv39
     override protected def legalizeWrite(newValue: UInt): UInt = {
         val modeRaw   = extractField(newValue, modeField)
-        val modeLegal = Mux((modeRaw === 8.U || modeRaw === 0.U), modeRaw, 0.U)
+        val modeLegal = Mux(modeRaw === 8.U || modeRaw === 0.U, modeRaw, 0.U)
         replaceField(newValue, modeField, modeLegal)
     }
 }
@@ -578,7 +720,7 @@ class CSRSatp(asidWidth: Int) extends CSR {
 class CSRStimecmp extends CSR {
     val addr = "h14d".U(12.W)
 
-    val cmpField = new CSRRegField(64)
+    val cmpField              = new CSRRegField(64)
     val fields: Seq[CSRField] = Seq(cmpField)
 }
 
@@ -587,18 +729,18 @@ class CSRStimecmp extends CSR {
 class CSRCycle(cycleData: UInt) extends CSR {
     val addr = "hc00".U(12.W)
 
-    val cycle = new CSRROMappedField(64, cycleData)
+    val cycle           = new CSRROMappedField(64, cycleData)
     override val fields = Seq(cycle)
 }
 class CSRTime(timeData: UInt) extends CSR {
     val addr = "hc01".U(12.W)
 
-    val time = new CSRROMappedField(64, timeData)
+    val time            = new CSRROMappedField(64, timeData)
     override val fields = Seq(time)
 }
 class CSRInstRet(instRetData: UInt) extends CSR {
     val addr = "hc02".U(12.W)
 
-    val instret = new CSRROMappedField(64, instRetData)
+    val instret         = new CSRROMappedField(64, instRetData)
     override val fields = Seq(instret)
 }

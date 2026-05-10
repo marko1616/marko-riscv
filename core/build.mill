@@ -2,6 +2,8 @@
 import mill._
 import mill.define.Sources
 import mill.modules.Util
+import mill.scalalib._
+import mill.scalalib.scalafmt._
 import mill.scalalib.TestModule.ScalaTest
 import scalalib._
 // support BSP
@@ -13,7 +15,7 @@ import mill.bsp._
 // to properly generate and handle test directories and output files.
 // See: https://github.com/com-lihaoyi/mill/issues/3840
 
-object markorv extends SbtModule { m =>
+object markorv extends SbtModule with ScalafmtModule { m =>
     override def millSourcePath = super.millSourcePath / os.up
     override def scalaVersion = "2.13.16"
     def chiselVersion = "7.0.0"

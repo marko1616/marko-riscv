@@ -3,7 +3,7 @@ package markorv.manage
 import chisel3._
 import chisel3.util._
 
-import markorv.config._
+import markorv.config.CoreConfig
 import markorv.frontend.ExuOpcode
 import markorv.frontend.DecodedParams
 import markorv.frontend.PhyRegRequests
@@ -11,16 +11,20 @@ import markorv.backend.EXUEnum
 import markorv.trap.TrapReturnType
 
 object DisconEventType extends ChiselEnum {
-    val interrupt      = Value  // External Asynchronous Interrupt
-    val instrException = Value  // Synchronous Instruction Exception (e.g. syscall, illegal instr)
-    val instrSync      = Value  // Pipeline Synchronization/Flush due to Instruction Side-effects (e.g. branch flush, fence.i, sfence.vma, csr that need to sync frontend)
-    val instrSyncNoRet = Value  // Pipeline Synchronization/Flush due to Instruction Side-effects that do not increase instret CSR
-    val excepReturn    = Value  // Return from Exception Handler by xret
+    val interrupt = Value // External Asynchronous Interrupt
+    val instrException =
+        Value // Synchronous Instruction Exception (e.g. syscall, illegal instr)
+    val instrSync =
+        Value // Pipeline Synchronization/Flush due to Instruction Side-effects (e.g. branch flush, fence.i, sfence.vma, csr that need to sync frontend)
+    val instrSyncNoRet =
+        Value // Pipeline Synchronization/Flush due to Instruction Side-effects that do not increase instret CSR
+    val excepReturn = Value // Return from Exception Handler by xret
 }
 
 object PhyRegState extends ChiselEnum {
-    val Free      = Value // Not allocated, available for use
-    val Allocated = Value // Holds a valid architectural value (Can't Flush this)
+    val Free = Value // Not allocated, available for use
+    val Allocated =
+        Value // Holds a valid architectural value (Can't Flush this)
     val Occupied  = Value // Occupied by an issued instr but not yet written
     val Committed = Value // Written but not yet retired (speculative)
 }
@@ -31,22 +35,23 @@ class RegWriteBundle(implicit val c: CoreConfig) extends Bundle {
 }
 
 class RegSetState(implicit val c: CoreConfig) extends Bundle {
-    val addr = UInt(log2Ceil(c.regFileSize).W)
+    val addr  = UInt(log2Ceil(c.regFileSize).W)
     val stats = new PhyRegState.Type
 }
 
 class RegisterCommit(implicit val c: CoreConfig) extends Bundle {
     val robIndex = UInt(log2Ceil(c.robSize).W)
-    val data = UInt(64.W)
+    val data     = UInt(64.W)
 }
 
 class ROBDisconField(implicit val c: CoreConfig) extends Bundle {
     val discon = Bool()
-    val disconType = new DisconEventType.Type // Reserve for statistics CSR and debugging.
+    val disconType =
+        new DisconEventType.Type // Reserve for statistics CSR and debugging.
 
-    val cause = UInt(16.W)
-    val xtval = UInt(64.W)
-    val xepc  = UInt(64.W)
+    val cause    = UInt(16.W)
+    val xtval    = UInt(64.W)
+    val xepc     = UInt(64.W)
     val xretType = new TrapReturnType.Type
 
     val eventPc = UInt(64.W)
@@ -54,23 +59,23 @@ class ROBDisconField(implicit val c: CoreConfig) extends Bundle {
 
 class ROBEntry(implicit val c: CoreConfig) extends Bundle {
     val valid = Bool()
-    val exu = new EXUEnum.Type
+    val exu   = new EXUEnum.Type
 
     val prdValid = Bool()
     val prd      = UInt(log2Ceil(c.regFileSize).W)
     val prevprd  = UInt(log2Ceil(c.regFileSize).W)
 
-    val fCtrl = new ROBDisconField
-    val commited = Bool()
+    val fCtrl           = new ROBDisconField
+    val commited        = Bool()
     val renameCkptIndex = UInt(log2Ceil(c.renameTableSize).W)
 }
 
 class ROBAllocReq(implicit val c: CoreConfig) extends Bundle {
-    val exu = new EXUEnum.Type
-    val prdValid = Bool()
-    val prd = UInt(log2Ceil(c.regFileSize).W)
-    val prevprd = UInt(log2Ceil(c.regFileSize).W)
-    val eventPc = UInt(64.W)
+    val exu             = new EXUEnum.Type
+    val prdValid        = Bool()
+    val prd             = UInt(log2Ceil(c.regFileSize).W)
+    val prevprd         = UInt(log2Ceil(c.regFileSize).W)
+    val eventPc         = UInt(64.W)
     val renameCkptIndex = UInt(log2Ceil(c.renameTableSize).W)
 }
 
@@ -85,27 +90,27 @@ class ROBCommitReq(implicit val c: CoreConfig) extends Bundle {
 
 class EXUParams(implicit val c: CoreConfig) extends Bundle {
     val robIndex = UInt(log2Ceil(c.robSize).W)
-    val pc = UInt(64.W)
-    val source1 = UInt(64.W)
-    val source2 = UInt(64.W)
+    val pc       = UInt(64.W)
+    val source1  = UInt(64.W)
+    val source2  = UInt(64.W)
 }
 
 class IssueEvent(implicit val c: CoreConfig) extends Bundle {
     val prdValid = Bool()
-    val prd = UInt(log2Ceil(c.regFileSize).W)
+    val prd      = UInt(log2Ceil(c.regFileSize).W)
 }
 
 class CommitEvent(implicit val c: CoreConfig) extends Bundle {
     val prdValid = Bool()
-    val prd = UInt(log2Ceil(c.regFileSize).W)
+    val prd      = UInt(log2Ceil(c.regFileSize).W)
 }
 
 class DisconEvent(implicit val c: CoreConfig) extends Bundle {
-    val disconType  = new DisconEventType.Type
+    val disconType = new DisconEventType.Type
 
     val prdValid = Bool()
-    val prd = UInt(log2Ceil(c.regFileSize).W)
-    val prevprd = UInt(log2Ceil(c.regFileSize).W)
+    val prd      = UInt(log2Ceil(c.regFileSize).W)
+    val prevprd  = UInt(log2Ceil(c.regFileSize).W)
 
     val renameCkptIndex = UInt(log2Ceil(c.renameTableSize).W)
 }
@@ -116,20 +121,20 @@ class RetireEvent(implicit val c: CoreConfig) extends Bundle {
     // but we still generate this event to update internal states.
     // Refer to the RISC-V Privileged Spec, section 3.3.1.
     val isException = Bool()
-    val incInstRet = Bool()
-    val prdValid = Bool()
-    val prd = UInt(log2Ceil(c.regFileSize).W)
-    val prevprd = UInt(log2Ceil(c.regFileSize).W)
+    val incInstRet  = Bool()
+    val prdValid    = Bool()
+    val prd         = UInt(log2Ceil(c.regFileSize).W)
+    val prevprd     = UInt(log2Ceil(c.regFileSize).W)
 }
 
 class ReservationStationEntry(implicit val c: CoreConfig) extends Bundle {
-    val valid = Bool()  
-    val exu = new EXUEnum.Type
+    val valid     = Bool()
+    val exu       = new EXUEnum.Type
     val exuOpcode = new ExuOpcode
     val predTaken = Bool()
-    val predPc = UInt(64.W)
-    val params = new EXUParams
-    val regReq = new PhyRegRequests
+    val predPc    = UInt(64.W)
+    val params    = new EXUParams
+    val regReq    = new PhyRegRequests
 
     def psrcValid(regStates: Vec[PhyRegState.Type]): Bool = {
         val prs1Valid = this.regReq.prs1Valid
@@ -139,29 +144,31 @@ class ReservationStationEntry(implicit val c: CoreConfig) extends Bundle {
         val prs1State = regStates(this.regReq.prs1)
         val prs2State = regStates(this.regReq.prs2)
 
-        val prs1Ready = (prs1State === PhyRegState.Allocated || prs1State === PhyRegState.Committed) || !prs1Valid || prs1IsRd
-        val prs2Ready = (prs2State === PhyRegState.Allocated || prs2State === PhyRegState.Committed) || !prs2Valid || prs2IsRd
+        val prs1Ready =
+            (prs1State === PhyRegState.Allocated || prs1State === PhyRegState.Committed) || !prs1Valid || prs1IsRd
+        val prs2Ready =
+            (prs2State === PhyRegState.Allocated || prs2State === PhyRegState.Committed) || !prs2Valid || prs2IsRd
 
         prs1Ready && prs2Ready
     }
 
     def sideEffectReady(robHeadIndex: UInt): Bool = {
-        val isSideEffectExu = this.exu === EXUEnum.lsu || this.exu === EXUEnum.misc
+        val isSideEffectExu =
+            this.exu === EXUEnum.lsu || this.exu === EXUEnum.misc
         ~isSideEffectExu || this.params.robIndex === robHeadIndex
     }
 
-    def ready(regStates: Vec[PhyRegState.Type], robHeadIndex: UInt): Bool = {
+    def ready(regStates: Vec[PhyRegState.Type], robHeadIndex: UInt): Bool =
         this.valid && this.psrcValid(regStates) && sideEffectReady(robHeadIndex)
-    }
 }
 
 abstract class BaseCommitBundle(implicit val c: CoreConfig) extends Bundle {
-    val data = UInt(64.W)
+    val data     = UInt(64.W)
     val robIndex = UInt(log2Ceil(c.robSize).W)
 }
 
 trait CommitWithDiscon extends Bundle {
-    val discon = Bool()
+    val discon     = Bool()
     val disconType = new DisconEventType.Type
 }
 

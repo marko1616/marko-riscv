@@ -3,7 +3,7 @@ package markorv.cache
 import chisel3._
 import chisel3.util._
 
-import markorv.config._
+import markorv.config.{CacheConfig, TlbConfig}
 import markorv.bus.AxiResp
 import markorv.bus.Pte
 
@@ -12,37 +12,46 @@ object CacheType extends Enumeration {
 }
 
 object DCacheCode extends ChiselEnum {
-    val cacheHitOk, cacheMissOk, upstreamSlvErr, upstreamDecErr, pmaMmuWalkErr, pmaCacheErr, pmaLoadErr, pmaStorErr, pageLoadErr, pageStorErr = Value
+    val cacheHitOk, cacheMissOk, upstreamSlvErr, upstreamDecErr, pmaMmuWalkErr,
+        pmaCacheErr, pmaLoadErr, pmaStorErr, pageLoadErr, pageStorErr = Value
     implicit class CacheCodeOps(private val x: DCacheCode.Type) extends AnyVal {
-        def isOk(): Bool = x === DCacheCode.cacheHitOk || x === DCacheCode.cacheMissOk
+        def isOk(): Bool =
+            x === DCacheCode.cacheHitOk || x === DCacheCode.cacheMissOk
 
         def fromAxiResp(resp: AxiResp.Type, hit: Bool) = {
             val okResp = Mux(hit, DCacheCode.cacheHitOk, DCacheCode.cacheMissOk)
-            x := MuxLookup(resp, okResp)(Seq(
+            x := MuxLookup(resp, okResp)(
+              Seq(
                 AxiResp.slverr -> DCacheCode.upstreamSlvErr,
                 AxiResp.decerr -> DCacheCode.upstreamDecErr
-            ))
+              )
+            )
         }
     }
 }
 
 object ICacheCode extends ChiselEnum {
-    val cacheHitOk, cacheMissOk, upstreamSlvErr, upstreamDecErr, pmaMmuWalkErr, pmaCacheErr, pmaInstErr, pageInstErr = Value
-    implicit class ICacheCodeOps(private val x: ICacheCode.Type) extends AnyVal {
-        def isOk(): Bool = x === ICacheCode.cacheHitOk || x === ICacheCode.cacheMissOk
+    val cacheHitOk, cacheMissOk, upstreamSlvErr, upstreamDecErr, pmaMmuWalkErr,
+        pmaCacheErr, pmaInstErr, pageInstErr = Value
+    implicit class ICacheCodeOps(private val x: ICacheCode.Type)
+        extends AnyVal {
+        def isOk(): Bool =
+            x === ICacheCode.cacheHitOk || x === ICacheCode.cacheMissOk
 
         def fromAxiResp(resp: AxiResp.Type, hit: Bool) = {
             val okResp = Mux(hit, ICacheCode.cacheHitOk, ICacheCode.cacheMissOk)
-            x := MuxLookup(resp, okResp)(Seq(
+            x := MuxLookup(resp, okResp)(
+              Seq(
                 AxiResp.slverr -> ICacheCode.upstreamSlvErr,
                 AxiResp.decerr -> ICacheCode.upstreamDecErr
-            ))
+              )
+            )
         }
     }
 }
 
 class CacheTagValid(implicit val c: CacheConfig) extends Bundle {
-    val tag = UInt(c.tagBits.W)
+    val tag   = UInt(c.tagBits.W)
     val valid = Bool()
 }
 
@@ -74,8 +83,8 @@ class DCacheReadResp(implicit val c: CacheConfig) extends Bundle {
 
 class DCacheWriteReq(implicit val c: CacheConfig) extends Bundle {
     val vaddr = UInt(64.W)
-    val data = UInt(64.W)
-    val mask = UInt(8.W)
+    val data  = UInt(64.W)
+    val mask  = UInt(8.W)
 }
 
 class DCacheWriteResp extends Bundle {
@@ -83,7 +92,7 @@ class DCacheWriteResp extends Bundle {
 }
 
 class IcacheInterface(implicit val c: CacheConfig) extends Bundle {
-    val readReq = Flipped(Decoupled(new ICacheReadReq))
+    val readReq  = Flipped(Decoupled(new ICacheReadReq))
     val readResp = Decoupled(new ICacheReadResp())
 }
 
@@ -104,7 +113,7 @@ class DCacheInvalidateResp extends Bundle {
 }
 
 class DCacheAmoFlushReq extends Bundle {
-    val vaddr = UInt(64.W)
+    val vaddr    = UInt(64.W)
     val readLike = Bool()
 }
 
@@ -122,19 +131,19 @@ class DCachePaReadResp(implicit val c: CacheConfig) extends Bundle {
 }
 
 class DcacheInterface(implicit val c: CacheConfig) extends Bundle {
-    val readReq = Flipped(Decoupled(new DCacheReadReq))
-    val readResp = Valid(new DCacheReadResp())
-    val writeReq = Flipped(Decoupled(new DCacheWriteReq))
-    val writeResp = Valid(new DCacheWriteResp())
-    val cleanReq = Flipped(Decoupled(new DCacheCleanReq))
-    val cleanResp = Valid(new DCacheCleanResp)
-    val invalidateReq = Flipped(Decoupled(new DCacheInvalidateReq))
+    val readReq        = Flipped(Decoupled(new DCacheReadReq))
+    val readResp       = Valid(new DCacheReadResp())
+    val writeReq       = Flipped(Decoupled(new DCacheWriteReq))
+    val writeResp      = Valid(new DCacheWriteResp())
+    val cleanReq       = Flipped(Decoupled(new DCacheCleanReq))
+    val cleanResp      = Valid(new DCacheCleanResp)
+    val invalidateReq  = Flipped(Decoupled(new DCacheInvalidateReq))
     val invalidateResp = Valid(new DCacheInvalidateResp)
-    val amoFlushReq = Flipped(Decoupled(new DCacheAmoFlushReq))
-    val amoFlushResp = Valid(new DCacheAmoFlushResp)
-    val paReadReq = Flipped(Decoupled(new DCachePaReadReq))
-    val paReadResp = Valid(new DCachePaReadResp())
-    val paddr = UInt(64.W)
+    val amoFlushReq    = Flipped(Decoupled(new DCacheAmoFlushReq))
+    val amoFlushResp   = Valid(new DCacheAmoFlushResp)
+    val paReadReq      = Flipped(Decoupled(new DCachePaReadReq))
+    val paReadResp     = Valid(new DCachePaReadResp())
+    val paddr          = UInt(64.W)
 }
 
 object TlbPageLevel extends ChiselEnum {
@@ -204,10 +213,10 @@ class TlbLookupResp(val asidWidth: Int) extends Bundle {
 }
 
 class TlbAllocateReq(val asidWidth: Int) extends Bundle {
-    val vaddr  = UInt(64.W)
-    val asid   = UInt(asidWidth.W)
-    val level  = new TlbPageLevel.Type
-    val pte    = new TlbPte
+    val vaddr = UInt(64.W)
+    val asid  = UInt(asidWidth.W)
+    val level = new TlbPageLevel.Type
+    val pte   = new TlbPte
 }
 
 class TlbInvalidateReq(val asidWidth: Int) extends Bundle {
