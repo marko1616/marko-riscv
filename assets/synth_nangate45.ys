@@ -1,0 +1,21 @@
+# Run from core/generated
+read_systemverilog -f filelist.f
+
+hierarchy -check -top MarkoRvCore
+
+proc
+opt
+fsm
+opt
+memory
+opt
+techmap
+opt
+
+read_liberty -lib ../../libs/OpenROAD-flow-scripts/flow/platforms/nangate45/lib/NangateOpenCellLibrary_typical.lib
+dfflibmap -liberty ../../libs/OpenROAD-flow-scripts/flow/platforms/nangate45/lib/NangateOpenCellLibrary_typical.lib
+abc -liberty ../../libs/OpenROAD-flow-scripts/flow/platforms/nangate45/lib/NangateOpenCellLibrary_typical.lib -constr ../../assets/abc.constr -script ../../assets/abc.script
+
+clean
+stat -liberty ../../libs/OpenROAD-flow-scripts/flow/platforms/nangate45/lib/NangateOpenCellLibrary_typical.lib
+write_verilog -noattr top_mapped.v

@@ -48,6 +48,10 @@ TASKS = [
         "desc": "Reformat all Chisel/Scala sources using mill __.reformat."
     },
     {
+        "name": "opensta-timing",
+        "desc": "Synthesize core with NangateOpenCellLibrary and run OpenSTA timing analysis."
+    },
+    {
         "name": "exit",
         "desc": "Exit the CLI tool."
     }
@@ -118,6 +122,36 @@ def run_chisel_lint():
     except subprocess.CalledProcessError:
         console.print("[red]mill __.reformat failed.[/red]")
 
+def run_opensta():
+    generated_dir = os.path.join("core", "generated")
+    synth_script  = os.path.abspath(os.path.join("assets", "synth_nangate45.ys"))
+    sta_script    = os.path.join("assets", "sta.tcl")
+
+    # Synthesis
+    console.print(Panel.fit("[cyan]Step 1/2: Synthesizing (Synlig + Yosys + NangateOpenCellLibrary)[/cyan]"))
+    if not os.path.isdir(generated_dir):
+        console.print(f"[red]Directory '{generated_dir}' not found. Run build-core first.[/red]")
+        return
+    try:
+        subprocess.run(["synlig", synth_script], cwd=generated_dir, check=True)
+        console.print("[green]Synthesis completed -> core/generated/top_mapped.v[/green]")
+    except FileNotFoundError:
+        console.print("[red]synlig not found.[/red]")
+        return
+    except subprocess.CalledProcessError:
+        console.print("[red]Synthesis failed.[/red]")
+        return
+
+    # OpenSTA
+    console.print(Panel.fit("[cyan]Step 2/2: Running OpenSTA timing analysis[/cyan]"))
+    try:
+        subprocess.run(["sta", sta_script], check=True)
+        console.print("[green]OpenSTA timing analysis completed.[/green]")
+    except FileNotFoundError:
+        console.print("[red]opensta not found. Install: sudo apt install opensta[/red]")
+    except subprocess.CalledProcessError:
+        console.print("[red]OpenSTA analysis failed.[/red]")
+
 def main_menu():
     """Main loop for interactive selection and task execution."""
     while True:
@@ -146,6 +180,8 @@ def main_menu():
                 run_cpp_lint()
             elif selected == "chisel-lint":
                 run_chisel_lint()
+            elif selected == "opensta-timing":
+                run_opensta()
             else:
                 run_make_target(selected)
         else:

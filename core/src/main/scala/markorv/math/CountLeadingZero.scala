@@ -1,9 +1,7 @@
-package markorv.utils
+package markorv.math
 
 import chisel3._
 import chisel3.util._
-
-import markorv.utils.ChiselUtils.UIntOperationExtension
 
 object CountLeadingZeros {
     def apply(value: UInt): UInt = {
@@ -11,10 +9,11 @@ object CountLeadingZeros {
             return ~value
         }
 
-        val inputWidth = value.getWidth
-        val maxDepth   = log2Ceil(inputWidth)
+        val inputWidth  = value.getWidth
+        val maxDepth    = log2Ceil(inputWidth)
+        val paddedWidth = 1 << maxDepth
 
-        def countZeros(depth: Int, value: UInt): (UInt, Bool) = {
+        def impl(depth: Int, value: UInt): (UInt, Bool) = {
             val width = value.getWidth
             // Base case when width == 2
             if (depth == maxDepth - 1) {
@@ -23,7 +22,7 @@ object CountLeadingZeros {
                 // 10 or 11 => 0 leading zeros
                 // 00 => 0 leading zeros, but no '1'
                 return (
-                  Mux(value(1) === 0.U && value(0) === 1.U, 1.U(1.W), 0.U(1.W)),
+                  Mux(!value(1) && value(0), 1.U(1.W), 0.U(1.W)),
                   value(1) || value(0)
                 )
             } else {
@@ -34,9 +33,9 @@ object CountLeadingZeros {
 
                 // Recursively calculate for both halves
                 val (upperLeadingZeros, upperHaveOnes) =
-                    countZeros(depth + 1, upperHalf)
+                    impl(depth + 1, upperHalf)
                 val (lowerLeadingZeros, lowerHaveOnes) =
-                    countZeros(depth + 1, lowerHalf)
+                    impl(depth + 1, lowerHalf)
 
                 // Combine results:
                 //   - If upper has 1s: use upperLeadingZeros
@@ -44,7 +43,7 @@ object CountLeadingZeros {
                 val msbBit =
                     (upperHaveOnes ^ (upperHaveOnes || lowerHaveOnes)).asUInt
                 val lzBits = Mux(
-                  upperHaveOnes === 0.U && lowerHaveOnes === 1.U,
+                  !upperHaveOnes && lowerHaveOnes,
                   lowerLeadingZeros,
                   upperLeadingZeros
                 )
@@ -53,12 +52,12 @@ object CountLeadingZeros {
             }
         }
 
-        val paddedValue       = value.zextu(1 << maxDepth)
-        val (leadingZeros, _) = countZeros(0, paddedValue)
+        val paddedValue       = value.pad(paddedWidth)
+        val (leadingZeros, _) = impl(0, paddedValue)
 
         // Adjust for total width and ensure 0 input gives full count
-        val maxLzCount = (1 << maxDepth).U
+        val maxLzCount = paddedWidth.U
         val lzResult   = Mux(value === 0.U, maxLzCount, leadingZeros)
-        lzResult - (inputWidth - (1 << log2Floor(inputWidth))).U
+        lzResult - (paddedWidth - inputWidth).U
     }
 }

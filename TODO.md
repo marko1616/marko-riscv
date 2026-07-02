@@ -245,7 +245,7 @@
 - [x] L1 Data cache
 - [ ] L2 Cache
 - [x] Exception & Interruption
-- [ ] TLB
+- [x] TLB
 - [x] SV-39 MMU
 - [x] AXI Bus
 - [x] Device tree

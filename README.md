@@ -2,220 +2,353 @@
 
 [ English | [中文](README_zh.md) ]
 
-This project is a learning endeavor focused on RISC-V architecture and Hardware Description Languages (HDL), specifically using Chisel for core design and C++/Verilator for simulation.
+This project is a learning-oriented RISC-V processor, HDL, simulation, and verification playground. The processor core is written in Chisel, simulated through Verilator with a C++ test platform, and gradually extended with architecture tests, debug tracing, MMU/TLB support, caches, and early synthesis/timing analysis flows.
 
-### 🌟 Features
-*   **RISC-V Core**: Implemented in Chisel.
-*   **Emulator**: C++ based emulator using Verilator for the HDL core.
-*   **Assembly Tests**: A suite of RISC-V assembly tests.
-*   **Dockerized Development Environment**: Easy setup using Docker and Docker Compose for a consistent build environment.
-*   **Makefile Automation**: Simplified build and test commands.
+## 🌟 Features
 
-### 📂 Project Structure
+* **RISC-V processor core**: Implemented in Chisel, with frontend, backend, scheduling/rename, CSR, trap/interrupt, cache, and AXI bus components.
+* **Pipelined multiply/divide unit**: Adds a fixed-latency MDU with a Booth Radix-4 multiplier, compressor tree, SRT divider, and quotient selection table.
+* **Configurable math unit parameters**: Multiplier and divider pipeline behavior is controlled through `assets/core_config.yaml`.
+* **MMU/TLB support**: Includes SV39 MMU support and configurable TLB entries for multiple page sizes.
+* **Verilator simulation platform**: C++ test platform with ROM/ELF loading and virtual RAM, UART, CLINT, and PLIC devices.
+* **Debug and tracing support**: DPI-based debug hooks expose internal core state during simulation.
+* **Assembly and official tests**: Supports custom assembly tests, `riscv-tests`, and `riscv-arch-test`.
+* **MDU stress test**: Adds `tests/asmtests/src/muldiv.S` to cover continuous MDU issue, dependencies, corner cases, and wrong-path squash behavior.
+* **OpenSTA/Nangate45 timing exploration**: Adds scripts for synthesis and timing analysis using the NangateOpenCellLibrary from OpenROAD flow resources.
+* **Dockerized development environment**: Uses Docker and Docker Compose for a consistent build environment.
+* **Makefile and interactive CLI**: Provides entry points for common build, test, format, and timing-analysis tasks.
 
-```
+## 📂 Project Structure
+
+```text
 .
-├── Dockerfile                 # Dockerfile for building development/production environment
-├── docker-compose.yml         # Compose configuration for service orchestration
-├── Makefile                   # Project entry point for build/test/clean commands
-├── build.mill                 # Mill build script for Scala/Chisel sources
-├── cli.py                     # Interactive CLI (built with Typer + Questionary + Rich)
+├── Dockerfile
+├── docker-compose.yml
+├── Makefile
+├── cli.py
 │
-├── README.md                  # Main README in English
-├── README_zh.md               # Translated README in Chinese
-├── LICENSE                    # Project license file
-├── TODO.md                    # Development roadmap and task list
+├── README.md
+├── README_zh.md
+├── LICENSE
+├── TODO.md
 │
-├── docs/                      # Documentation directory
-│   └── update-log.md          # Change history and updates
+├── docs/
+│   └── update-log.md
 │
-├── assets/                    # Core configuration assets
-│   └── core_config.json       # Core-level configuration parameters
+├── assets/
+│   ├── core_config.yaml        # Core parameters, including queues, register file, TLB, and MDU config
+│   ├── abc.constr              # ABC mapping constraints
+│   ├── abc.script              # ABC mapping script
+│   ├── nangate45.sdc           # OpenSTA timing constraints
+│   ├── synth_nangate45.ys      # Synlig/Yosys synthesis script
+│   └── sta.tcl                 # OpenSTA analysis script
 │
-├── scripts/                   # Helper and automation scripts
-│   └── batched_test.py        # Parallel RISC-V assembly test execution
+├── scripts/
+│   ├── batched_test.py         # Batch runner for RISC-V test ELFs
+│   └── gen_config.py           # Generates simulator config header from core_config.yaml
 │
-├── tests/                     # Test resources
-│   ├── asmtests/              # Assembly test sources and linker script
+├── tests/
+│   ├── asmtests/
 │   │   ├── general.ld
-│   │   └── src/*.S
-│   ├── clock/                 # Clock-related test helpers
-│   └── riscv-tests/           # Git submodule: Official RISC-V ISA test suite
+│   │   └── src/
+│   │       ├── *.S
+│   │       └── muldiv.S        # MDU stress test
+│   ├── riscv-arch-test/        # RISC-V architecture test submodule
+│   └── riscv-tests/            # Official RISC-V ISA test submodule
 │
-├── libs/                      # External dependencies (Git submodules)
-│   ├── capstone/              # Capstone disassembly engine (used in emulator)
-│   └── cxxopts/               # Lightweight C++ CLI options parser
+├── libs/
+│   ├── capstone/               # Disassembly engine
+│   ├── cxxopts/                # C++ command-line option parser
+│   └── OpenROAD-flow-scripts/  # Nangate45 liberty and OpenROAD-related resources
 │
-├── emulator/                  # Verilator-based test platform (not a full C++ simulator)
-│   ├── assets/                # Boot ROM, device tree, and other binaries
-│   └── src/                   # C++ source code for the test harness
-│       ├── dpi/               # SystemVerilog DPI-C header interfaces
-│       └── slaves/            # Virtual peripherals (RAM, UART, etc.)
+├── emulator/
+│   ├── assets/                 # Boot ROM, device tree, and simulation binaries
+│   └── src/
+│       ├── debug/              # DPI debug and trace manager
+│       └── slaves/             # Virtual RAM, UART, CLINT, PLIC, and other devices
 │
-├── src/                       # Chisel source code for RISC-V processor
-│   ├── main/scala/markorv/    # Core logic
-│   │   ├── backend/           # Execution units (ALU, MUL/DIV, etc.)
-│   │   ├── frontend/          # Fetch, decode, and branch prediction
-│   │   ├── manage/            # Rename table, scheduler, register file
-│   │   ├── bus/               # AXI bus interfaces
-│   │   ├── cache/             # I/D cache modules
-│   │   ├── config/            # Global parameters and configuration
-│   │   ├── exception/         # Trap/exception handling
-│   │   └── utils/             # Utility functions and helpers
-│   └── test/scala/markorv/    # Scala-based unit tests
-│
-├── project/
-│   └── build.properties       # Mill project metadata
-└── mill/                      # Mill tool support files
+└── core/
+    ├── build.mill              # Scala/Chisel build script
+    ├── generated/              # Generated Verilog/filelist and synthesis outputs
+    └── src/
+        ├── main/scala/markorv/
+        │   ├── backend/        # ALU, BranchUnit, MDU, LSU, and other execution units
+        │   ├── frontend/       # Fetch, decode, and branch prediction
+        │   ├── manage/         # Scheduling, rename, commit, and register file logic
+        │   ├── bus/            # AXI bus interfaces
+        │   ├── cache/          # Instruction and data caches
+        │   ├── config/         # Core configuration data structures
+        │   ├── csr/            # Control and status registers
+        │   ├── debug/          # Core debug export logic
+        │   ├── math/           # Math building blocks
+        │   │   ├── compressor/ # 3:2/4:2 compressors and compressor tree
+        │   │   ├── divider/    # SRT divider and quotient selection table
+        │   │   └── multiplier/ # Booth Radix-4 multiplier
+        │   ├── trap/           # Trap, exception, and interrupt handling
+        │   └── utils/          # Shared Chisel helpers
+        └── test/scala/markorv/
 ```
 
-### 🛠️ Development Environment Setup
+## 🛠️ Development Environment Setup
 
-This project uses a Dockerized development environment to ensure consistency and ease of setup.
+This project is intended to be developed inside a Docker container to keep the build environment consistent.
 
-**Prerequisites:**
-*   Docker Engine (version 18.09 or later)
-*   Docker Compose
-*   An SSH client
-*   Your SSH public key (typically `~/.ssh/id_rsa.pub`). If you don't have one, generate it using `ssh-keygen -t rsa -b 4096`.
+### Prerequisites
 
-**Steps:**
+* Docker Engine 18.09 or later
+* Docker Compose
+* SSH client
+* SSH public key, usually located at `~/.ssh/id_rsa.pub`
 
-1.  **Clone the Repository:**
-    ```bash
-    git clone https://github.com/marko1616/marko-riscv.git
-    cd marko-riscv
-    ```
+If you do not have an SSH key yet, generate one with:
 
-2.  **Prepare SSH Public Key as a Secret:**
-    The Dockerfile uses your SSH public key to allow passwordless access into the container. Pass it securely using Docker BuildKit's secret mount.
+```bash
+ssh-keygen -t rsa -b 4096
+```
 
-    > Make sure BuildKit is enabled before building:
-    ```bash
-    export DOCKER_BUILDKIT=1
-    ```
+### Clone the repository
 
-3.  **Build the Docker Image:**
-    Run the following command to build the container image with your public key mounted securely:
+```bash
+git clone https://github.com/marko1616/marko-riscv.git
+cd marko-riscv
+```
 
-    ```bash
-        docker build \
-        --build-arg USE_MIRROR=true \
-        --build-arg PROXY="<your_proxy_url>" \
-        --secret id=ssh_pub_key,src=~/.ssh/id_rsa.pub \
-        -t your-dev-env-image .
-    ```
+### Build the Docker image
 
-4.  **Start the Container with Docker Compose:**
-    ```bash
-    docker-compose up -d
-    ```
+The Dockerfile reads your SSH public key through a BuildKit secret so the container can be accessed without a password.
 
-5.  **Access the Container via SSH:**
-    ```bash
-    ssh build-user@localhost -p 8022
-    ```
+```bash
+export DOCKER_BUILDKIT=1
 
-    You are now inside the container at `/home/build-user`. Project files are located in `/home/build-user/code`.
+docker build \
+    --build-arg USE_MIRROR=true \
+    --build-arg PROXY="<your_proxy_url>" \
+    --secret id=ssh_pub_key,src=~/.ssh/id_rsa.pub \
+    -t marko-riscv-dev .
+```
 
-6.  **Initial Setup (Inside the Container):**
-    Follow the remaining setup instructions inside the container as described below.
+If no proxy is needed, remove or leave the `PROXY` argument empty according to your local network setup.
 
-### 🏗️ Building the Project
+### Start and enter the container
 
-All build commands should be run **inside the Docker container** from the `/home/build-user/code` directory.
+```bash
+docker-compose up -d
+ssh build-user@localhost -p 8022
+```
 
-*   **Initialize/Update Submodules and Build Capstone:**
-    ```bash
-    make init
-    ```
-    (This also builds the Capstone library required by the emulator.)
+Inside the container, the project is mounted at:
 
-*   **Generate Verilog from Chisel & Compile C++ Emulator:**
-    This command first uses `mill` to generate Verilog from the Chisel sources, then uses Verilator to compile the Verilog along with the C++ emulator sources.
-    ```bash
-    make compile
-    ```
-    The emulator executable will be `obj_dir/VMarkoRvCore`.
+```bash
+/home/build-user/code
+```
 
-*   **Generate Assembly Test Binaries:**
-    Compiles assembly tests from `tests/asmtst/src/*.S` into `.elf`.
-    ```bash
-    make gen-tests
-    ```
-    Output ELFs will be in `tests/asmtst/src/`.
+All following commands assume this directory as the working directory.
 
-*   **Generate Boot ROM (for emulator):**
-    Builds assets like `boot.elf` for the emulator.
-    ```bash
-    make gen-rom
-    ```
-    Output will be in `emulator/assets/`.
+## 🏗️ Building the Project
 
-*   **Clean Build Artifacts:**
-    ```bash
-    make clean
-    ```
+### Initialize submodules
 
-### 🚀 Running Simulations and Tests
+```bash
+make init
+```
 
-Simulations are run **inside the Docker container**. The emulator `VMarkoRvCore` loads ELF files directly.
+This initializes/updates Git submodules and builds Capstone for the simulator. Current submodules include `riscv-tests`, `riscv-arch-test`, `capstone`, `cxxopts`, and `OpenROAD-flow-scripts`.
 
-#### 1. Running Custom Assembly Tests (from `tests/asmtests/src`):
+### Generate Chisel Verilog
 
-    ```bash
-    make build-simulator
-    make build-sim-rom
-    ```
+```bash
+make build-core
+```
 
-    If you need to compile a specific assembly test:
+This runs the Mill/Chisel build and emits Verilog plus filelists under `core/generated/`.
 
-    ```bash
-    make tests/asmtests/src/your_test_name.elf   # Or use 'make build-test-elves' to compile all
-    ```
+### Build the simulator
 
-    Run the emulator with your custom test ELF:
+```bash
+make build-simulator
+```
 
-    ```bash
-    obj_dir/VMarkoRvCore --rom-load elf:emulator/assets/boot.elf --ram-load elf:tests/asmtests/src/your_test_name.elf
-    ```
+This generates the core Verilog and compiles the C++ simulation platform through Verilator. The simulator executable is usually:
 
-    Use `--help` to view all available emulator options.
+```bash
+obj_dir/VMarkoRvCore
+```
 
-#### 2. Running Official RISC-V ISA Tests (from `tests/riscv-tests`):
+### Build the simulation ROM
 
-    These tests are run using the `batched_test.py` script. Before running, make sure the emulator and boot ROM are built:
+```bash
+make build-sim-rom
+```
 
-    ```bash
-    make build-simulator
-    make build-sim-rom
-    ```
+This builds the boot ROM, device tree, and other simulation assets under:
 
-    Run the batch test script:
+```bash
+emulator/assets/
+```
 
-    ```bash
-    python3 scripts/batched_test.py -j $(nproc)
-    ```
+### Build custom assembly test ELFs
 
-    This script will automatically run all ELF files from the `riscv-tests/isa/` directory and output PASSED/FAILED status for each test.
+```bash
+make build-test-elves
+```
 
-### 🛠️ Available Makefile Commands Summary
+This compiles assembly tests from `tests/asmtests/src/*.S`.
 
-| Command Name               | Description                                 |
-| -------------------------- | ------------------------------------------- |
-| `make init`                | Initialize submodules and build Capstone    |
-| `make build-simulator`     | Build the RISC-V emulator                   |
-| `make build-test-elves`    | Compile test ELF files                      |
-| `make build-sim-rom`       | Build ROM files for the emulator            |
-| `make clean-all`           | Clean all build artifacts                   |
-| `make batched-riscv-tests` | Run all RISC-V ISA tests in parallel        |
-| `make exit`                | Exit the CLI tool (if using CLI management) |
+To build a single test:
 
-### 📜 Memory Order Definition
-*This is a temporary Memory order definition.* Write-back order in the cache is not guaranteed, but the consistency of instruction effects on the internal CPU state is ensured (non-out-of-order execution).
+```bash
+make tests/asmtests/src/muldiv.elf
+```
 
-### 🗺️ Update Roadmap
-Please refer to [TODO.md](./TODO.md) for future update plans.
+### Clean build artifacts
 
-### 🏛️ Architecture and Update Log
-Check the [docs](./docs) folder for detailed architecture information and update logs.
+```bash
+make clean-all
+```
+
+## 🚀 Running Simulations and Tests
+
+### Run a custom assembly test
+
+First build the simulator and boot ROM:
+
+```bash
+make build-simulator
+make build-sim-rom
+```
+
+Run a selected ELF:
+
+```bash
+obj_dir/VMarkoRvCore \
+    --rom-load elf:emulator/assets/boot.elf \
+    --ram-load elf:tests/asmtests/src/muldiv.elf
+```
+
+`muldiv.S` is the MDU stress test added in this update. It covers:
+
+* Continuous independent multiply instructions
+* Dependent multiply chains
+* Mixed `mul/div/rem` execution
+* Signed division overflow
+* Division by zero and remainder by zero
+* MDU instructions on wrong speculative paths
+* Real MDU commits after branch recovery
+
+A passing run prints through UART:
+
+```text
+MDU TEST PASS
+```
+
+### Run official RISC-V ISA tests
+
+```bash
+make build-simulator
+make build-sim-rom
+python3 scripts/batched_test.py -j $(nproc)
+```
+
+The script runs ELFs from `tests/riscv-tests/isa/` and reports `PASSED` or `FAILED` for each case.
+
+## ⏱️ Synthesis and OpenSTA Timing Analysis
+
+This update adds an early Nangate45-based synthesis and timing-analysis flow. It is intended for learning and quick timing exploration, not as a full backend signoff flow.
+
+### Requirements
+
+The following tools/resources are expected:
+
+* `synlig`
+* `sta`, provided by OpenSTA
+* `libs/OpenROAD-flow-scripts/flow/platforms/nangate45/lib/NangateOpenCellLibrary_typical.lib`
+
+Before running timing analysis:
+
+```bash
+make init
+make build-core
+```
+
+### Run through the CLI
+
+```bash
+python3 cli.py
+```
+
+Select:
+
+```text
+opensta-timing
+```
+
+This task will:
+
+1. Run `assets/synth_nangate45.ys` from `core/generated/`
+2. Generate `core/generated/top_mapped.v`
+3. Run OpenSTA with `assets/sta.tcl`
+4. Report WNS, TNS, unconstrained paths, slew/cap/fanout violations, and power
+
+### Run manually
+
+```bash
+make build-core
+
+cd core/generated
+synlig ../../assets/synth_nangate45.ys
+
+cd ../..
+sta assets/sta.tcl
+```
+
+## ⚙️ Core Configuration
+
+Core parameters are stored in:
+
+```bash
+assets/core_config.yaml
+```
+
+MDU-related parameters added in this update include:
+
+```yaml
+mulCompTreeMaxStage: 2
+dividerBase: 4
+dividerRemLeadBits: 6
+dividerDivisorLeadBits: 4
+dividerMaxStage: 2
+```
+
+These parameters affect where pipeline registers are inserted in the Booth Radix-4 multiplier compressor tree and how many SRT divider iterations are grouped per pipeline stage.
+
+TLB-related parameters include:
+
+```yaml
+tlb4KEntries: 32
+tlb2MEntries: 8
+tlb1GEntries: 4
+```
+
+## 🛠️ Common Commands
+
+| Command                 | Description                              |
+| ----------------------- | ---------------------------------------- |
+| `make init`             | Initialize submodules and build Capstone |
+| `make build-core`       | Generate Verilog from Chisel             |
+| `make build-simulator`  | Build the Verilator simulator            |
+| `make build-test-elves` | Build custom assembly test ELFs          |
+| `make build-sim-rom`    | Build boot ROM and simulation assets     |
+| `make clean-all`        | Clean build artifacts                    |
+| `python3 cli.py`        | Start the interactive task menu          |
+
+## 📜 Current Memory Ordering Note
+
+The current implementation does not provide a global ordering guarantee for cache writeback order, but it does preserve the commit order of instruction effects visible to internal CPU state. This is a temporary definition and may change as cache coherency, out-of-order behavior, or bus modeling evolves.
+
+## 🗺️ Roadmap
+
+See [TODO.md](./TODO.md) for future development plans.
+
+## 🏛️ Architecture and Update Log
+
+See the [docs](./docs) directory for architecture notes and update logs.

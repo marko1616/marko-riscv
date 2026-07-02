@@ -13,7 +13,7 @@ import markorv.backend.{
 }
 import markorv.config.CoreConfig
 import markorv.debug.ReservationStationDebugIO
-import markorv.utils.CountLeadingZeros
+import markorv.math.CountLeadingZeros
 import markorv.utils.ChiselUtils.DataOperationExtension
 
 class ReservationStation(implicit val c: CoreConfig) extends Module {

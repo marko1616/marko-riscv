@@ -53,6 +53,8 @@ class BranchUnit(implicit val c: CoreConfig) extends Module {
         BranchFunct.bgeu -> (source1 >= source2)
       )
     )
+
+    // JAL: recover is hard-forced false; branchPc value is unused.
     val recover = MuxLookup(funct, branchTaken =/= predTaken)(
       Seq(
         BranchFunct.jal  -> (false.B),
@@ -74,5 +76,5 @@ class BranchUnit(implicit val c: CoreConfig) extends Module {
     io.commit.bits.discon     := recover
     io.commit.bits.disconType := DisconEventType.instrSync
     io.commit.bits.eventPc := Mux(funct === BranchFunct.jalr, jalrPc, branchPc)
-    io.outfire             := io.branchInstr.valid
+    io.outfire             := io.branchInstr.fire
 }

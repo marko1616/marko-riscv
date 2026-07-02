@@ -256,7 +256,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     )
     PipelineConnect(
       reservStation.io.mduOut,
-      mdu.io.muInstr,
+      mdu.io.mduInstr,
       mdu.io.outfire,
       flush
     )

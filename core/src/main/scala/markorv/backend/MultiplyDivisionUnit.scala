@@ -4,246 +4,21 @@ import chisel3._
 import chisel3.util._
 
 import markorv.config.CoreConfig
-import markorv.utils.CountLeadingZeros
+import markorv.math.CountLeadingZeros
 import markorv.utils.ChiselUtils.{
     DataOperationExtension,
     SIntOperationExtension,
     UIntOperationExtension
 }
+import markorv.math.multiplier.BoothRadix4Multiplier
+import markorv.math.divider.SRTDivider
 import markorv.frontend.DecodedParams
 import markorv.manage.RegisterCommit
 import markorv.manage.EXUParams
 
-class MultiplyParams extends Bundle {
-    val src1 = UInt(64.W)
-    val src2 = UInt(64.W)
-    val sign = UInt(2.W)
-}
-
-class MultiplyCacheParams extends Bundle {
-    val src1 = UInt(64.W)
-    val src2 = UInt(64.W)
-    val sign = UInt(2.W)
-    val op32 = Bool()
-}
-
-class MultiplyCache extends Bundle {
-    val params = new MultiplyCacheParams
-    val result = UInt(128.W)
-}
-
-class DivideParams extends Bundle {
-    val src1 = UInt(64.W)
-    val src2 = UInt(64.W)
-    val sign = Bool()
-}
-
-class DivideCacheParams extends Bundle {
-    val src1 = UInt(64.W)
-    val src2 = UInt(64.W)
-    val sign = Bool()
-    val op32 = Bool()
-}
-
-class DivideResult extends Bundle {
-    val quotient  = UInt(64.W)
-    val remainder = UInt(64.W)
-}
-
-class DivideCache extends Bundle {
-    // Zero init is not valid due to 0/0 != 0
-    val valid  = Bool()
-    val params = new DivideCacheParams
-    val result = new DivideResult
-}
-
-class Booth4 extends Module {
-    val io = IO(new Bundle {
-        val src    = Flipped(Decoupled(new MultiplyParams))
-        val result = Valid(UInt(128.W))
-        val idle   = Output(Bool())
-        val flush  = Input(Bool())
-    })
-    val state          = RegInit(0.U(5.W))
-    val returnFlag     = RegInit(false.B)
-    val stepFlag       = WireInit(false.B)
-    val partialProduct = WireInit(0.S(128.W))
-    val accumulator    = RegInit(0.S(128.W))
-    val paddedSrc1Reg  = RegInit(0.S(67.W))
-    val paddedSrc2Reg  = RegInit(0.S(66.W))
-    val paddedSrc1     = WireInit(0.S(67.W))
-    val paddedSrc2     = WireInit(0.S(66.W))
-    val idle           = state === 0.U && ~returnFlag
-
-    val sign = io.src.bits.sign
-    val src1 = io.src.bits.src1
-    val src2 = io.src.bits.src2
-
-    io.src.ready    := idle
-    io.result.valid := false.B
-    io.result.bits  := 0.U
-    io.idle         := idle
-
-    when(idle) {
-        when(sign(0)) {
-            paddedSrc1 := (src1.sexts(67) << 1.U)
-        }.otherwise {
-            paddedSrc1 := (src1.zexts(67) << 1.U).asSInt
-        }
-
-        when(sign(1)) {
-            paddedSrc2 := src2.sexts(66)
-        }.otherwise {
-            paddedSrc2 := src2.zexts(66)
-        }
-    }.otherwise {
-        paddedSrc1 := paddedSrc1Reg
-        paddedSrc2 := paddedSrc2Reg
-    }
-
-    when(io.src.valid | state =/= 0.U) {
-        stepFlag := true.B
-    }
-
-    when(stepFlag | returnFlag) {
-        partialProduct := MuxLookup(paddedSrc1(2, 0), 0.S(128.W))(
-          Seq(
-            1.U -> paddedSrc2,
-            2.U -> paddedSrc2,
-            3.U -> (paddedSrc2 << 1.U),
-            4.U -> -(paddedSrc2 << 1.U),
-            5.U -> -paddedSrc2,
-            6.U -> -paddedSrc2
-          )
-        )
-    }
-
-    when(stepFlag) {
-        accumulator   := accumulator + (partialProduct << (state << 1.U))
-        paddedSrc1Reg := paddedSrc1 >> 2.U
-        paddedSrc2Reg := paddedSrc2
-        state         := state + 1.U
-        when(state === 31.U) {
-            returnFlag := true.B
-        }
-        when(paddedSrc1Reg === 0.S && ~idle) {
-            returnFlag := true.B
-            state      := 0.U
-        }
-    }
-
-    when(returnFlag) {
-        returnFlag      := false.B
-        io.result.valid := true.B
-        io.result.bits  := (accumulator + (partialProduct << 64.U)).asUInt
-        accumulator     := 0.S
-        state           := 0.U
-    }
-
-    when(io.flush) {
-        accumulator := 0.S
-        state       := 0.U
-        returnFlag  := false.B
-    }
-}
-
-class NonRestoringDivider extends Module {
-    val io = IO(new Bundle {
-        val src    = Flipped(Decoupled(new DivideParams))
-        val result = Valid(new DivideResult)
-        val idle   = Output(Bool())
-        val flush  = Input(Bool())
-    })
-    object DividerState extends ChiselEnum {
-        val sIdle    = Value
-        val sCompute = Value
-        val sFinish  = Value
-    }
-    val sign            = io.src.bits.sign
-    val rawDividend     = io.src.bits.src1
-    val rawDivisor      = io.src.bits.src2
-    val rawDividendSign = Mux(sign, rawDividend.asSInt < 0.S, false.B)
-    val rawDivisorSign  = Mux(sign, rawDivisor.asSInt < 0.S, false.B)
-    val dividend = Mux(rawDividendSign, -rawDividend.asSInt.asUInt, rawDividend)
-    val divisor  = Mux(rawDivisorSign, -rawDivisor.asSInt.asUInt, rawDivisor)
-    val quotient = RegInit(0.U(64.W))
-    val remainder    = RegInit(0.S(65.W))
-    val divisorShift = RegInit(0.U(6.W))
-
-    val state = RegInit(DividerState.sIdle)
-    val idle  = state === DividerState.sIdle
-    io.idle         := idle
-    io.src.ready    := idle
-    io.result.valid := state === DividerState.sFinish
-    io.result.bits  := new DivideResult().zero
-
-    when(state === DividerState.sIdle) {
-        val divisionByZero            = divisor === 0.U
-        val divisorLargerThanDividend = divisor > dividend
-        when(io.src.valid) {
-            when(divisionByZero) {
-                io.result.valid          := true.B
-                io.result.bits.quotient  := "hffffffffffffffff".U
-                io.result.bits.remainder := rawDividend
-            }.elsewhen(divisorLargerThanDividend) {
-                io.result.valid          := true.B
-                io.result.bits.quotient  := 0.U
-                io.result.bits.remainder := rawDividend
-            }.otherwise {
-                quotient  := 0.U
-                remainder := dividend.zexts(65)
-                val dividendLeadingZero = CountLeadingZeros(dividend)
-                val divisorLeadingZero  = CountLeadingZeros(divisor)
-                divisorShift := divisorLeadingZero - dividendLeadingZero
-                state        := DividerState.sCompute
-            }
-        }
-    }.elsewhen(state === DividerState.sCompute) {
-        val shiftedDivisor  = divisor << divisorShift
-        val shiftedQuotient = 1.U << divisorShift
-        val isRemainderNeg  = remainder < 0.S
-        remainder := Mux(
-          isRemainderNeg,
-          remainder + shiftedDivisor.zexts(65),
-          remainder - shiftedDivisor.zexts(65)
-        )
-        quotient := Mux(
-          isRemainderNeg,
-          quotient - shiftedQuotient,
-          quotient + shiftedQuotient
-        )
-        when(divisorShift === 0.U) {
-            state := DividerState.sFinish
-        }.otherwise {
-            divisorShift := divisorShift - 1.U
-        }
-    }.elsewhen(state === DividerState.sFinish) {
-        val negRemainder = remainder < 0.S
-        val adjustedRemainder =
-            Mux(negRemainder, remainder + divisor.zexts(65), remainder).asUInt
-        val adjustedQuotient = Mux(negRemainder, quotient - 1.U, quotient)
-        io.result.valid := true.B
-        io.result.bits.quotient := Mux(
-          rawDividendSign =/= rawDivisorSign,
-          adjustedQuotient.neg,
-          adjustedQuotient
-        )
-        io.result.bits.remainder := Mux(
-          sign && rawDividendSign,
-          adjustedRemainder.neg,
-          adjustedRemainder
-        )
-        state := DividerState.sIdle
-    }
-
-    when(io.flush) {
-        state := DividerState.sIdle
-    }
-}
-
 class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
-        val muInstr = Flipped(Decoupled(new Bundle {
+        val mduInstr = Flipped(Decoupled(new Bundle {
             val mduOpcode = new MDUOpcode
             val params    = new EXUParams
         }))
@@ -253,220 +28,337 @@ class MultiplyDivisionUnit(implicit val c: CoreConfig) extends Module {
         val outfire = Output(Bool())
     })
 
-    def cacheHit(
-        cacheSrc1: UInt,
-        cacheSrc2: UInt,
-        cacheSign: Data,
-        cacheOp32: Bool,
-        reqSrc1: UInt,
-        reqSrc2: UInt,
-        reqSign: Data,
-        reqOp32: Bool
-    ): Bool =
-        cacheSrc1 === reqSrc1 &&
-            cacheSrc2 === reqSrc2 &&
-            cacheSign === reqSign &&
-            cacheOp32 === reqOp32
+    private val mulLatency =
+        BoothRadix4Multiplier.latency(64, c.mulCompTreeMaxStage)
 
-    val opcode   = io.muInstr.bits.mduOpcode
-    val params   = io.muInstr.bits.params
-    val booth4   = Module(new Booth4)
-    val divider  = Module(new NonRestoringDivider)
-    val mulCache = RegInit((new MultiplyCache).zero)
-    val divCache = RegInit((new DivideCache).zero)
-    val isInit   = WireInit(false.B)
-    val isDiv    = opcode.funct3(2)
-    val op32     = opcode.op32
+    private val divLatency =
+        SRTDivider.latency(
+          base = c.dividerBase,
+          width = 65,
+          remLeadBits = c.dividerRemLeadBits,
+          divisorLeadBits = c.dividerDivisorLeadBits,
+          maxStage = c.dividerMaxStage
+        )
+
+    private val mduLatency    = math.max(mulLatency, divLatency)
+    private val mulPadLatency = mduLatency - mulLatency
+    private val divPadLatency = mduLatency - divLatency
+
+    require(mulLatency > 0, "multiplier latency must be positive")
+    require(divLatency > 0, "divider latency must be positive")
+
+    val opcode = io.mduInstr.bits.mduOpcode
+    val params = io.mduInstr.bits.params
+
+    val multiplier =
+        Module(
+          new BoothRadix4Multiplier(width = 64, maxStage = c.mulCompTreeMaxStage)
+        )
+
+    val divider =
+        Module(
+          new SRTDivider(
+            base = c.dividerBase,
+            width = 65,
+            remLeadBits = c.dividerRemLeadBits,
+            divisorLeadBits = c.dividerDivisorLeadBits,
+            maxStage = c.dividerMaxStage
+          )
+        )
+
+    val isDiv = opcode.funct3(2)
+    val op32  = opcode.op32
 
     val op64Funct3 = opcode.getFunct3Op64()
     val op32Funct3 = opcode.getFunct3Op32()
 
-    io.outfire              := false.B
-    io.commit.valid         := false.B
-    io.commit.bits          := new MDUCommit().zero
-    io.commit.bits.robIndex := params.robIndex
+    val robIndexWidth = params.robIndex.getWidth
 
-    booth4.io.src.valid := false.B
-    booth4.io.src.bits  := new MultiplyParams().zero
-    booth4.io.flush     := io.flush
+    class MulPipeMeta extends Bundle {
+        val valid      = Bool()
+        val robIndex   = UInt(robIndexWidth.W)
+        val op32       = Bool()
+        val op64Funct3 = MultiplyDivisionUnitFunct3Op64()
 
-    divider.io.src.valid := false.B
-    divider.io.src.bits  := new DivideParams().zero
-    divider.io.flush     := io.flush
+        val src1Sign = Bool()
+        val src2     = UInt(64.W)
+    }
 
-    when(isDiv) {
-        val sign = Mux(
-          op32,
-          MuxLookup(op32Funct3, false.B)(
-            Seq(
-              MultiplyDivisionUnitFunct3Op32.divw -> true.B,
-              MultiplyDivisionUnitFunct3Op32.remw -> true.B
-            )
-          ),
-          MuxLookup(op64Funct3, false.B)(
-            Seq(
-              MultiplyDivisionUnitFunct3Op64.div -> true.B,
-              MultiplyDivisionUnitFunct3Op64.rem -> true.B
-            )
-          )
-        )
-        val divCacheAvailable = cacheHit(
-          divCache.params.src1,
-          divCache.params.src2,
-          divCache.params.sign,
-          divCache.params.op32,
-          params.source1,
-          params.source2,
-          sign,
-          op32
-        )
+    class DivPipeMeta extends Bundle {
+        val valid      = Bool()
+        val robIndex   = UInt(robIndexWidth.W)
+        val op32       = Bool()
+        val op32Funct3 = MultiplyDivisionUnitFunct3Op32()
+        val op64Funct3 = MultiplyDivisionUnitFunct3Op64()
+    }
 
-        when(io.muInstr.valid) {
-            when(!divCacheAvailable) {
-                isInit := true.B
-                val src1 = Wire(UInt(64.W))
-                val src2 = Wire(UInt(64.W))
+    class RespPipeEntry extends Bundle {
+        val valid = Bool()
+        val bits  = new MDUCommit
+    }
 
-                when(opcode.op32) {
-                    src1 := Mux(
-                      sign,
-                      params.source1(31, 0).sextu(64),
-                      params.source1(31, 0).zextu(64)
-                    )
-                    src2 := Mux(
-                      sign,
-                      params.source2(31, 0).sextu(64),
-                      params.source2(31, 0).zextu(64)
-                    )
-                }.otherwise {
-                    src1 := params.source1
-                    src2 := params.source2
+    def zeroMulMeta: MulPipeMeta =
+        0.U.asTypeOf(new MulPipeMeta)
+
+    def zeroDivMeta: DivPipeMeta =
+        0.U.asTypeOf(new DivPipeMeta)
+
+    def zeroRespEntry: RespPipeEntry =
+        0.U.asTypeOf(new RespPipeEntry)
+
+    def padRespPipe(in: RespPipeEntry, stages: Int): RespPipeEntry = {
+        if (stages == 0) {
+            in
+        } else {
+            val regs = RegInit(VecInit(Seq.fill(stages)(zeroRespEntry)))
+
+            when(io.flush) {
+                for (i <- 0 until stages) {
+                    regs(i) := zeroRespEntry
                 }
-
-                divider.io.src.valid     := true.B
-                divider.io.src.bits.src1 := src1
-                divider.io.src.bits.src2 := src2
-                divider.io.src.bits.sign := sign
-            }
-        }
-
-        when(
-          divider.io.result.valid || (io.muInstr.valid && divCacheAvailable)
-        ) {
-            isInit          := false.B
-            io.outfire      := true.B
-            io.commit.valid := true.B
-            val result = Mux(
-              divider.io.result.valid,
-              divider.io.result.bits,
-              divCache.result
-            )
-            val finalResult = Mux(
-              op32,
-              MuxLookup(op32Funct3, result.remainder(31, 0).sextu(64))(
-                Seq(
-                  MultiplyDivisionUnitFunct3Op32.divw -> result
-                      .quotient(31, 0)
-                      .sextu(64),
-                  MultiplyDivisionUnitFunct3Op32.divuw -> result
-                      .quotient(31, 0)
-                      .sextu(64)
-                )
-              ),
-              MuxLookup(op64Funct3, result.remainder)(
-                Seq(
-                  MultiplyDivisionUnitFunct3Op64.div  -> result.quotient,
-                  MultiplyDivisionUnitFunct3Op64.divu -> result.quotient
-                )
-              )
-            )
-            io.commit.bits.data := finalResult
-            when(divider.io.result.valid) {
-                divCache.params.src1 := params.source1
-                divCache.params.src2 := params.source2
-                divCache.params.sign := sign
-                divCache.params.op32 := op32
-                divCache.result      := divider.io.result.bits
-                divCache.valid       := true.B
-            }
-        }
-    }.otherwise {
-        val sign = Mux(
-          op32,
-          MuxLookup(op32Funct3, "b00".U)(
-            Seq(
-              MultiplyDivisionUnitFunct3Op32.mulw -> "b11".U
-            )
-          ),
-          MuxLookup(op64Funct3, "b00".U)(
-            Seq(
-              MultiplyDivisionUnitFunct3Op64.mul    -> "b11".U,
-              MultiplyDivisionUnitFunct3Op64.mulh   -> "b11".U,
-              MultiplyDivisionUnitFunct3Op64.mulhsu -> "b01".U,
-              MultiplyDivisionUnitFunct3Op64.mulhu  -> "b00".U
-            )
-          )
-        )
-        val mulCacheAvailable = cacheHit(
-          mulCache.params.src1,
-          mulCache.params.src2,
-          mulCache.params.sign,
-          mulCache.params.op32,
-          params.source1,
-          params.source2,
-          sign,
-          op32
-        )
-        when(io.muInstr.valid) {
-            when(!mulCacheAvailable) {
-                isInit                  := true.B
-                booth4.io.src.valid     := true.B
-                booth4.io.src.bits.sign := sign
-                val src1 = Wire(UInt(64.W))
-                val src2 = Wire(UInt(64.W))
-
-                when(opcode.op32) {
-                    src1 := params.source1(31, 0).sextu(64)
-                    src2 := params.source2(31, 0).sextu(64)
-                }.otherwise {
-                    src1 := params.source1
-                    src2 := params.source2
+            }.otherwise {
+                regs(0) := in
+                for (i <- 1 until stages) {
+                    regs(i) := regs(i - 1)
                 }
+            }
 
-                booth4.io.src.bits.src1 := src1
-                booth4.io.src.bits.src2 := src2
-            }
-        }
-        when(
-          booth4.io.result.valid || (io.muInstr.valid && mulCacheAvailable)
-        ) {
-            isInit          := false.B
-            io.outfire      := true.B
-            io.commit.valid := true.B
-            val result = Mux(
-              booth4.io.result.valid,
-              booth4.io.result.bits,
-              mulCache.result
-            )
-            val finalResult = Mux(
-              op32,
-              result(31, 0).sextu(64),
-              Mux(
-                op64Funct3 === MultiplyDivisionUnitFunct3Op64.mul,
-                result(63, 0),
-                result(127, 64)
-              )
-            )
-            io.commit.bits.data := finalResult
-            when(booth4.io.result.valid) {
-                mulCache.params.src1 := params.source1
-                mulCache.params.src2 := params.source2
-                mulCache.params.sign := sign
-                mulCache.params.op32 := op32
-                mulCache.result      := booth4.io.result.bits
-            }
+            regs(stages - 1)
         }
     }
 
-    io.muInstr.ready := io.commit.ready && booth4.io.idle && divider.io.idle && ~isInit
+    val mulMetaPipe =
+        RegInit(VecInit(Seq.fill(mulLatency)(zeroMulMeta)))
+
+    val divMetaPipe =
+        RegInit(VecInit(Seq.fill(divLatency)(zeroDivMeta)))
+
+    val respValid = RegInit(false.B)
+    val respBits  = RegInit((new MDUCommit).zero)
+
+    io.commit.valid := respValid
+    io.commit.bits  := respBits
+
+    val respSlotFree = !respValid || io.commit.fire
+
+    // 固定延迟流水线：不再需要 divider idle / div cache / div result buffer。
+    io.mduInstr.ready := !io.flush && respSlotFree
+
+    val mulReqFire = io.mduInstr.fire && !isDiv
+    val divReqFire = io.mduInstr.fire && isDiv
+
+    // Divide request sign.
+    val divSign = Mux(
+      op32,
+      MuxLookup(op32Funct3, false.B)(
+        Seq(
+          MultiplyDivisionUnitFunct3Op32.divw -> true.B,
+          MultiplyDivisionUnitFunct3Op32.remw -> true.B
+        )
+      ),
+      MuxLookup(op64Funct3, false.B)(
+        Seq(
+          MultiplyDivisionUnitFunct3Op64.div -> true.B,
+          MultiplyDivisionUnitFunct3Op64.rem -> true.B
+        )
+      )
+    )
+
+    // ------------------------
+    // Multiply request
+    // ------------------------
+    val mulSrc1 = Wire(UInt(64.W))
+    val mulSrc2 = Wire(UInt(64.W))
+
+    when(op32) {
+        mulSrc1 := params.source1(31, 0).sextu(64)
+        mulSrc2 := params.source2(31, 0).sextu(64)
+    }.otherwise {
+        mulSrc1 := params.source1
+        mulSrc2 := params.source2
+    }
+
+    val mulMetaIn = Wire(new MulPipeMeta)
+    mulMetaIn.valid      := mulReqFire
+    mulMetaIn.robIndex   := params.robIndex
+    mulMetaIn.op32       := op32
+    mulMetaIn.op64Funct3 := op64Funct3
+    mulMetaIn.src1Sign   := mulSrc1(63)
+    mulMetaIn.src2       := mulSrc2
+
+    multiplier.io.in.x1 := Mux(mulReqFire, mulSrc1, 0.U(64.W))
+    multiplier.io.in.x2 := Mux(mulReqFire, mulSrc2, 0.U(64.W))
+
+    when(io.flush) {
+        for (i <- 0 until mulLatency) {
+            mulMetaPipe(i) := zeroMulMeta
+        }
+    }.otherwise {
+        mulMetaPipe(0) := mulMetaIn
+        for (i <- 1 until mulLatency) {
+            mulMetaPipe(i) := mulMetaPipe(i - 1)
+        }
+    }
+
+    // ------------------------
+    // Divide request
+    // ------------------------
+    val divSrc1 = Wire(SInt(65.W))
+    val divSrc2 = Wire(SInt(65.W))
+
+    when(op32) {
+        divSrc1 := Mux(
+          divSign,
+          params.source1(31, 0).sextu(65),
+          params.source1(31, 0).zextu(65)
+        ).asSInt
+
+        divSrc2 := Mux(
+          divSign,
+          params.source2(31, 0).sextu(65),
+          params.source2(31, 0).zextu(65)
+        ).asSInt
+    }.otherwise {
+        divSrc1 := Mux(
+          divSign,
+          params.source1.sextu(65),
+          params.source1.zextu(65)
+        ).asSInt
+
+        divSrc2 := Mux(
+          divSign,
+          params.source2.sextu(65),
+          params.source2.zextu(65)
+        ).asSInt
+    }
+
+    val divMetaIn = Wire(new DivPipeMeta)
+    divMetaIn.valid      := divReqFire
+    divMetaIn.robIndex   := params.robIndex
+    divMetaIn.op32       := op32
+    divMetaIn.op32Funct3 := op32Funct3
+    divMetaIn.op64Funct3 := op64Funct3
+
+    // SRTDivider 没有 valid，靠外部 metadata pipe 追踪有效性。
+    // invalid bubble 用 0 / 1，避免无意义的 div-by-zero 路径。
+    divider.io.in.dividend := Mux(divReqFire, divSrc1, 0.S(65.W))
+    divider.io.in.divisor  := Mux(divReqFire, divSrc2, 1.S(65.W))
+
+    when(io.flush) {
+        for (i <- 0 until divLatency) {
+            divMetaPipe(i) := zeroDivMeta
+        }
+    }.otherwise {
+        divMetaPipe(0) := divMetaIn
+        for (i <- 1 until divLatency) {
+            divMetaPipe(i) := divMetaPipe(i - 1)
+        }
+    }
+
+    // ------------------------
+    // Result selection
+    // ------------------------
+    def selectMulResult(meta: MulPipeMeta): UInt = {
+        val out = multiplier.io.out
+
+        val hiHsu =
+            out.hi_u - Mux(meta.src1Sign, meta.src2, 0.U(64.W))
+
+        Mux(
+          meta.op32,
+          out.lo(31, 0).sextu(64),
+          MuxLookup(meta.op64Funct3, out.lo)(
+            Seq(
+              MultiplyDivisionUnitFunct3Op64.mul    -> out.lo,
+              MultiplyDivisionUnitFunct3Op64.mulh   -> out.hi_s,
+              MultiplyDivisionUnitFunct3Op64.mulhsu -> hiHsu,
+              MultiplyDivisionUnitFunct3Op64.mulhu  -> out.hi_u
+            )
+          )
+        )
+    }
+
+    def selectDivResult(
+        quotient65: SInt,
+        remainder65: SInt,
+        rOp32: Bool,
+        rOp32Funct3: MultiplyDivisionUnitFunct3Op32.Type,
+        rOp64Funct3: MultiplyDivisionUnitFunct3Op64.Type
+    ): UInt = {
+        val quotient  = quotient65.asUInt
+        val remainder = remainder65.asUInt
+
+        Mux(
+          rOp32,
+          MuxLookup(rOp32Funct3, remainder(31, 0).sextu(64))(
+            Seq(
+              MultiplyDivisionUnitFunct3Op32.divw -> quotient(31, 0).sextu(64),
+              MultiplyDivisionUnitFunct3Op32.divuw -> quotient(31, 0).sextu(64)
+            )
+          ),
+          MuxLookup(rOp64Funct3, remainder(63, 0))(
+            Seq(
+              MultiplyDivisionUnitFunct3Op64.div  -> quotient(63, 0),
+              MultiplyDivisionUnitFunct3Op64.divu -> quotient(63, 0)
+            )
+          )
+        )
+    }
+
+    val mulRawMeta  = mulMetaPipe(mulLatency - 1)
+    val divRawMeta  = divMetaPipe(divLatency - 1)
+    val mulRawValid = mulRawMeta.valid && !io.flush
+    val divRawValid = divRawMeta.valid && !io.flush
+
+    val mulRawResp = Wire(new RespPipeEntry)
+    mulRawResp          := zeroRespEntry
+    mulRawResp.valid    := mulRawValid
+    mulRawResp.bits     := new MDUCommit().zero
+    mulRawResp.bits.robIndex := mulRawMeta.robIndex
+    mulRawResp.bits.data     := selectMulResult(mulRawMeta)
+
+    val divRawResp = Wire(new RespPipeEntry)
+    divRawResp          := zeroRespEntry
+    divRawResp.valid    := divRawValid
+    divRawResp.bits     := new MDUCommit().zero
+    divRawResp.bits.robIndex := divRawMeta.robIndex
+    divRawResp.bits.data := selectDivResult(
+      divider.io.out.quotient,
+      divider.io.out.remainder,
+      divRawMeta.op32,
+      divRawMeta.op32Funct3,
+      divRawMeta.op64Funct3
+    )
+
+    // 延迟低的一侧补拍到 mduLatency。
+    // 因为 MDU 入口每周期最多 fire 一条指令，所以统一总延迟后不会同周期双结果。
+    val mulFinalResp = padRespPipe(mulRawResp, mulPadLatency)
+    val divFinalResp = padRespPipe(divRawResp, divPadLatency)
+
+    assert(
+      !(mulFinalResp.valid && divFinalResp.valid),
+      "MDU mul/div results should not collide after latency padding"
+    )
+
+    val pipeRespValid = (mulFinalResp.valid || divFinalResp.valid) && !io.flush
+
+    val pipeRespBits = Wire(new MDUCommit)
+    pipeRespBits := new MDUCommit().zero
+
+    when(mulFinalResp.valid) {
+        pipeRespBits := mulFinalResp.bits
+    }.elsewhen(divFinalResp.valid) {
+        pipeRespBits := divFinalResp.bits
+    }
+
+    when(io.flush) {
+        respValid := false.B
+    }.elsewhen(respSlotFree && pipeRespValid) {
+        respValid := true.B
+        respBits  := pipeRespBits
+    }.elsewhen(io.commit.fire) {
+        respValid := false.B
+    }
+
+    io.outfire := io.mduInstr.fire
 }

@@ -28,6 +28,7 @@ object markorv extends SbtModule with ScalafmtModule { m =>
     )
     override def ivyDeps = Agg(
         ivy"org.chipsalliance::chisel:$chiselVersion",
+        ivy"org.typelevel::spire:0.18.0",
         ivy"io.circe::circe-core:0.14.7",
         ivy"io.circe::circe-generic:0.14.7",
         ivy"io.circe::circe-parser:0.14.7",

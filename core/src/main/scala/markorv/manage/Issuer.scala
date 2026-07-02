@@ -6,7 +6,7 @@ import chisel3.util._
 import markorv.backend.EXUEnum.EXUEnumOps
 import markorv.config.CoreConfig
 import markorv.frontend.IssueTask
-import markorv.utils.CountLeadingZeros
+import markorv.math.CountLeadingZeros
 import markorv.utils.ChiselUtils.DataOperationExtension
 
 class Issuer(implicit val c: CoreConfig) extends Module {

@@ -58,7 +58,8 @@ uint64_t VirtualPLIC::read(uint64_t addr, uint8_t size)
 
         uint64_t result = 0;
         const auto &enable = contexts[context_id].source_enable;
-        for (uint8_t rptr = 0; rptr <= size; ++rptr) {
+        const uint64_t bytes = 1ULL << size;
+        for (uint8_t rptr = 0; rptr < bytes; ++rptr) {
             if (byte_offset + rptr >= enable.size())
                 continue;
             result |= static_cast<uint64_t>(enable[byte_offset + rptr]) << (rptr << 3);
@@ -116,12 +117,13 @@ void VirtualPLIC::write(uint64_t addr, uint64_t data, uint8_t size, uint8_t strb
             return;
 
         auto &enable = contexts[context_id].source_enable;
-        for (uint8_t rptr = 0; rptr <= size; ++rptr) {
-            if (byte_offset + rptr >= enable.size())
+        const uint64_t bytes = 1ULL << size;
+        for (uint8_t wptr = 0; wptr < bytes; ++wptr) {
+            if (byte_offset + wptr >= enable.size())
                 continue;
-            if (!(strb & (1 << rptr)))
+            if (!(strb & (1 << wptr)))
                 continue;
-            enable[byte_offset + rptr] = (data >> (rptr << 3)) & 0xFF;
+            enable[byte_offset + wptr] = (data >> (wptr << 3)) & 0xFF;
         }
         return;
     }

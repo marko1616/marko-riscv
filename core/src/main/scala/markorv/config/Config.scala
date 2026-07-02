@@ -145,6 +145,11 @@ case class CoreConfig(
     renameTableSize: Int,
     regFileSize: Int,
     pma: List[PmaConfig],
+    mulCompTreeMaxStage: Int,
+    dividerBase: Int,
+    dividerRemLeadBits: Int,
+    dividerDivisorLeadBits: Int,
+    dividerMaxStage: Int,
     tlb4KEntries: Int,
     tlb2MEntries: Int,
     tlb1GEntries: Int

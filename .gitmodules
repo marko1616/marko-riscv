@@ -10,3 +10,6 @@
 [submodule "tests/riscv-arch-test"]
 	path = tests/riscv-arch-test
 	url = https://github.com/riscv/riscv-arch-test
+[submodule "libs/OpenROAD-flow-scripts"]
+	path = libs/OpenROAD-flow-scripts
+	url = https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts.git
