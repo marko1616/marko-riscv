@@ -7,6 +7,10 @@ ARG PROXY=""
 ENV HTTP_PROXY=${PROXY}
 ENV HTTPS_PROXY=${PROXY}
 ENV ALL_PROXY=${PROXY}
+# Fucking apt is using lowercased proxy env setting 
+ENV http_proxy=${PROXY}
+ENV https_proxy=${PROXY}
+ENV all_proxy=${PROXY}
 
 RUN rm -f /etc/apt/sources.list.d/debian.sources
 
@@ -116,7 +120,10 @@ RUN git clone https://github.com/riscv/riscv-gnu-toolchain.git --depth 1
 WORKDIR /home/build-user/riscv-gnu-toolchain
 
 RUN ./configure --prefix=/home/build-user/riscv-gnu-toolchain-build --enable-multilib
-RUN make -j $(nproc)
+
+# Use this, if $(nproc) will make you computer OOM!
+ARG MAX_JOBS=""
+RUN make -j ${MAX_JOBS:-$(nproc)}
 
 # Setup .bashrc && setup.sh
 RUN echo "export PATH=\"/home/build-user/code/:/\$PATH\"" >> /home/build-user/.bashrc

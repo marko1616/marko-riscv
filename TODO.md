@@ -119,7 +119,7 @@
 <summary><strong> S Mode Instructions </strong></summary>
 
 - [x] sret
-- [ ] sfence.vma
+- [x] sfence.vma
 </details>
 
 <details>
@@ -233,7 +233,7 @@
 <details>
 <summary><strong> Svade/Svadu Extension</strong></summary>
 
-- [ ] Svade
+- [x] Svade
 - [N/A] Svadu
 
 </details>
