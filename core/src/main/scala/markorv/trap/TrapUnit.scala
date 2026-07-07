@@ -75,14 +75,14 @@ class TrapUnit(implicit val c: CoreConfig) extends Module {
     trapInfo.state.trapPc    := 0.U
     trapInfo.state.xtval     := 0.U
 
-    // S-mode: SEI(9) > STI(5) > SSI(1)
+    // S-mode: SEI(9) > SSI(1) > STI(5)
     when(sInterruptEnable) {
         when(io.seip && io.sie(9) && io.mideleg(9))(doInterrupt(9.U))
-            .elsewhen(io.stip && io.sie(5) && io.mideleg(5)) {
-                doInterrupt(5.U)
-            }
             .elsewhen(io.ssip && io.sie(1) && io.mideleg(1)) {
                 doInterrupt(1.U)
+            }
+            .elsewhen(io.stip && io.sie(5) && io.mideleg(5)) {
+                doInterrupt(5.U)
             }
     }
 
