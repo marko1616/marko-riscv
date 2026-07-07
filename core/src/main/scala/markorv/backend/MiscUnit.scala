@@ -62,6 +62,9 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
         val dcacheCleanAll             = Output(Bool())
         val dcacheCleanAllOutfire      = Input(Bool())
 
+        val peekHandlerCause = Output(UInt(16.W))
+        val peekHandlerPc    = Input(UInt(64.W))
+
         // TLB invalidation interface (for SFENCE.VMA)
         val tlbInvalidateReq  = Decoupled(new TlbInvalidateReq(c.asidWidth))
         val tlbInvalidateResp = Flipped(Valid(new TlbInvalidateResp))
@@ -86,11 +89,14 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
         io.outfire      := true.B
     }
 
-    def emitException(eventPc: UInt, xtval: UInt, cause: UInt): Unit = {
+    def emitException(xepc: UInt, xtval: UInt, cause: UInt): Unit = {
+        io.peekHandlerCause := cause
+
         io.commit.valid           := true.B
         io.commit.bits.discon     := true.B
         io.commit.bits.disconType := DisconEventType.instrException
-        io.commit.bits.eventPc    := eventPc
+        io.commit.bits.nextPc     := io.peekHandlerPc
+        io.commit.bits.xepc       := xepc
         io.commit.bits.xtval      := xtval
         io.commit.bits.cause      := cause
         io.outfire                := true.B
@@ -100,13 +106,13 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
         emitException(params.pc, opcode.rawInstr, 2.U)
 
     def emitSync(
-        eventPc: UInt,
+        nextPc: UInt,
         disconType: DisconEventType.Type = DisconEventType.instrSync
     ): Unit = {
         io.commit.valid           := true.B
         io.commit.bits.discon     := true.B
         io.commit.bits.disconType := disconType
-        io.commit.bits.eventPc    := eventPc
+        io.commit.bits.nextPc     := nextPc
         io.outfire                := true.B
     }
 
@@ -115,7 +121,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
         io.commit.bits.discon     := true.B
         io.commit.bits.disconType := DisconEventType.excepReturn
         io.commit.bits.xretType   := retType
-        io.commit.bits.eventPc    := epc
+        io.commit.bits.nextPc     := epc
         io.outfire                := true.B
     }
 
@@ -134,6 +140,8 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     io.getPrivilege        := privilegeReg
     io.icacheInvalidateAll := false.B
     io.dcacheCleanAll      := false.B
+
+    io.peekHandlerCause := 0.U
 
     // TLB invalidation defaults
     io.tlbInvalidateReq.valid := false.B

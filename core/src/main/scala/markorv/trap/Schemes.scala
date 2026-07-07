@@ -4,9 +4,13 @@ import chisel3._
 import chisel3.util._
 
 class TrapState extends Bundle {
-    val privilege = UInt(2.W)
     val trapPc    = UInt(64.W)
     val xtval     = UInt(64.W)
+}
+
+class TrapRetState extends Bundle {
+    val pc    = UInt(64.W)
+    val priv  = UInt(2.W)
 }
 
 class TrapInfo extends Bundle {

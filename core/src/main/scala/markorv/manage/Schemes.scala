@@ -54,7 +54,7 @@ class ROBDisconField(implicit val c: CoreConfig) extends Bundle {
     val xepc     = UInt(64.W)
     val xretType = new TrapReturnType.Type
 
-    val eventPc = UInt(64.W)
+    val nextPc = UInt(64.W)
 }
 
 class ROBEntry(implicit val c: CoreConfig) extends Bundle {
@@ -75,7 +75,7 @@ class ROBAllocReq(implicit val c: CoreConfig) extends Bundle {
     val prdValid        = Bool()
     val prd             = UInt(log2Ceil(c.regFileSize).W)
     val prevprd         = UInt(log2Ceil(c.regFileSize).W)
-    val eventPc         = UInt(64.W)
+    val nextPc         = UInt(64.W)
     val renameCkptIndex = UInt(log2Ceil(c.renameTableSize).W)
 }
 
@@ -175,10 +175,11 @@ trait CommitWithDiscon extends Bundle {
 trait CommitWithException extends Bundle {
     val cause = UInt(16.W)
     val xtval = UInt(64.W)
+    val xepc  = UInt(64.W)
 }
 
 trait CommitWithRecover extends Bundle {
-    val eventPc = UInt(64.W)
+    val nextPc = UInt(64.W)
 }
 
 trait CommitWithXret extends Bundle {

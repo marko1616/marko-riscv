@@ -47,6 +47,9 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
         val paddr               = Input(UInt(64.W))
         val dirLoadStore        = new IOInterface()(c.lsuIoConfig, true)
 
+        val peekHandlerCause = Output(UInt(16.W))
+        val peekHandlerPc    = Input(UInt(64.W))
+
         val commit             = Decoupled(new LSUCommit)
         val invalidateReserved = Input(Bool())
         val outfire            = Output(Bool())
@@ -172,12 +175,15 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
     val setAmoData    = WireDefault(false.B)
     val newAmoDataVal = WireDefault(0.U(64.W))
 
-    def raiseException(cause: UInt): Unit = {
+    def emitException(cause: UInt): Unit = {
+        io.peekHandlerCause := cause
+
         opFired                   := true.B
         io.commit.valid           := true.B
         io.commit.bits.discon     := true.B
         io.commit.bits.disconType := DisconEventType.instrException
-        io.commit.bits.eventPc    := params.pc
+        io.commit.bits.nextPc     := io.peekHandlerPc
+        io.commit.bits.xepc       := params.pc
         io.commit.bits.xtval      := vaAddr
         io.commit.bits.cause      := cause
     }
@@ -203,6 +209,8 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
     io.cacheAmoFlushReq.valid   := false.B
     io.cacheAmoFlushReq.bits    := new DCacheAmoFlushReq().zero
 
+    io.peekHandlerCause := 0.U
+
     io.commit.valid         := false.B
     io.commit.bits          := new LSUCommit().zero
     io.commit.bits.robIndex := params.robIndex
@@ -214,7 +222,7 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
         is(State.sIdle) {
             when(io.lsuInstr.valid && validFunct && io.commit.ready) {
                 when(!alignedCheckSucc) {
-                    raiseException(alignExcCause)
+                    emitException(alignExcCause)
                 }.elsewhen(isAmo) {
                     io.cacheAmoFlushReq.valid         := true.B
                     io.cacheAmoFlushReq.bits.vaddr    := vaAddr
@@ -250,13 +258,13 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
                     transPaAddrReg := io.paddr
                     state          := State.sBypassRead
                 }.elsewhen(code === DCacheCode.pageLoadErr) {
-                    raiseException(13.U)
+                    emitException(13.U)
                     state := State.sIdle
                 }.elsewhen(isLoadAccessFault(code)) {
-                    raiseException(5.U)
+                    emitException(5.U)
                     state := State.sIdle
                 }.otherwise {
-                    raiseException(5.U)
+                    emitException(5.U)
                     state := State.sIdle
                 }
             }
@@ -274,16 +282,16 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
                     transPaAddrReg := io.paddr
                     state          := State.sBypassWrite
                 }.elsewhen(code === DCacheCode.pageStorErr) {
-                    raiseException(15.U)
+                    emitException(15.U)
                     state := State.sIdle
                 }.elsewhen(code === DCacheCode.pageLoadErr) {
-                    raiseException(13.U)
+                    emitException(13.U)
                     state := State.sIdle
                 }.elsewhen(isStoreAccessFault(code)) {
-                    raiseException(7.U)
+                    emitException(7.U)
                     state := State.sIdle
                 }.otherwise {
-                    raiseException(7.U)
+                    emitException(7.U)
                     state := State.sIdle
                 }
             }
@@ -335,19 +343,19 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
                         state := State.sAmoRead
                     }
                 }.elsewhen(code === DCacheCode.pageStorErr) {
-                    raiseException(15.U)
+                    emitException(15.U)
                     state := State.sIdle
                 }.elsewhen(code === DCacheCode.pageLoadErr) {
-                    raiseException(13.U)
+                    emitException(13.U)
                     state := State.sIdle
                 }.elsewhen(isLoadAccessFault(code) && isLr) {
-                    raiseException(5.U)
+                    emitException(5.U)
                     state := State.sIdle
                 }.elsewhen(isStoreAccessFault(code)) {
-                    raiseException(7.U)
+                    emitException(7.U)
                     state := State.sIdle
                 }.otherwise {
-                    raiseException(7.U)
+                    emitException(7.U)
                     state := State.sIdle
                 }
             }

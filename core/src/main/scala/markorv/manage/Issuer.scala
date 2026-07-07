@@ -99,7 +99,7 @@ class Issuer(implicit val c: CoreConfig) extends Module {
     io.robReq.bits.prdValid := prdValid
     io.robReq.bits.prd      := prd
     io.robReq.bits.prevprd  := origPrd
-    io.robReq.bits.eventPc  := task.predPc
+    io.robReq.bits.nextPc  := task.predPc
     io.robReq.bits.renameCkptIndex := Mux(
       hazardResolved,
       io.renameTailIndex + 1.U,

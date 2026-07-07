@@ -69,14 +69,16 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     val buffer = RegInit(VecInit.tabulate(c.robSize) { _ =>
         new ROBEntry().zero
     })
-    val lastRtCkptIndex  = RegInit(0.U(renameIndexWidth.W))
-    val enqPtr           = RegInit(0.U(robIndexWidth.W))
-    val deqPtr           = RegInit(0.U(robIndexWidth.W))
-    val mayFull          = RegInit(false.B)
-    val ptrMatch         = enqPtr === deqPtr
-    val full             = ptrMatch && mayFull
-    val empty            = ptrMatch && !mayFull
-    val interruptEventPc = RegInit(0.U(64.W))
+    val lastRtCkptIndex   = RegInit(0.U(renameIndexWidth.W))
+    val enqPtr            = RegInit(0.U(robIndexWidth.W))
+    val deqPtr            = RegInit(0.U(robIndexWidth.W))
+    val mayFull           = RegInit(false.B)
+    val ptrMatch          = enqPtr === deqPtr
+    val full              = ptrMatch && mayFull
+    val empty             = ptrMatch && !mayFull
+
+    // Locks the nextPc for one instruction for interrupt's xepc
+    val interruptResumePc = RegInit(0.U(64.W))
 
     io.empty                := empty
     io.full                 := full
@@ -136,7 +138,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
 
         nextBuffer(enqPtr).commited      := false.B
         nextBuffer(enqPtr).fCtrl         := new ROBDisconField().zero
-        nextBuffer(enqPtr).fCtrl.eventPc := io.allocReq.bits.eventPc
+        nextBuffer(enqPtr).fCtrl.nextPc := io.allocReq.bits.nextPc
 
         enqPtr  := enqPtr + 1.U
         mayFull := true.B
@@ -148,7 +150,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     ).fCtrl.discon && (nextBuffer(deqPtr).fCtrl.disconType
         .in(DisconEventType.instrSyncNoRet, DisconEventType.instrSync))
     io.flush   := recoverRequired
-    io.flushPc := nextBuffer(deqPtr).fCtrl.eventPc
+    io.flushPc := nextBuffer(deqPtr).fCtrl.nextPc
     when(recoverRequired) {
         io.retireEvent.bits.incInstRet := nextBuffer(
           deqPtr
@@ -163,7 +165,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     io.exception.valid      := exceptionRequired
     io.exception.bits.cause := nextBuffer(deqPtr).fCtrl.cause
     when(exceptionRequired) {
-        io.exception.bits.xepc          := nextBuffer(deqPtr).fCtrl.eventPc
+        io.exception.bits.xepc          := nextBuffer(deqPtr).fCtrl.xepc
         io.exception.bits.xtval         := nextBuffer(deqPtr).fCtrl.xtval
         io.retireEvent.bits.isException := true.B
         io.retireEvent.bits.incInstRet  := false.B
@@ -210,7 +212,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     io.rtRestoreIndex.bits  := 0.U
     io.rtRmLastCkpt         := false.B
     when(retireValid) {
-        interruptEventPc := nextBuffer(deqPtr).fCtrl.eventPc
+        interruptResumePc := nextBuffer(deqPtr).fCtrl.nextPc
         when(disconEventValid) {
             io.rtRestoreIndex.valid := true.B
             io.rtRestoreIndex.bits  := disconRecoverRtIndex
@@ -223,7 +225,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
 
     when(io.interruptHlt && empty) {
         io.interruptXepc.valid := true.B
-        io.interruptXepc.bits  := interruptEventPc
+        io.interruptXepc.bits  := interruptResumePc
     }
 
     // Update buffer

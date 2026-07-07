@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util._
 
 import markorv.config.CoreConfig
-import markorv.trap.{TrapHandleInterface, TrapReturnType, TrapState}
+import markorv.trap.{TrapHandleInterface, TrapReturnType, TrapState, TrapRetState}
 import markorv.utils.ChiselUtils.DataOperationExtension
 import markorv.manage.RetireEvent
 
@@ -36,8 +36,11 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         val statusTwField   = Output(Bool())
         val statusTsrField  = Output(Bool())
 
+        val peekHandlerCause = Input(Vec(2, UInt(16.W)))
+        val peekHandlerPc = Output(Vec(2, UInt(64.W)))
+
         val trapRet     = Flipped(Valid(new TrapReturnType.Type))
-        val trapRetInfo = Output(new TrapState)
+        val trapRetInfo = Output(new TrapRetState)
 
         val mstatus = Output(UInt(64.W))
         val mie     = Output(UInt(64.W))
@@ -60,7 +63,6 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         val asid = Output(UInt(c.asidWidth.W))
 
         val time = Input(UInt(64.W))
-
         val retireEvent = Flipped(Valid(new RetireEvent))
     })
 
@@ -193,12 +195,11 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     io.statusTsrField := csrMstatus.tsrField.read
 
     // Counter Logic
-    when(csrMcountinhibit.read(0)) {
+    when(~csrMcountinhibit.read(0)) {
         csrMcycle.field.reg := csrMcycle.field.reg + 1.U
     }
     when(
-      io.retireEvent.valid && io.retireEvent.bits.incInstRet && csrMcountinhibit
-          .read(2)
+      io.retireEvent.valid && io.retireEvent.bits.incInstRet && ~csrMcountinhibit.read(2)
     ) {
         csrMinstret.field.reg := csrMinstret.field.reg + 1.U
     }
@@ -305,6 +306,27 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
         }
     }
 
+    for (i <- 0 until 2) {
+        val causeCode = io.peekHandlerCause(i)
+        val doTrapDeleg = csrMedeleg.read(
+          causeCode(5, 0)
+        ) && (io.privilege <= 1.U)
+
+        when(doTrapDeleg) {
+            val base = Cat(csrStvec.baseField.read, 0.U(2.W))
+            val mode = csrStvec.modeField.read
+
+            // For trap there is only direct mode
+            io.peekHandlerPc(i) := base
+        }.otherwise {
+            val base = Cat(csrMtvec.baseField.read, 0.U(2.W))
+            val mode = csrMtvec.modeField.read
+
+            // For trap there is only direct mode
+            io.peekHandlerPc(i) := base
+        }
+    }
+
     // Trap Set
     val handleTrap = io.handleTrap
     val trapInfo   = handleTrap.trapInfo
@@ -313,7 +335,6 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     handleTrap.privilege   := 0.U
 
     when(set) {
-        val privilege    = trapInfo.state.privilege
         val trapPc       = trapInfo.state.trapPc
         val xtval        = trapInfo.state.xtval
         val interruption = trapInfo.interruption
@@ -321,10 +342,10 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
 
         val doTrapDeleg = ~interruption && csrMedeleg.read(
           causeCode(5, 0)
-        ) && (privilege <= 1.U)
+        ) && (io.privilege <= 1.U)
         val doIntDeleg = interruption && csrMideleg.read(
           causeCode(5, 0)
-        ) && (privilege <= 1.U)
+        ) && (io.privilege <= 1.U)
         val doDeleg = doTrapDeleg || doIntDeleg
 
         val oldMIE = csrMstatus.mieField.read
@@ -335,7 +356,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             csrSstatus.spieField.write(oldSIE)
             csrSstatus.sieField.write(0.U)
 
-            csrSstatus.sppField.write(privilege(0))
+            csrSstatus.sppField.write(io.privilege(0))
 
             csrSepc.write(trapPc)
 
@@ -364,7 +385,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             csrMstatus.mpieField.write(oldMIE)
             csrMstatus.mieField.write(0.U)
 
-            csrMstatus.mppField.write(privilege)
+            csrMstatus.mppField.write(io.privilege)
 
             csrMepc.write(trapPc)
 
@@ -394,7 +415,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
     // Trap Return
     val retTrap = io.trapRetInfo
     val ret     = io.trapRet.valid
-    retTrap := new TrapState().zero
+    retTrap := new TrapRetState().zero
 
     when(ret) {
         val targetPriv = WireInit(0.U)
@@ -402,8 +423,8 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             val oldMPP  = csrMstatus.mppField.read
             val oldMPIE = csrMstatus.mpieField.read
 
-            targetPriv     := oldMPP
-            retTrap.trapPc := csrMepc.read
+            targetPriv := oldMPP
+            retTrap.pc := csrMepc.read
 
             csrMstatus.mieField.write(oldMPIE)
 
@@ -414,7 +435,7 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             val oldSPIE = csrSstatus.spieField.read
 
             targetPriv     := 0.U(1.W) ## oldSPP
-            retTrap.trapPc := csrSepc.read
+            retTrap.pc := csrSepc.read
 
             csrSstatus.sieField.write(oldSPIE)
 
@@ -426,6 +447,6 @@ class ControlStatusRegisters(implicit val c: CoreConfig) extends Module {
             csrMstatus.mprvField.write(0.U)
         }
 
-        retTrap.privilege := targetPriv
+        retTrap.priv := targetPriv
     }
 }

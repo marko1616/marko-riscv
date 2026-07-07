@@ -71,7 +71,7 @@ template<typename D, typename S> static inline void dbg_read(D &dst, S src)
         DBG_READ(e.f_ctrl.cause, dbgIo_rob_buffer_##i##_fCtrl_cause);            \
         DBG_READ(e.f_ctrl.xtval, dbgIo_rob_buffer_##i##_fCtrl_xtval);            \
         DBG_READ(e.f_ctrl.xepc, dbgIo_rob_buffer_##i##_fCtrl_xepc);              \
-        DBG_READ(e.f_ctrl.event_pc, dbgIo_rob_buffer_##i##_fCtrl_eventPc);       \
+        DBG_READ(e.f_ctrl.event_pc, dbgIo_rob_buffer_##i##_fCtrl_nextPc);       \
     } while (false);
 
 #define DBG_SAMPLE_RS(i)                                                                                     \

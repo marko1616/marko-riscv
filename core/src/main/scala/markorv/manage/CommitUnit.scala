@@ -64,10 +64,11 @@ class CommitUnit(implicit val c: CoreConfig) extends Module {
             val t = in.bits.asInstanceOf[CommitWithException]
             fCtrl.cause := t.cause
             fCtrl.xtval := t.xtval
+            fCtrl.xepc  := t.xepc
         }
         if (in.bits.isInstanceOf[CommitWithRecover]) {
             val r = in.bits.asInstanceOf[CommitWithRecover]
-            fCtrl.eventPc := r.eventPc
+            fCtrl.nextPc := r.nextPc
         }
         if (in.bits.isInstanceOf[CommitWithXret]) {
             val x = in.bits.asInstanceOf[CommitWithXret]

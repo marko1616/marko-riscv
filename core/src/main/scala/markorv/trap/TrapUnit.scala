@@ -21,7 +21,7 @@ class TrapUnit(implicit val c: CoreConfig) extends Module {
         val exception   = Flipped(Valid(new ExceptionInfo))
         val handleTrap  = Flipped(new TrapHandleInterface)
         val trapRet     = Flipped(Valid(new TrapReturnType.Type))
-        val trapRetInfo = Input(new TrapState)
+        val trapRetInfo = Input(new TrapRetState)
 
         // Flush control signals
         // ========================
@@ -72,7 +72,6 @@ class TrapUnit(implicit val c: CoreConfig) extends Module {
     io.handleTrap.set        := false.B
     trapInfo.interruption    := false.B
     trapInfo.causeCode       := 0.U
-    trapInfo.state.privilege := 0.U
     trapInfo.state.trapPc    := 0.U
     trapInfo.state.xtval     := 0.U
 
@@ -109,9 +108,9 @@ class TrapUnit(implicit val c: CoreConfig) extends Module {
 
     when(io.trapRet.valid) {
         io.flush              := true.B
-        io.flushPc            := io.trapRetInfo.trapPc
+        io.flushPc            := io.trapRetInfo.pc
         io.setPrivilege.valid := true.B
-        io.setPrivilege.bits  := io.trapRetInfo.privilege
+        io.setPrivilege.bits  := io.trapRetInfo.priv
     }
 
     when(interruptCode =/= 0.U && io.interruptXepc.valid) {
@@ -119,7 +118,6 @@ class TrapUnit(implicit val c: CoreConfig) extends Module {
 
         trapInfo.interruption    := true.B
         trapInfo.causeCode       := interruptCode
-        trapInfo.state.privilege := io.privilege
         trapInfo.state.trapPc    := io.interruptXepc.bits
         trapInfo.state.xtval     := 0.U
 
@@ -134,7 +132,6 @@ class TrapUnit(implicit val c: CoreConfig) extends Module {
 
         trapInfo.interruption    := false.B
         trapInfo.causeCode       := io.exception.bits.cause
-        trapInfo.state.privilege := io.privilege
         trapInfo.state.trapPc    := io.exception.bits.xepc
         trapInfo.state.xtval     := io.exception.bits.xtval
 

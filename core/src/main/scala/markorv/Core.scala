@@ -316,6 +316,11 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     csrFile.io.statusTwField <> misc.io.statusTwField
     csrFile.io.statusTsrField <> misc.io.statusTsrField
 
+    csrFile.io.peekHandlerCause(0) <> lsu.io.peekHandlerCause
+    csrFile.io.peekHandlerPc(0) <> lsu.io.peekHandlerPc
+    csrFile.io.peekHandlerCause(1) <> misc.io.peekHandlerCause
+    csrFile.io.peekHandlerPc(1) <> misc.io.peekHandlerPc
+
     csrFile.io.meip <> io.meip
     csrFile.io.mtip <> io.mtip
     csrFile.io.msip <> io.msip

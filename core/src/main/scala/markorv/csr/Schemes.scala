@@ -365,7 +365,15 @@ class CSRMcounteren extends CSR {
 
 // Machine Counter Setup (MRW)
 
-class CSRMcountinhibit extends CSRZeroCSR("h320".U(12.W))
+class CSRMcountinhibit extends CSR {
+    val addr = "h320".U(12.W)
+
+    val cyField = new CSRRegField(1)
+    val pad0    = new CSRZeroField(1) // You can't stop time from increasing ~
+    val irField = new CSRRegField(1)
+    val pad1    = new CSRZeroField(61)
+    val fields = Seq(cyField, pad0, irField, pad1)
+}
 
 // Machine Trap Handling (MRW)
 

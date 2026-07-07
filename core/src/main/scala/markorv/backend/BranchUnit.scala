@@ -75,6 +75,6 @@ class BranchUnit(implicit val c: CoreConfig) extends Module {
     )
     io.commit.bits.discon     := recover
     io.commit.bits.disconType := DisconEventType.instrSync
-    io.commit.bits.eventPc := Mux(funct === BranchFunct.jalr, jalrPc, branchPc)
+    io.commit.bits.nextPc := Mux(funct === BranchFunct.jalr, jalrPc, branchPc)
     io.outfire             := io.branchInstr.fire
 }
