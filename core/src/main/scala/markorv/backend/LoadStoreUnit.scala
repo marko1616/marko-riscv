@@ -410,6 +410,7 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
     }
 
     when(opFired) {
+        // WARN: Assume commit unit is always ready.
         io.outfire          := true.B
         io.lsuInstr.ready   := io.commit.ready
         io.commit.valid     := true.B

@@ -168,7 +168,7 @@ def main_menu():
         ).ask()
 
         if selected == "exit":
-            console.print("[bold blue]Exiting. Goodbye![/bold blue]")
+            console.print("[bold blue]Bye.[/bold blue]")
             break
 
         confirm = questionary.confirm(f"Proceed with `{selected}`?").ask()

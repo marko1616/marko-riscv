@@ -71,9 +71,17 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     })
     // M-mode by default on reset
     val privilegeReg             = RegInit(3.U(2.W))
-    val isFenceiCleanDcacheStage = RegInit(true.B)
-    // Tracks whether the TLB invalidation request has been accepted by MMU
-    val sfenceVmaFired = RegInit(false.B)
+
+    object FenceIState extends ChiselEnum {
+        val sIdle, sWaitDCache, sWaitICache = Value
+    }
+
+    object SfenceVmaState extends ChiselEnum {
+        val sIdle, sWaitReqAccepted, sWaitComplete = Value
+    }
+
+    val fenceIState = RegInit(FenceIState.sIdle)
+    val sfenceVmaState = RegInit(SfenceVmaState.sIdle)
 
     val opcode = io.miscInstr.bits.miscOpcode
     val params = io.miscInstr.bits.params
@@ -90,6 +98,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     }
 
     def emitException(xepc: UInt, xtval: UInt, cause: UInt): Unit = {
+        // WARN: Assume commit unit is always ready.
         io.peekHandlerCause := cause
 
         io.commit.valid           := true.B
@@ -102,6 +111,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
         io.outfire                := true.B
     }
 
+    // WARN: Assume commit unit is always ready.
     def emitIllegalInstr(): Unit =
         emitException(params.pc, opcode.rawInstr, 2.U)
 
@@ -109,6 +119,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
         nextPc: UInt,
         disconType: DisconEventType.Type = DisconEventType.instrSync
     ): Unit = {
+        // WARN: Assume commit unit is always ready.
         io.commit.valid           := true.B
         io.commit.bits.discon     := true.B
         io.commit.bits.disconType := disconType
@@ -117,6 +128,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     }
 
     def emitExcepReturn(retType: TrapReturnType.Type, epc: UInt): Unit = {
+        // WARN: Assume commit unit is always ready.
         io.commit.valid           := true.B
         io.commit.bits.discon     := true.B
         io.commit.bits.disconType := DisconEventType.excepReturn
@@ -132,7 +144,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     io.csrio.writeData := 0.U
 
     io.outfire              := false.B
-    io.miscInstr.ready      := io.commit.ready && ~validOp
+    io.miscInstr.ready      := io.commit.ready && fenceIState === FenceIState.sIdle && sfenceVmaState === SfenceVmaState.sIdle
     io.commit.valid         := false.B
     io.commit.bits          := new MISCCommit().zero
     io.commit.bits.robIndex := params.robIndex
@@ -223,10 +235,9 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                 }
                 is(SystemOperation.sfenceVma) {
                     when(privilegeReg < Mux(io.statusTvmField, 3.U, 1.U)) {
+                        // This can be completed in 1 cycle so we won't change state machine
                         emitIllegalInstr()
                     }.otherwise {
-                        io.miscInstr.ready := false.B
-
                         val rs1Idx  = opcode.rawInstr(19, 15)
                         val rs2Idx  = opcode.rawInstr(24, 20)
                         val rs1IsX0 = rs1Idx === 0.U
@@ -246,8 +257,10 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                           )
                         )
 
-                        when(!sfenceVmaFired) {
-                            // Stage 1: fire TLB invalidation request to MMU
+                        when(sfenceVmaState === SfenceVmaState.sIdle){
+                            sfenceVmaState := SfenceVmaState.sWaitReqAccepted
+                        }.elsewhen(sfenceVmaState === SfenceVmaState.sWaitReqAccepted) {
+                            // fire TLB invalidation request to MMU
                             io.tlbInvalidateReq.valid      := true.B
                             io.tlbInvalidateReq.bits.mode  := invMode
                             io.tlbInvalidateReq.bits.vaddr := params.source1
@@ -257,14 +270,14 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                             )
 
                             when(io.tlbInvalidateReq.fire) {
-                                sfenceVmaFired := true.B
+                                sfenceVmaState := SfenceVmaState.sWaitComplete
                             }
                         }.otherwise {
-                            // Stage 2: wait for MMU to complete invalidation across all TLBs
+                            // wait for MMU to complete invalidation across all TLBs
                             when(
                               io.tlbInvalidateResp.valid && io.tlbInvalidateResp.bits.done
                             ) {
-                                sfenceVmaFired := false.B
+                                sfenceVmaState := SfenceVmaState.sIdle
                                 emitSync(params.pc + 4.U)
                             }
                         }
@@ -295,17 +308,18 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                     emitCommit()
                 }
                 is(MemoryOperation.fenceI) {
-                    io.miscInstr.ready := false.B
-                    when(isFenceiCleanDcacheStage) {
+                    when(fenceIState === FenceIState.sIdle) {
+                        fenceIState := FenceIState.sWaitDCache
+                    }.elsewhen(fenceIState === FenceIState.sWaitDCache) {
                         io.dcacheCleanAll := true.B
                         when(io.dcacheCleanAllOutfire) {
-                            isFenceiCleanDcacheStage := false.B
+                            fenceIState := FenceIState.sWaitICache
                         }
                     }.otherwise {
                         io.icacheInvalidateAll := true.B
                         when(io.icacheInvalidateAllOutfire) {
                             emitSync(params.pc + 4.U)
-                            isFenceiCleanDcacheStage := true.B
+                            fenceIState := FenceIState.sIdle
                         }
                     }
                 }

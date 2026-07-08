@@ -30,7 +30,7 @@ class ArithmeticLogicUnit(implicit val c: CoreConfig) extends Module {
     val op32    = opcode.op32
 
     io.aluInstr.ready := io.commit.ready
-    io.outfire        := false.B
+    io.outfire        := io.aluInstr.fire
 
     io.commit.valid         := false.B
     io.commit.bits          := new ALUCommit().zero
@@ -74,5 +74,4 @@ class ArithmeticLogicUnit(implicit val c: CoreConfig) extends Module {
 
     io.commit.valid     := io.aluInstr.valid
     io.commit.bits.data := Mux(opcode.op32, result(31, 0).sextu(64), result)
-    io.outfire          := io.aluInstr.valid
 }
