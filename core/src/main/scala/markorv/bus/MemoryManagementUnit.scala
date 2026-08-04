@@ -702,7 +702,7 @@ class MemoryManagementUnit(implicit val c: CoreConfig) extends Module {
         is(State.sMissResp) {
             val nextState = WireDefault(state)
 
-            when(io.mmuResps(reqIdReg).fire) {
+            when(io.mmuResps(reqIdReg).valid) {
                 nextState := State.sIdle
 
                 when(reqArb.io.out.fire) {

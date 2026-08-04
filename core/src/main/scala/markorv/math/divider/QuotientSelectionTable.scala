@@ -214,7 +214,7 @@ final class QuotientSelectionTable(
         MuxLookup(qIdx, 0.U(outWidth.W))(table)
     }
 
-    def genQuotientDigitTimesDivisorTable(
+    def genNegQuotientDigitTimesDivisorTable(
         d: UInt,
         outBits: Int
     ): Seq[(UInt, UInt)] = {
@@ -224,22 +224,26 @@ final class QuotientSelectionTable(
         val dExt = d.pad(outBits)
 
         // 0, d, 2d, ..., qMax*d
-        val pos = Wire(Vec(qMax + 1, UInt(outBits.W)))
-        pos(0) := 0.U
-        for (i <- 1 to qMax) {
-            pos(i) := (pos(i - 1) +& dExt)(outBits - 1, 0)
-        }
+        val posHalf: IndexedSeq[UInt] =
+            Vector.tabulate(qMax + 1) { q =>
+                if (q == 0) {
+                    0.U(outBits.W)
+                } else {
+                    // For constant multiplier compiler may optimize it using shift
+                    (q.U * dExt)(outBits - 1, 0)
+                }
+            }
 
-        // qIdx = q + qMax
+        // qIdx = q + qMax, negQd table
         (0 to base).map { idx =>
             val q = indexToDigit(idx)
 
             val value =
-                if (q >= 0) {
-                    pos(q)
+                if (q > 0) {
+                    // Two's-complement -(q * d)
+                    ((~posHalf(q)).asUInt +& 1.U)(outBits - 1, 0)
                 } else {
-                    // Two's-complement -((-q) * d), modulo 2^outBits.
-                    ((~pos(-q)).asUInt +& 1.U)(outBits - 1, 0)
+                    posHalf(-q)
                 }
 
             idx.U(qIndexWidth.W) -> value

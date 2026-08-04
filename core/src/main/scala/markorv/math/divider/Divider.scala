@@ -112,7 +112,7 @@ class SRTDivider(
     val divLead = d(totalBits - 1, totalBits - divisorLeadBits)
 
     // SRT iterations + on-the-fly conversion
-    val qTimesDTable = qst.genQuotientDigitTimesDivisorTable(d, remBits)
+    val negQTimesDTable = qst.genNegQuotientDigitTimesDivisorTable(d, remBits)
 
     val divisorLeadingZeroWidth = divisorLeadingZero.getWidth
     val iterNumWidth            = iterNum.getWidth
@@ -131,7 +131,7 @@ class SRTDivider(
         val divisorLeadingZero = UInt(divisorLeadingZeroWidth.W)
         val nDivisor           = UInt(nDivisorWidth.W)
         val divLead            = UInt(divLeadWidth.W)
-        val qTimesDTable       = Vec(base + 1, UInt(remBits.W))
+        val neqQTimesDTable       = Vec(base + 1, UInt(remBits.W))
         val dividend           = SInt(width.W)
         val quotientSign       = Bool()
         val remainderSign      = Bool()
@@ -151,7 +151,7 @@ class SRTDivider(
         divisorLeadingZeroIn: UInt,
         nDivisorIn: UInt,
         divLeadIn: UInt,
-        qTimesDTableIn: Vec[UInt],
+        neqQTimesDTableIn: Vec[UInt],
         dividendIn: SInt,
         quotientSignIn: Bool,
         remainderSignIn: Bool,
@@ -171,7 +171,7 @@ class SRTDivider(
         pipeIn.divisorLeadingZero := divisorLeadingZeroIn
         pipeIn.nDivisor           := nDivisorIn
         pipeIn.divLead            := divLeadIn
-        pipeIn.qTimesDTable       := qTimesDTableIn
+        pipeIn.neqQTimesDTable    := neqQTimesDTableIn
         pipeIn.dividend           := dividendIn
         pipeIn.quotientSign       := quotientSignIn
         pipeIn.remainderSign      := remainderSignIn
@@ -183,9 +183,9 @@ class SRTDivider(
         pipeOut
     }
 
-    val qTimesDTableVec = Wire(Vec(base + 1, UInt(remBits.W)))
+    val negQTimesDTableVec = Wire(Vec(base + 1, UInt(remBits.W)))
     for (idx <- 0 to base) {
-        qTimesDTableVec(idx) := qTimesDTable(idx)._2
+        negQTimesDTableVec(idx) := negQTimesDTable(idx)._2
     }
 
     // RISC-V corner cases
@@ -205,7 +205,7 @@ class SRTDivider(
       divisorLeadingZero,
       nDivisor,
       divLead,
-      qTimesDTableVec,
+      negQTimesDTableVec,
       dividend,
       quotientSign,
       remainderSign,
@@ -223,7 +223,7 @@ class SRTDivider(
     var divisorLeadingZeroPipe  = prePipe.divisorLeadingZero
     var nDivisorPipe            = prePipe.nDivisor
     var divLeadPipe             = prePipe.divLead
-    var qTimesDTablePipe        = prePipe.qTimesDTable
+    var negQTimesDTablePipe     = prePipe.neqQTimesDTable
     var dividendPipe            = prePipe.dividend
     var quotientSignPipe        = prePipe.quotientSign
     var remainderSignPipe       = prePipe.remainderSign
@@ -246,9 +246,9 @@ class SRTDivider(
 
         val remSShift = (remS << baseWidth)(remBits - 1, 0)
         val remCShift = (remC << baseWidth)(remBits - 1, 0)
-        val negQd = MuxLookup((base.U(qst.qIndexWidth.W) - qIdx)(qst.qIndexWidth - 1, 0),0.U(remBits.W))(
+        val negQd = MuxLookup(qIdx, 0.U(remBits.W))(
             (0 to base).map { idx =>
-                idx.U(qst.qIndexWidth.W) -> qTimesDTablePipe(idx)
+                idx.U(qst.qIndexWidth.W) -> negQTimesDTablePipe(idx)
             }
         )
 
@@ -275,7 +275,7 @@ class SRTDivider(
               divisorLeadingZeroPipe,
               nDivisorPipe,
               divLeadPipe,
-              qTimesDTablePipe,
+              negQTimesDTablePipe,
               dividendPipe,
               quotientSignPipe,
               remainderSignPipe,
@@ -293,7 +293,7 @@ class SRTDivider(
             divisorLeadingZeroPipe = iterPipe.divisorLeadingZero
             nDivisorPipe           = iterPipe.nDivisor
             divLeadPipe            = iterPipe.divLead
-            qTimesDTablePipe       = iterPipe.qTimesDTable
+            negQTimesDTablePipe    = iterPipe.neqQTimesDTable
             dividendPipe           = iterPipe.dividend
             quotientSignPipe       = iterPipe.quotientSign
             remainderSignPipe      = iterPipe.remainderSign
@@ -314,7 +314,7 @@ class SRTDivider(
       divisorLeadingZeroPipe,
       nDivisorPipe,
       divLeadPipe,
-      qTimesDTablePipe,
+      negQTimesDTablePipe,
       dividendPipe,
       quotientSignPipe,
       remainderSignPipe,

@@ -1,7 +1,11 @@
 strash
-map
 dretime
+map
 topo
-buffer
+buffer -N 4 -v
+topo
+upsize
+topo
+dnsize
 topo
 stime -p

@@ -100,16 +100,18 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     val flush = trapUnit.io.flush | rob.io.flush
 
     // Cache
-    iCache.io.invalidateAll <> misc.io.icacheInvalidateAll
-    iCache.io.invalidateAllOutfire <> misc.io.icacheInvalidateAllOutfire
+    iCache.io.cacheInterface.readReq <> ipu.io.icacheReadReq
+    iCache.io.cacheInterface.readResp <> ipu.io.icacheReadResp
+    iCache.io.cacheInterface.invalidateAllReq <> misc.io.icacheInvalidateAllReq
+    iCache.io.cacheInterface.invalidateAllResp <> misc.io.icacheInvalidateAllResp
     iCache.io.mmuReq <> mmu.io.mmuReqs(0)
     iCache.io.mmuResp <> mmu.io.mmuResps(0)
     iCache.io.privilege <> misc.io.getPrivilege
     iCache.io.satpModeField <> csrFile.io.satpModeField
     // TODO Zicbom
-    dCache.io.cleanAll <> misc.io.dcacheCleanAll
-    dCache.io.cleanAllOutfire <> misc.io.dcacheCleanAllOutfire
-    dCache.io.invalidateAll := false.B
+    dCache.io.cacheInterface.cleanAllReq <> misc.io.dcacheCleanAllReq
+    dCache.io.cacheInterface.cleanAllResp <> misc.io.dcacheCleanAllResp
+    dCache.io.cacheInterface.invalidateAllReq.valid := false.B
     dCache.io.cacheInterface.paReadReq <> mmu.io.paReadReq
     dCache.io.cacheInterface.paReadResp <> mmu.io.paReadResp
     dCache.io.cacheInterface.readReq <> lsu.io.cacheReadReq
@@ -132,8 +134,8 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
     dCache.io.statusSumField <> csrFile.io.statusSumField
     dCache.io.statusMxrField <> csrFile.io.statusMxrField
     if (c.simulate) {
-        dCache.io.cleanAll <> (io.dcacheCleanAllReq.get || misc.io.dcacheCleanAll)
-        dCache.io.cleanAllOutfire <> io.dcacheCleanAllResp.get
+        dCache.io.cacheInterface.cleanAllReq.valid := (io.dcacheCleanAllReq.get || misc.io.dcacheCleanAllReq.valid)
+        io.dcacheCleanAllResp.get := dCache.io.cacheInterface.cleanAllResp
     }
 
     // MMU
@@ -165,7 +167,6 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // Frontend Pipeline Connections
     ipu.io.flush := flush
-    ipu.io.cacheInterface <> iCache.io.cacheInterface
 
     ifq.io.flush := flush
     ifq.io.cachelineReadReq <> ipu.io.fetchPc

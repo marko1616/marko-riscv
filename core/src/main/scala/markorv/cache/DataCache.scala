@@ -38,18 +38,12 @@ class DataCache(implicit val c: CacheConfig) extends Module {
 
         val mmuReq  = Decoupled(new MmuReq)
         val mmuResp = Flipped(Valid(new MmuResp))
-
-        val invalidateAll        = Input(Bool())
-        val invalidateAllOutfire = Output(Bool())
-        val cleanAll             = Input(Bool())
-        val cleanAllOutfire      = Output(Bool())
     })
 
     // TODO: handle bus write-back error more explicitly.
 
     object State extends ChiselEnum {
-        val sIdle, sRead, sWrite, sReplace, sVictimWriteBack, sCleanWriteBack,
-            sInvalidateAll, sCleanAll = Value
+        val sIdle, sRead, sWaitPa, sInvalidate, sWrite, sReplace, sVictimWriteBack, sCleanWriteBack, sInvalidateAll, sCleanAll = Value
     }
 
     object PaReadState extends ChiselEnum {
@@ -102,7 +96,6 @@ class DataCache(implicit val c: CacheConfig) extends Module {
         }
 
     // SRAM arrays
-
     val tagVArray  = SyncReadMem(c.setNum, Vec(c.wayNum, new CacheTagValid))
     val dataArray  = SyncReadMem(c.setNum, Vec(c.wayNum, new CacheData))
     val dirtyArray = SyncReadMem(c.setNum, Vec(c.wayNum, new CacheDirty))
@@ -138,8 +131,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
         Cat(paReadAddrReg(c.addrWidth - 1, c.offsetBits), 0.U(c.offsetBits.W))
     val paReadByteOffset = paReadAddrReg(c.offsetBits - 1, 0)
 
-    // replacement / working-set registers
-
+    // replacement / invalidate / working-set registers
     val victimPtr = RegInit(0.U(c.wayBits.W))
 
     val workSetTagVReg = RegInit(
@@ -152,8 +144,10 @@ class DataCache(implicit val c: CacheConfig) extends Module {
       VecInit(Seq.fill(c.wayNum)(new CacheDirty().zero))
     )
 
-    // clean-writeback context
+    // invalidate context
+    val invalidateWay = RegInit(0.U(c.wayBits.W))
 
+    // clean-writeback context
     val cleanWriteBackIsCleanAll = RegInit(false.B)
     val cleanWriteBackSet        = RegInit(0.U(c.setBits.W))
     val cleanWriteBackWay        = RegInit(0.U(c.wayBits.W))
@@ -161,8 +155,8 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val cleanWriteBackData       = RegInit(0.U((8 * c.dataBytes).W))
 
     // global invalidate / clean-all state
-
     val state               = RegInit(State.sInvalidateAll)
+    val waitPaNextState     = RegInit(State.sIdle)
     val invalidateAllSetIdx = RegInit(0.U(c.setBits.W))
 
     val cleanAllSetIdx    = RegInit(0.U(c.setBits.W))
@@ -253,23 +247,15 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val sReadReadSramSet   = WireDefault(0.U(c.setBits.W))
 
     // sRead -> snapshot current set for later states
-    val sReadSetWorkSetValid = WireDefault(false.B)
-    val sReadSetWorkSetTagV  = Wire(Vec(c.wayNum, new CacheTagValid))
-    val sReadSetWorkSetData  = Wire(Vec(c.wayNum, new CacheData))
-    val sReadSetWorkSetDirty = Wire(Vec(c.wayNum, new CacheDirty))
-    sReadSetWorkSetTagV  := finalTagV
-    sReadSetWorkSetData  := finalData
-    sReadSetWorkSetDirty := finalDirty
+    when(state === State.sRead && io.mmuResp.valid) {
+        workSetTagVReg  := finalTagV
+        workSetDataReg  := finalData
+        workSetDirtyReg := finalDirty
+    }
 
     // sRead -> invalidate one line in place
-    val sReadInvalidateWriteValid = WireDefault(false.B)
-    val sReadInvalidateWriteSet   = WireDefault(transactionSet)
-    val sReadInvalidateWriteTagV  = Wire(Vec(c.wayNum, new CacheTagValid))
-    val sReadInvalidateWriteDirty = Wire(Vec(c.wayNum, new CacheDirty))
-    for (i <- 0 until c.wayNum) {
-        sReadInvalidateWriteTagV(i)  := finalTagV(i)
-        sReadInvalidateWriteDirty(i) := finalDirty(i)
-    }
+    val sReadSetInvalidateValid = WireDefault(false.B)
+    val sReadSetInvalidateWay   = WireDefault(0.U(c.wayBits.W))    
 
     // sRead / sCleanAll -> prepare clean write-back context
     val sReadSetCleanWriteBackValid      = WireDefault(false.B)
@@ -279,12 +265,24 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val sReadSetCleanWriteBackPa         = WireDefault(0.U(c.addrWidth.W))
     val sReadSetCleanWriteBackData       = WireDefault(0.U((8 * c.dataBytes).W))
 
+    // sInvalidate
+    val sInvalidateWriteValid = WireDefault(false.B)
+    val sInvalidateWriteSet   = WireDefault(transactionSet)
+    val sInvalidateWriteTagV  = Wire(Vec(c.wayNum, new CacheTagValid))
+    val sInvalidateWriteDirty = Wire(Vec(c.wayNum, new CacheDirty))
+
+    for (i <- 0 until c.wayNum) {
+        sInvalidateWriteTagV(i)  := workSetTagVReg(i)
+        sInvalidateWriteDirty(i) := workSetDirtyReg(i)
+    }
+
+    // sCleanAll
     val sCleanAllSetCleanWriteBackValid      = WireDefault(false.B)
     val sCleanAllSetCleanWriteBackIsCleanAll = WireDefault(true.B)
     val sCleanAllSetCleanWriteBackSet        = WireDefault(0.U(c.setBits.W))
     val sCleanAllSetCleanWriteBackWay        = WireDefault(0.U(c.wayBits.W))
     val sCleanAllSetCleanWriteBackPa         = WireDefault(0.U(c.addrWidth.W))
-    val sCleanAllSetCleanWriteBackData = WireDefault(0.U((8 * c.dataBytes).W))
+    val sCleanAllSetCleanWriteBackData       = WireDefault(0.U((8 * c.dataBytes).W))
 
     // sWrite -> merge a store into the working-set snapshot
     val sWriteWriteValid = WireDefault(false.B)
@@ -366,12 +364,14 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     val mmuHlt    = !io.mmuReq.ready
     val mmuPaHigh = io.mmuResp.bits.pa(c.addrWidth - 1, 12)
 
-    io.cacheInterface.paReadReq.ready     := false.B
-    io.cacheInterface.readReq.ready       := false.B
-    io.cacheInterface.writeReq.ready      := false.B
-    io.cacheInterface.cleanReq.ready      := false.B
-    io.cacheInterface.invalidateReq.ready := false.B
-    io.cacheInterface.amoFlushReq.ready   := false.B
+    io.cacheInterface.paReadReq.ready        := false.B
+    io.cacheInterface.readReq.ready          := false.B
+    io.cacheInterface.writeReq.ready         := false.B
+    io.cacheInterface.cleanReq.ready         := false.B
+    io.cacheInterface.invalidateReq.ready    := false.B
+    io.cacheInterface.amoFlushReq.ready      := false.B
+    io.cacheInterface.invalidateAllReq.ready := false.B
+    io.cacheInterface.cleanAllReq.ready      := false.B
 
     io.cacheInterface.paReadResp.valid     := false.B
     io.cacheInterface.paReadResp.bits      := new DCachePaReadResp().zero
@@ -385,6 +385,8 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     io.cacheInterface.invalidateResp.bits  := new DCacheInvalidateResp().zero
     io.cacheInterface.amoFlushResp.valid   := false.B
     io.cacheInterface.amoFlushResp.bits    := new DCacheAmoFlushResp().zero
+    io.cacheInterface.invalidateAllResp    := false.B
+    io.cacheInterface.cleanAllResp         := false.B
 
     // No available for paRead
     io.cacheInterface.paddr := Mux(
@@ -402,9 +404,6 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     io.ioInterface.write.get.params.bits := new WriteParams()(
       using getCacheIoConfig(c, CacheType.Dcache)
     ).zero
-
-    io.invalidateAllOutfire := false.B
-    io.cleanAllOutfire      := false.B
 
     io.mmuReq.valid := false.B
     io.mmuReq.bits  := new MmuReq().zero
@@ -485,7 +484,8 @@ class DataCache(implicit val c: CacheConfig) extends Module {
         io.mmuResp.valid && (
           (transactionType === TransactionType.read && readHit) ||
               (transactionType === TransactionType.clean && (!readHit || !hitDirty)) ||
-              (transactionType === TransactionType.amoFlush && (!readHit || !hitDirty))
+              (transactionType === TransactionType.amoFlush && !readHit) ||
+              (transactionType === TransactionType.invalidate && !readHit)
         )
     val paReadSafe =
         (state === State.sIdle) || ((state === State.sRead) && !io.mmuResp.valid)
@@ -524,27 +524,46 @@ class DataCache(implicit val c: CacheConfig) extends Module {
         !io.cacheInterface.writeReq.valid &&
         !io.cacheInterface.cleanReq.valid &&
         !io.cacheInterface.invalidateReq.valid
-    val paReadFire        = io.cacheInterface.paReadReq.fire
-    val readReqFire       = io.cacheInterface.readReq.fire
-    val writeReqFire      = io.cacheInterface.writeReq.fire
-    val cleanReqFire      = io.cacheInterface.cleanReq.fire
-    val invalidateReqFire = io.cacheInterface.invalidateReq.fire
-    val amoFlushReqFire   = io.cacheInterface.amoFlushReq.fire
+    val invalidateAllReqReadyNoMmu = (state === State.sIdle) &&
+        !paReadBusy &&
+        !io.cacheInterface.paReadReq.valid &&
+        !io.cacheInterface.readReq.valid &&
+        !io.cacheInterface.writeReq.valid &&
+        !io.cacheInterface.cleanReq.valid &&
+        !io.cacheInterface.invalidateReq.valid &&
+        !io.cacheInterface.amoFlushReq.valid
+    val cleanAllReqReadyNoMmu = (state === State.sIdle) &&
+        !paReadBusy &&
+        !io.cacheInterface.paReadReq.valid &&
+        !io.cacheInterface.readReq.valid &&
+        !io.cacheInterface.writeReq.valid &&
+        !io.cacheInterface.cleanReq.valid &&
+        !io.cacheInterface.invalidateReq.valid &&
+        !io.cacheInterface.amoFlushReq.valid &&
+        !io.cacheInterface.invalidateAllReq.valid
 
     io.cacheInterface.paReadReq.ready := paReadSafe && paReadIdle
 
-    io.cacheInterface.readReq.ready       := readReqReadyNoMmu && !mmuHlt
-    io.cacheInterface.writeReq.ready      := writeReqReadyNoMmu && !mmuHlt
-    io.cacheInterface.cleanReq.ready      := cleanReqReadyNoMmu && !mmuHlt
-    io.cacheInterface.invalidateReq.ready := invalidateReqReadyNoMmu && !mmuHlt
-    io.cacheInterface.amoFlushReq.ready   := amoFlushReqReadyNoMmu && !mmuHlt
+    io.cacheInterface.readReq.ready          := readReqReadyNoMmu && !mmuHlt
+    io.cacheInterface.writeReq.ready         := writeReqReadyNoMmu && !mmuHlt
+    io.cacheInterface.cleanReq.ready         := cleanReqReadyNoMmu && !mmuHlt
+    io.cacheInterface.invalidateReq.ready    := invalidateReqReadyNoMmu && !mmuHlt
+    io.cacheInterface.amoFlushReq.ready      := amoFlushReqReadyNoMmu && !mmuHlt
+    io.cacheInterface.invalidateAllReq.ready := invalidateAllReqReadyNoMmu
+    io.cacheInterface.cleanAllReq.ready      := cleanAllReqReadyNoMmu
+
+    val paReadFire           = io.cacheInterface.paReadReq.fire
+    val readReqFire          = io.cacheInterface.readReq.fire
+    val writeReqFire         = io.cacheInterface.writeReq.fire
+    val cleanReqFire         = io.cacheInterface.cleanReq.fire
+    val invalidateReqFire    = io.cacheInterface.invalidateReq.fire
+    val amoFlushReqFire      = io.cacheInterface.amoFlushReq.fire
+    val invalidateAllReqFire = io.cacheInterface.invalidateAllReq.fire
+    val cleanAllReqFire      = io.cacheInterface.cleanAllReq.fire
 
     // FSM
     switch(state) {
         is(State.sIdle) {
-            val startInvalidateAll = io.invalidateAll && !paReadBusy
-            val startCleanAll = io.cleanAll && !io.invalidateAll && !paReadBusy
-
             val transactionMmuReqVaValid = WireInit(false.B)
             val transactionMmuReqVa      = WireInit(0.U(64.W))
             val transactionReqVaFired    = WireInit(false.B)
@@ -603,9 +622,9 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                 sIdleReadSramSet           := reqAmoFlushSet
                 transactionReqVaFired      := true.B
                 amoFlushReadLike := io.cacheInterface.amoFlushReq.bits.readLike
-            }.elsewhen(startInvalidateAll) {
+            }.elsewhen(invalidateAllReqFire) {
                 invalidateAllSetIdx := 0.U
-            }.elsewhen(startCleanAll) {
+            }.elsewhen(cleanAllReqFire) {
                 cleanAllSetIdx         := 0.U
                 cleanAllWayPtr         := 0.U
                 cleanAllSetLoaded      := false.B
@@ -624,8 +643,8 @@ class DataCache(implicit val c: CacheConfig) extends Module {
             val reqForAllNextState = MuxCase(
               State.sIdle,
               Seq(
-                startInvalidateAll -> State.sInvalidateAll,
-                startCleanAll      -> State.sCleanAll
+                invalidateAllReqFire -> State.sInvalidateAll,
+                cleanAllReqFire      -> State.sCleanAll
               )
             )
             val finalNextState = Mux(
@@ -637,7 +656,9 @@ class DataCache(implicit val c: CacheConfig) extends Module {
         }
 
         is(State.sRead) {
-            val lookupTxnDoneHere        = WireDefault(false.B)
+            // This state shouldn't have any SRAM side effect.
+            // This state must sllow MMU to read pa for pt walk.
+            val lookupTxnDone            = WireDefault(false.B)
             val transactionMmuReqVaValid = WireInit(false.B)
             val transactionMmuReqVa      = WireInit(0.U(64.W))
             val transactionReqVaFired    = WireInit(false.B)
@@ -724,10 +745,10 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                   )
                 )
                 val noFaultRespValid = !transactionFault && (
-                  (isRead && readHit) ||
+                      (isRead && readHit) ||
                       (isClean && (!readHit || !hitDirty)) ||
-                      (isAmoFlush && (!readHit || !hitDirty)) ||
-                      isInvalidate
+                      (isAmoFlush && !readHit) ||
+                      (isInvalidate && !readHit)
                 )
                 val respValid = transactionFault || noFaultRespValid
 
@@ -759,22 +780,15 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                 io.cacheInterface.amoFlushResp.valid := isAmoFlush && respValid
                 io.cacheInterface.amoFlushResp.bits.code := respCode
 
-                lookupTxnDoneHere := respValid
+                lookupTxnDone := respValid
 
                 when(!transactionFault) {
                     sReadSetTransactionPaHighValid := true.B
                     sReadSetTransactionPaHigh      := mmuPaHigh
-
-                    // Working-set snapshot: needed for write-hit, clean-hit-dirty,
-                    // and read/write-miss (replacement path)
-                    val needWorkSet =
-                        (readHit && (isWrite || ((isClean || isAmoFlush) && hitDirty))) ||
-                            (!readHit && (isRead || isWrite))
-                    sReadSetWorkSetValid := needWorkSet
+                    transactionHitWay              := hitWay
 
                     // Write-hit: latch hit metadata for sWrite
                     when(readHit && isWrite) {
-                        transactionHitWay    := hitWay
                         transactionReadData  := hitData
                         transactionWriteCode := DCacheCode.cacheHitOk
                     }
@@ -793,34 +807,32 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                     when(
                       readHit && (isInvalidate || (isAmoFlush && !hitDirty))
                     ) {
-                        sReadInvalidateWriteValid := true.B
-                        for (i <- 0 until c.wayNum)
-                            when(i.U === hitWay) {
-                                sReadInvalidateWriteTagV(i).valid  := false.B
-                                sReadInvalidateWriteDirty(i).dirty := false.B
-                            }
+                        sReadSetInvalidateValid := true.B
+                        sReadSetInvalidateWay := hitWay
                     }
                 }
 
-                normalNextState := MuxCase(
-                  State.sRead,
-                  Seq(
-                    transactionFault                          -> State.sRead,
-                    (!transactionFault && readHit && isWrite) -> State.sWrite,
-                    (!transactionFault && readHit && (isClean || isAmoFlush) && hitDirty) -> State.sCleanWriteBack,
-                    (!transactionFault && !readHit && (isRead || isWrite)) -> Mux(
+
+                val missNextState = Mux(
                       victimDirty,
                       State.sVictimWriteBack,
                       State.sReplace
                     )
+                val txnNextState = MuxCase(
+                  State.sRead,
+                  Seq(
+                    (!transactionFault && readHit && isWrite) -> State.sWrite,
+                    (!transactionFault && readHit && (isClean || isAmoFlush) && hitDirty) -> State.sCleanWriteBack,
+                    (!transactionFault && readHit && (isInvalidate || (isAmoFlush && !hitDirty))) -> State.sInvalidate,
+                    (!transactionFault && !readHit && (isRead || isWrite)) -> missNextState
                   )
                 )
+                waitPaNextState := txnNextState
+
+                normalNextState := Mux(paReadState === PaReadState.sIdle, txnNextState, State.sWaitPa)
             }
 
-            val startInvalidateAll = io.invalidateAll && !paReadBusy
-            val startCleanAll = io.cleanAll && !io.invalidateAll && !paReadBusy
-
-            when(lookupTxnDoneHere) {
+            when(lookupTxnDone) {
                 when(readReqValid && readReqReadyNoMmu) {
                     transactionMmuReqVaValid := true.B
                     transactionMmuReqVa      := reqReadVa
@@ -845,14 +857,6 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                     sReadReadSramValid    := true.B
                     sReadReadSramSet      := reqWriteSet
                     transactionReqVaFired := true.B
-                }.elsewhen(startInvalidateAll) {
-                    invalidateAllSetIdx := 0.U
-                }.elsewhen(startCleanAll) {
-                    cleanAllSetIdx         := 0.U
-                    cleanAllWayPtr         := 0.U
-                    cleanAllSetLoaded      := false.B
-                    sCleanAllReadSramValid := true.B
-                    sCleanAllReadSramSet   := 0.U
                 }
             }
 
@@ -862,23 +866,37 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                 io.mmuReq.bits.mode := mmuMode
             }
 
-            val reqWithAddrNextState =
-                Mux(transactionReqVaFired, State.sRead, State.sIdle)
-            val reqForAllNextState = MuxCase(
-              State.sIdle,
-              Seq(
-                startInvalidateAll -> State.sInvalidateAll,
-                startCleanAll      -> State.sCleanAll
-              )
-            )
-            val pipelineNextState = Mux(
-              transactionReqVaFired,
-              reqWithAddrNextState,
-              reqForAllNextState
-            )
-            val finalNextState =
-                Mux(lookupTxnDoneHere, pipelineNextState, normalNextState)
+            val pipelineNextState = Mux(transactionReqVaFired, State.sRead, State.sIdle)
+            val finalNextState = Mux(lookupTxnDone, pipelineNextState, normalNextState)
             state := finalNextState
+        }
+
+        is(State.sWaitPa) {
+            when(paReadState === PaReadState.sIdle) {
+                state := waitPaNextState
+            }
+        }
+
+        is(State.sInvalidate) {
+            sInvalidateWriteValid := true.B
+            sInvalidateWriteSet   := transactionSet
+
+            for (i <- 0 until c.wayNum) {
+                sInvalidateWriteTagV(i)  := workSetTagVReg(i)
+                sInvalidateWriteDirty(i) := workSetDirtyReg(i)
+                when(i.U === invalidateWay) {
+                    sInvalidateWriteTagV(i).valid  := false.B
+                    sInvalidateWriteDirty(i).dirty := false.B
+                }
+            }
+
+            io.cacheInterface.invalidateResp.valid   := transactionType === TransactionType.invalidate
+            io.cacheInterface.invalidateResp.bits.code := DCacheCode.cacheHitOk
+
+            io.cacheInterface.amoFlushResp.valid   := transactionType === TransactionType.amoFlush
+            io.cacheInterface.amoFlushResp.bits.code := DCacheCode.cacheHitOk
+
+            state := State.sIdle
         }
 
         is(State.sWrite) {
@@ -1003,7 +1021,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                     if (c.wayNum > 1) {
                         when(isLastWay(cleanAllWayPtr)) {
                             when(cleanAllSetIdx === (c.setNum - 1).U) {
-                                io.cleanAllOutfire := true.B
+                                io.cacheInterface.cleanAllResp := true.B
                                 state              := State.sIdle
                             }.otherwise {
                                 cleanAllSetIdx    := cleanAllSetIdx + 1.U
@@ -1021,7 +1039,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                         }
                     } else {
                         when(cleanAllSetIdx === (c.setNum - 1).U) {
-                            io.cleanAllOutfire := true.B
+                            io.cacheInterface.cleanAllResp := true.B
                             state              := State.sIdle
                         }.otherwise {
                             cleanAllSetIdx    := cleanAllSetIdx + 1.U
@@ -1061,21 +1079,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                     io.cacheInterface.amoFlushResp.valid := transactionType === TransactionType.amoFlush
                     io.cacheInterface.amoFlushResp.bits.code := DCacheCode.cacheHitOk
 
-                    when(io.invalidateAll) {
-                        invalidateAllSetIdx := 0.U
-                        state               := State.sInvalidateAll
-                    }.elsewhen(io.cleanAll) {
-                        cleanAllSetIdx    := 0.U
-                        cleanAllWayPtr    := 0.U
-                        cleanAllSetLoaded := false.B
-
-                        sCleanAllReadSramValid := true.B
-                        sCleanAllReadSramSet   := 0.U
-
-                        state := State.sCleanAll
-                    }.otherwise {
-                        state := State.sIdle
-                    }
+                    state := State.sIdle
                 }
             }
         }
@@ -1085,7 +1089,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
             sInvalidateAllWriteSet   := invalidateAllSetIdx
 
             when(invalidateAllSetIdx === (c.setNum - 1).U) {
-                io.invalidateAllOutfire := true.B
+                io.cacheInterface.invalidateAllResp := true.B
                 state                   := State.sIdle
             }.otherwise {
                 invalidateAllSetIdx := invalidateAllSetIdx + 1.U
@@ -1121,7 +1125,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                     if (c.wayNum > 1) {
                         when(isLastWay(cleanAllWayPtr)) {
                             when(cleanAllSetIdx === (c.setNum - 1).U) {
-                                io.cleanAllOutfire := true.B
+                                io.cacheInterface.cleanAllResp := true.B
                                 state              := State.sIdle
                             }.otherwise {
                                 cleanAllSetIdx    := cleanAllSetIdx + 1.U
@@ -1139,7 +1143,7 @@ class DataCache(implicit val c: CacheConfig) extends Module {
                         }
                     } else {
                         when(cleanAllSetIdx === (c.setNum - 1).U) {
-                            io.cleanAllOutfire := true.B
+                            io.cacheInterface.cleanAllResp := true.B
                             state              := State.sIdle
                         }.otherwise {
                             cleanAllSetIdx    := cleanAllSetIdx + 1.U
@@ -1217,7 +1221,6 @@ class DataCache(implicit val c: CacheConfig) extends Module {
     }
 
     // commit actions
-
     val finalSetTransactionValid =
         sIdleSetTransactionValid || sReadSetTransactionValid
     when(finalSetTransactionValid) {
@@ -1257,12 +1260,6 @@ class DataCache(implicit val c: CacheConfig) extends Module {
               sIdleSetTransactionPaHigh,
               sReadSetTransactionPaHigh
             )
-    }
-
-    when(sReadSetWorkSetValid) {
-        workSetTagVReg  := sReadSetWorkSetTagV
-        workSetDataReg  := sReadSetWorkSetData
-        workSetDirtyReg := sReadSetWorkSetDirty
     }
 
     when(sReplaceSetWorkSetValid) {
@@ -1307,6 +1304,10 @@ class DataCache(implicit val c: CacheConfig) extends Module {
             )
     }
 
+    when(sReadSetInvalidateValid) {
+        invalidateWay := sReadSetInvalidateWay
+    }
+
     when(sCleanAllSetSnapshotValid) {
         cleanAllSetTagVReg  := sCleanAllSetSnapshotTagV
         cleanAllSetDataReg  := sCleanAllSetSnapshotData
@@ -1329,9 +1330,15 @@ class DataCache(implicit val c: CacheConfig) extends Module {
         dirtyArray.write(sReplaceWriteSet, sReplaceWriteDirty)
     }
 
-    when(sReadInvalidateWriteValid) {
-        tagVArray.write(sReadInvalidateWriteSet, sReadInvalidateWriteTagV)
-        dirtyArray.write(sReadInvalidateWriteSet, sReadInvalidateWriteDirty)
+    when(sInvalidateWriteValid) {
+        tagVArray.write(
+            sInvalidateWriteSet,
+            sInvalidateWriteTagV
+        )
+        dirtyArray.write(
+            sInvalidateWriteSet,
+            sInvalidateWriteDirty
+        )
     }
 
     when(sCleanWriteBackTagVWriteValid) {

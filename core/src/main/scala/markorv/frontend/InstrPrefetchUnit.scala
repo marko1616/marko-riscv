@@ -3,7 +3,7 @@ package markorv.frontend
 import chisel3._
 import chisel3.util._
 
-import markorv.cache.{ICacheCode, ICacheReadReq, IcacheInterface}
+import markorv.cache.{ICacheCode, ICacheReadReq, ICacheReadResp}
 import markorv.config.CoreConfig
 import markorv.utils.ChiselUtils.DataOperationExtension
 
@@ -23,7 +23,8 @@ class InstrPrefetchUnit(implicit val c: CoreConfig) extends Module {
     val io = IO(new Bundle {
         val fetchPc        = Input(UInt(64.W))
         val fetched        = Valid(new PreFetchedLine)
-        val cacheInterface = Flipped(new IcacheInterface()(c.icacheConfig))
+        val icacheReadReq  = Decoupled(new ICacheReadReq)
+        val icacheReadResp = Flipped(Decoupled(new ICacheReadResp()(c.icacheConfig)))
         val flush          = Input(Bool())
     })
 
@@ -55,9 +56,9 @@ class InstrPrefetchUnit(implicit val c: CoreConfig) extends Module {
     // TODO Fetch access error / page fault
     io.fetched.valid                 := false.B
     io.fetched.bits                  := new PreFetchedLine().zero
-    io.cacheInterface.readReq.valid  := false.B
-    io.cacheInterface.readReq.bits   := new ICacheReadReq().zero
-    io.cacheInterface.readResp.ready := false.B
+    io.icacheReadReq.valid  := false.B
+    io.icacheReadReq.bits   := new ICacheReadReq().zero
+    io.icacheReadResp.ready := false.B
 
     switch(state) {
         is(State.sIdle) {
@@ -71,10 +72,10 @@ class InstrPrefetchUnit(implicit val c: CoreConfig) extends Module {
                         io.fetched.bits.data := prefCacheline.data
                         io.fetched.bits.code := prefCacheline.code
                     }.otherwise {
-                        io.cacheInterface.readReq.valid      := true.B
-                        io.cacheInterface.readReq.bits.vaddr := maskedPc
+                        io.icacheReadReq.valid      := true.B
+                        io.icacheReadReq.bits.vaddr := maskedPc
 
-                        when(io.cacheInterface.readReq.ready) {
+                        when(io.icacheReadReq.ready) {
                             pendingAddr   := maskedPc
                             pendingTarget := FetchTarget.curr
                             state         := State.sWaitResp
@@ -91,10 +92,10 @@ class InstrPrefetchUnit(implicit val c: CoreConfig) extends Module {
                         prefCacheline.addr =/= nextLinePc
 
                     when(needPrefetch) {
-                        io.cacheInterface.readReq.valid      := true.B
-                        io.cacheInterface.readReq.bits.vaddr := nextLinePc
+                        io.icacheReadReq.valid      := true.B
+                        io.icacheReadReq.bits.vaddr := nextLinePc
 
-                        when(io.cacheInterface.readReq.ready) {
+                        when(io.icacheReadReq.ready) {
                             pendingAddr   := nextLinePc
                             pendingTarget := FetchTarget.pref
                             state         := State.sWaitResp
@@ -105,7 +106,7 @@ class InstrPrefetchUnit(implicit val c: CoreConfig) extends Module {
         }
 
         is(State.sWaitResp) {
-            io.cacheInterface.readResp.ready := true.B
+            io.icacheReadResp.ready := true.B
 
             when(currValid) {
                 io.fetched.valid     := true.B
@@ -113,9 +114,9 @@ class InstrPrefetchUnit(implicit val c: CoreConfig) extends Module {
                 io.fetched.bits.code := currCacheline.code
             }
 
-            when(io.cacheInterface.readResp.valid) {
-                val respData = io.cacheInterface.readResp.bits.data
-                val respCode = io.cacheInterface.readResp.bits.code
+            when(io.icacheReadResp.valid) {
+                val respData = io.icacheReadResp.bits.data
+                val respCode = io.icacheReadResp.bits.code
 
                 when(pendingStale) {
                     prefCacheline.valid := true.B
@@ -144,9 +145,9 @@ class InstrPrefetchUnit(implicit val c: CoreConfig) extends Module {
         }
 
         is(State.sDrain) {
-            io.cacheInterface.readResp.ready := true.B
+            io.icacheReadResp.ready := true.B
 
-            when(io.cacheInterface.readResp.valid) {
+            when(io.icacheReadResp.valid) {
                 state := State.sIdle
             }
         }
@@ -155,9 +156,9 @@ class InstrPrefetchUnit(implicit val c: CoreConfig) extends Module {
     when(io.flush) {
         currCacheline.valid             := false.B
         prefCacheline.valid             := false.B
-        io.cacheInterface.readReq.valid := false.B
+        io.icacheReadReq.valid := false.B
 
-        when(state === State.sWaitResp && !io.cacheInterface.readResp.valid) {
+        when(state === State.sWaitResp && !io.icacheReadResp.valid) {
             state := State.sDrain
         }.otherwise {
             state := State.sIdle

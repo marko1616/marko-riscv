@@ -44,7 +44,7 @@ mulCompTreeMaxStage: 2
 dividerBase: 4
 dividerRemLeadBits: 6
 dividerDivisorLeadBits: 4
-dividerMaxStage: 2
+dividerMaxStage: 3
 tlb4KEntries: 32
 tlb2MEntries: 8
 tlb1GEntries: 4

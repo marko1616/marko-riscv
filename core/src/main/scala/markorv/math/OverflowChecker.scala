@@ -17,7 +17,8 @@ object OverflowChecker {
                 val bitA = a(0).asBool
                 val bitB = b(0).asBool
 
-                val prop = bitA ^ bitB
+                // or gate may faster than xor
+                val prop = bitA | bitB
                 val gen  = bitA & bitB
 
                 (prop, gen)

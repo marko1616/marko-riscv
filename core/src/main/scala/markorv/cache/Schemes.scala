@@ -94,6 +94,8 @@ class DCacheWriteResp extends Bundle {
 class IcacheInterface(implicit val c: CacheConfig) extends Bundle {
     val readReq  = Flipped(Decoupled(new ICacheReadReq))
     val readResp = Decoupled(new ICacheReadResp())
+    val invalidateAllReq  = Flipped(Decoupled.empty)
+    val invalidateAllResp = Output(Bool())
 }
 
 class DCacheCleanReq extends Bundle {
@@ -131,19 +133,23 @@ class DCachePaReadResp(implicit val c: CacheConfig) extends Bundle {
 }
 
 class DcacheInterface(implicit val c: CacheConfig) extends Bundle {
-    val readReq        = Flipped(Decoupled(new DCacheReadReq))
-    val readResp       = Valid(new DCacheReadResp())
-    val writeReq       = Flipped(Decoupled(new DCacheWriteReq))
-    val writeResp      = Valid(new DCacheWriteResp())
-    val cleanReq       = Flipped(Decoupled(new DCacheCleanReq))
-    val cleanResp      = Valid(new DCacheCleanResp)
-    val invalidateReq  = Flipped(Decoupled(new DCacheInvalidateReq))
-    val invalidateResp = Valid(new DCacheInvalidateResp)
-    val amoFlushReq    = Flipped(Decoupled(new DCacheAmoFlushReq))
-    val amoFlushResp   = Valid(new DCacheAmoFlushResp)
-    val paReadReq      = Flipped(Decoupled(new DCachePaReadReq))
-    val paReadResp     = Valid(new DCachePaReadResp())
-    val paddr          = UInt(64.W)
+    val readReq           = Flipped(Decoupled(new DCacheReadReq))
+    val readResp          = Valid(new DCacheReadResp())
+    val writeReq          = Flipped(Decoupled(new DCacheWriteReq))
+    val writeResp         = Valid(new DCacheWriteResp())
+    val cleanReq          = Flipped(Decoupled(new DCacheCleanReq))
+    val cleanResp         = Valid(new DCacheCleanResp)
+    val invalidateReq     = Flipped(Decoupled(new DCacheInvalidateReq))
+    val invalidateResp    = Valid(new DCacheInvalidateResp)
+    val amoFlushReq       = Flipped(Decoupled(new DCacheAmoFlushReq))
+    val amoFlushResp      = Valid(new DCacheAmoFlushResp)
+    val invalidateAllReq  = Flipped(Decoupled.empty)
+    val invalidateAllResp = Output(Bool())
+    val cleanAllReq       = Flipped(Decoupled.empty)
+    val cleanAllResp      = Output(Bool())
+    val paReadReq         = Flipped(Decoupled(new DCachePaReadReq))
+    val paReadResp        = Valid(new DCachePaReadResp())
+    val paddr             = UInt(64.W)
 }
 
 object TlbPageLevel extends ChiselEnum {

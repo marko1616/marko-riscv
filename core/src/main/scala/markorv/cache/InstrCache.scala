@@ -12,17 +12,13 @@ import markorv.utils.ConfigUtils.getCacheIoConfig
 class InstrCache(implicit val c: CacheConfig) extends Module {
     val io = IO(new Bundle {
         val cacheInterface = new IcacheInterface
-        val ioInterface =
-            new IOInterface()(getCacheIoConfig(c, CacheType.Icache), true)
+        val ioInterface = new IOInterface()(getCacheIoConfig(c, CacheType.Icache), true)
 
         val privilege     = Input(UInt(2.W))
         val satpModeField = Input(UInt(4.W))
 
         val mmuReq  = Decoupled(new MmuReq)
         val mmuResp = Flipped(Valid(new MmuResp))
-
-        val invalidateAll        = Input(Bool())
-        val invalidateAllOutfire = Output(Bool())
     })
 
     object State extends ChiselEnum {
@@ -119,16 +115,16 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
     val mmuPaHigh = io.mmuResp.bits.pa(c.addrWidth - 1, 12)
 
     io.cacheInterface.readReq.ready := false.B
+    io.cacheInterface.invalidateAllReq.ready := false.B
 
     io.cacheInterface.readResp.valid := false.B
     io.cacheInterface.readResp.bits  := new ICacheReadResp().zero
+    io.cacheInterface.invalidateAllResp := false.B
 
     io.ioInterface.read.get.params.valid := false.B
     io.ioInterface.read.get.params.bits := new ReadParams()(
       using getCacheIoConfig(c, CacheType.Icache)
     ).zero
-
-    io.invalidateAllOutfire := false.B
 
     io.mmuReq.valid := false.B
     io.mmuReq.bits  := new MmuReq().zero
@@ -186,9 +182,12 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
         (state === State.sIdle) || ((state === State.sRead) && lookupCompletesThisCycle)
 
     io.cacheInterface.readReq.ready := canAcceptLocalReq && !mmuHlt
+    io.cacheInterface.invalidateAllReq.ready := state === State.sIdle && !io.cacheInterface.readReq.valid
 
     val readReqValid = io.cacheInterface.readReq.valid
     val readReqFire  = io.cacheInterface.readReq.fire
+    val invalidateAllValid = io.cacheInterface.invalidateAllReq.valid
+    val invalidateAllFire  = io.cacheInterface.invalidateAllReq.fire
 
     // FSM
     switch(state) {
@@ -210,7 +209,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
                 sIdleReadSramSet   := reqReadSet
 
                 transactionReqVaFired := true.B
-            }.elsewhen(io.invalidateAll) {
+            }.elsewhen(invalidateAllFire) {
                 invalidateIdx := 0.U
             }
 
@@ -223,7 +222,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
             val nextState = Mux(
               transactionReqVaFired,
               State.sRead,
-              Mux(io.invalidateAll, State.sInvalidate, State.sIdle)
+              Mux(invalidateAllFire, State.sInvalidate, State.sIdle)
             )
             state := nextState
         }
@@ -306,8 +305,6 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
                     sReadReadSramSet   := reqReadSet
 
                     transactionReqVaFired := true.B
-                }.elsewhen(io.invalidateAll) {
-                    invalidateIdx := 0.U
                 }
             }
 
@@ -320,7 +317,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
             val pipelineNextState = Mux(
               transactionReqVaFired,
               State.sRead,
-              Mux(io.invalidateAll, State.sInvalidate, State.sIdle)
+              State.sIdle
             )
 
             val finalNextState =
@@ -356,13 +353,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
                   false.B
                 )
                 io.cacheInterface.readResp.bits.data := io.ioInterface.read.get.resp.bits.data
-
-                when(io.invalidateAll) {
-                    invalidateIdx := 0.U
-                    state         := State.sInvalidate
-                }.otherwise {
-                    state := State.sIdle
-                }
+                state := State.sIdle
             }
         }
 
@@ -371,7 +362,7 @@ class InstrCache(implicit val c: CacheConfig) extends Module {
             sInvalidateWriteSet   := invalidateIdx
 
             when(invalidateIdx === (c.setNum - 1).U) {
-                io.invalidateAllOutfire := true.B
+                io.cacheInterface.invalidateAllResp := true.B
                 state                   := State.sIdle
             }.otherwise {
                 invalidateIdx := invalidateIdx + 1.U

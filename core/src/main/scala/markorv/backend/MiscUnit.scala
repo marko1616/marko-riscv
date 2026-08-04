@@ -57,10 +57,10 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
         val statusTwField  = Input(Bool())
         val statusTsrField = Input(Bool())
 
-        val icacheInvalidateAll        = Output(Bool())
-        val icacheInvalidateAllOutfire = Input(Bool())
-        val dcacheCleanAll             = Output(Bool())
-        val dcacheCleanAllOutfire      = Input(Bool())
+        val icacheInvalidateAllReq  = Decoupled.empty
+        val icacheInvalidateAllResp = Input(Bool())
+        val dcacheCleanAllReq       = Decoupled.empty
+        val dcacheCleanAllResp      = Input(Bool())
 
         val peekHandlerCause = Output(UInt(16.W))
         val peekHandlerPc    = Input(UInt(64.W))
@@ -73,24 +73,30 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     val privilegeReg             = RegInit(3.U(2.W))
 
     object FenceIState extends ChiselEnum {
-        val sIdle, sWaitDCache, sWaitICache = Value
+        val sWaitDCacheReq, sWaitDCacheResp, sWaitICacheReq, sWaitICacheResp = Value
     }
 
     object SfenceVmaState extends ChiselEnum {
-        val sIdle, sWaitReqAccepted, sWaitComplete = Value
+        val sWaitReq, sWaitResp = Value
     }
 
-    val fenceIState = RegInit(FenceIState.sIdle)
-    val sfenceVmaState = RegInit(SfenceVmaState.sIdle)
+    val fenceIState = RegInit(FenceIState.sWaitDCacheReq)
+    val sfenceVmaState = RegInit(SfenceVmaState.sWaitReq)
 
     val opcode = io.miscInstr.bits.miscOpcode
     val params = io.miscInstr.bits.params
 
+    // Warn: Assume upstream will give onehot valid and must valid op.
     val (csrOp, validCsrOp) = CsrOperation.safe(opcode.miscCsrFunct(1, 0))
     val (sysOp, validSysOp) = SystemOperation.safe(opcode.miscSysFunct)
     val (memOp, validMemOp) = MemoryOperation.safe(opcode.miscMemFunct)
 
-    val validOp = io.miscInstr.valid && (validCsrOp || validSysOp || validMemOp)
+    val validOp = io.miscInstr.valid
+
+    val fenceIOutfire = WireInit(false.B)
+    val sfenceVmaOutfire = WireInit(false.B)
+    val fenceIReady = (fenceIState === FenceIState.sWaitDCacheReq && !(io.miscInstr.valid && validMemOp && memOp === MemoryOperation.fenceI)) || fenceIOutfire
+    val sfenceVmaReady = (sfenceVmaState === SfenceVmaState.sWaitReq && !(io.miscInstr.valid && validSysOp && sysOp === SystemOperation.sfenceVma)) || sfenceVmaOutfire
 
     def emitCommit(): Unit = {
         io.commit.valid := true.B
@@ -144,14 +150,14 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
     io.csrio.writeData := 0.U
 
     io.outfire              := false.B
-    io.miscInstr.ready      := io.commit.ready && fenceIState === FenceIState.sIdle && sfenceVmaState === SfenceVmaState.sIdle
+    io.miscInstr.ready      := io.commit.ready && fenceIReady && sfenceVmaReady
     io.commit.valid         := false.B
     io.commit.bits          := new MISCCommit().zero
     io.commit.bits.robIndex := params.robIndex
 
-    io.getPrivilege        := privilegeReg
-    io.icacheInvalidateAll := false.B
-    io.dcacheCleanAll      := false.B
+    io.getPrivilege                 := privilegeReg
+    io.icacheInvalidateAllReq.valid := false.B
+    io.dcacheCleanAllReq.valid      := false.B
 
     io.peekHandlerCause := 0.U
 
@@ -257,9 +263,7 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                           )
                         )
 
-                        when(sfenceVmaState === SfenceVmaState.sIdle){
-                            sfenceVmaState := SfenceVmaState.sWaitReqAccepted
-                        }.elsewhen(sfenceVmaState === SfenceVmaState.sWaitReqAccepted) {
+                        when(sfenceVmaState === SfenceVmaState.sWaitReq) {
                             // fire TLB invalidation request to MMU
                             io.tlbInvalidateReq.valid      := true.B
                             io.tlbInvalidateReq.bits.mode  := invMode
@@ -270,15 +274,16 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                             )
 
                             when(io.tlbInvalidateReq.fire) {
-                                sfenceVmaState := SfenceVmaState.sWaitComplete
+                                sfenceVmaState := SfenceVmaState.sWaitResp
                             }
                         }.otherwise {
                             // wait for MMU to complete invalidation across all TLBs
                             when(
                               io.tlbInvalidateResp.valid && io.tlbInvalidateResp.bits.done
                             ) {
-                                sfenceVmaState := SfenceVmaState.sIdle
+                                sfenceVmaState := SfenceVmaState.sWaitReq
                                 emitSync(params.pc + 4.U)
+                                sfenceVmaOutfire := true.B
                             }
                         }
                     }
@@ -308,18 +313,30 @@ class MISCUnit(implicit val c: CoreConfig) extends Module {
                     emitCommit()
                 }
                 is(MemoryOperation.fenceI) {
-                    when(fenceIState === FenceIState.sIdle) {
-                        fenceIState := FenceIState.sWaitDCache
-                    }.elsewhen(fenceIState === FenceIState.sWaitDCache) {
-                        io.dcacheCleanAll := true.B
-                        when(io.dcacheCleanAllOutfire) {
-                            fenceIState := FenceIState.sWaitICache
+                    when(fenceIState === FenceIState.sWaitDCacheReq) {
+                        io.dcacheCleanAllReq.valid := true.B
+                        when(io.dcacheCleanAllReq.ready) {
+                            fenceIState := FenceIState.sWaitDCacheResp
+                        }
+                    }.elsewhen(fenceIState === FenceIState.sWaitDCacheResp) {
+                        when(io.dcacheCleanAllResp) {
+                            io.icacheInvalidateAllReq.valid := true.B
+                            when(io.icacheInvalidateAllReq.ready) {
+                                fenceIState := FenceIState.sWaitICacheResp
+                            }.otherwise {
+                                fenceIState := FenceIState.sWaitICacheReq
+                            }
+                        }
+                    }.elsewhen(fenceIState === FenceIState.sWaitICacheReq) {
+                        io.icacheInvalidateAllReq.valid := true.B
+                        when(io.icacheInvalidateAllReq.ready) {
+                            fenceIState := FenceIState.sWaitICacheResp
                         }
                     }.otherwise {
-                        io.icacheInvalidateAll := true.B
-                        when(io.icacheInvalidateAllOutfire) {
+                        when(io.icacheInvalidateAllResp) {
                             emitSync(params.pc + 4.U)
-                            fenceIState := FenceIState.sIdle
+                            fenceIState := FenceIState.sWaitDCacheReq
+                            fenceIOutfire := true.B
                         }
                     }
                 }
