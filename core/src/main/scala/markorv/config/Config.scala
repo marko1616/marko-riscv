@@ -132,7 +132,7 @@ case class PmaConfig(
 
 case class CoreConfig(
     simulate: Boolean,
-    resetVector: Int,
+    resetVector: BigInt,
     fetchQueueSize: Int,
     asidWidth: Int,
     axiConfig: AxiConfig,

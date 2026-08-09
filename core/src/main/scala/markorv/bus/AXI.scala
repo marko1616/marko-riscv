@@ -202,7 +202,7 @@ class AXIHandler(val axiConfig: AxiConfig, val ioConfig: IOConfig, val id: Int)
     }
 }
 
-class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int) extends Module {
+class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int, val simulate: Boolean) extends Module {
     val io = IO(new Bundle {
         val axiChannel = Vec(numChannel, Flipped(new AxiInterface(axiConfig)))
         val axiBus     = new AxiInterface(axiConfig)
@@ -229,9 +229,46 @@ class AxiRouter(val axiConfig: AxiConfig, val numChannel: Int) extends Module {
             .r
             .valid := io.axiBus.r.valid && (io.axiBus.r.bits.id === i.U)
     }
-    // Caution: Although it's logically correct to OR all `r.ready` signals as a single response for `axiBus.r.ready`,
-    // this design assumes that the correct target channel (identified by `r.bits.id`) will always assert `ready` immediately.
-    io.axiBus.r.ready := io.axiChannel.map(_.r.ready).reduce(_ || _)
+
+    if(simulate) {
+        // Simulated only, this aims to resolve ready deassert problem by comb logic during sim.
+        val rBufValid = RegInit(false.B)
+        val rBufBits  = Reg(chiselTypeOf(io.axiBus.r.bits))
+        val rBufId    = rBufBits.id
+        val rTgtReady = Mux1H(
+            UIntToOH(io.axiBus.r.bits.id, numChannel),
+            io.axiChannel.map(_.r.ready)
+        )
+
+        io.axiBus.r.ready := !rBufValid
+
+        when(io.axiBus.r.fire && !rTgtReady) {
+            rBufValid := true.B
+            rBufBits  := io.axiBus.r.bits
+        }
+
+        for (i <- 0 until numChannel) {
+            io.axiChannel(i).r.bits := Mux(
+                rBufValid && rBufId === i.U,
+                rBufBits,
+                io.axiBus.r.bits
+            )
+            io.axiChannel(i).r.valid := (rBufValid && (rBufId === i.U)) || (rTgtReady && io.axiBus.r.bits.id === i.U)
+        }
+
+        val BufTgtReady = Mux1H(
+            UIntToOH(rBufId, numChannel),
+            io.axiChannel.map(_.r.ready)
+        )
+        when(rBufValid && BufTgtReady) {
+            rBufValid := false.B
+        }
+    } else {
+        io.axiBus.r.ready := Mux1H(
+            UIntToOH(io.axiBus.r.bits.id, numChannel),
+            io.axiChannel.map(_.r.ready)
+        )
+    }
 
     // Write channels
     // ========================
@@ -317,7 +354,7 @@ class AxiCtrl(implicit val c: CoreConfig) extends Module {
     dcacheLoadStoreHandler.io.req <> io.dcacheLoadStore
     dirLoadStoreHandler.io.req <> io.dirLoadStore
 
-    val axiRouter = Module(new AxiRouter(c.axiConfig, 3))
+    val axiRouter = Module(new AxiRouter(c.axiConfig, 3, c.simulate))
 
     axiRouter.io.axiChannel(0) <> instrFetchHandler.io.axi
     axiRouter.io.axiChannel(1) <> dcacheLoadStoreHandler.io.axi
