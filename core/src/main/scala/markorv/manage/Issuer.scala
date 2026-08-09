@@ -22,7 +22,7 @@ class Issuer(implicit val c: CoreConfig) extends Module {
         // ========================
         val robReq      = Valid(new ROBAllocReq)
         val robResp     = Flipped(Valid(new ROBAllocResp))
-        val robMayDison = Input(Bool())
+        val robMayDiscon = Input(Bool())
         val robFull     = Input(Bool())
 
         // Reservation Station signals
@@ -73,7 +73,7 @@ class Issuer(implicit val c: CoreConfig) extends Module {
     // Hazard Detection
     val warHazard = io.rsRegReqBits(origPrd) && prdValid
     val wawHazard = io.regStates(origPrd) =/= PhyRegState.Allocated && prdValid
-    val excepHazard = io.robMayDison || (exu.mayDison() && prdValid)
+    val excepHazard = io.robMayDiscon || (exu.mayDiscon() && prdValid)
     val hasHazard   = warHazard || wawHazard || excepHazard
     val noHazard    = !hasHazard
 

@@ -34,7 +34,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
         // ========================
         val retireEvent = Valid(new RetireEvent)
         val headIndex   = Output(UInt(robIndexWidth.W))
-        val robMayDison = Output(Bool())
+        val robMayDiscon = Output(Bool())
 
         // Speculative control signals
         // ========================
@@ -89,8 +89,8 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
 
     nextBuffer   := buffer
     io.headIndex := deqPtr
-    io.robMayDison := buffer
-        .map(e => e.valid && e.exu.mayDison())
+    io.robMayDiscon := buffer
+        .map(e => e.valid && e.exu.mayDiscon())
         .reduce(_ || _)
 
     // Read Entry
@@ -100,14 +100,14 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
     // Commit default
     for (commit <- io.commits)
         when(commit.valid) {
-            nextBuffer(commit.bits.robIndex).commited := true.B
+            nextBuffer(commit.bits.robIndex).committed := true.B
             when(commit.bits.fCtrl.discon) {
                 nextBuffer(commit.bits.robIndex).fCtrl := commit.bits.fCtrl
             }
         }
 
     // Retirement default
-    val retireValid = !empty && nextBuffer(deqPtr).commited
+    val retireValid = !empty && nextBuffer(deqPtr).committed
     io.retireEvent.valid            := retireValid
     io.retireEvent.bits.isException := false.B
     io.retireEvent.bits.incInstRet  := true.B
@@ -136,7 +136,7 @@ class ReorderBuffer(implicit val c: CoreConfig) extends Module {
         nextBuffer(enqPtr).prevprd         := io.allocReq.bits.prevprd
         nextBuffer(enqPtr).renameCkptIndex := io.allocReq.bits.renameCkptIndex
 
-        nextBuffer(enqPtr).commited      := false.B
+        nextBuffer(enqPtr).committed      := false.B
         nextBuffer(enqPtr).fCtrl         := new ROBDisconField().zero
         nextBuffer(enqPtr).fCtrl.nextPc := io.allocReq.bits.nextPc
 

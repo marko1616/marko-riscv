@@ -82,8 +82,8 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
     val isLr    = opcode === LSUOpcode.lr
 
     // Keep full VA so returned PA keeps the byte offset.
-    val vaAddr           = params.source1.asUInt
-    val alignedCheckSucc = (vaAddr & ((1.U << size) - 1.U)) === 0.U
+    val vaddr           = params.source1.asUInt
+    val alignedCheckSucc = (vaddr & ((1.U << size) - 1.U)) === 0.U
     val alignExcCause    = Mux(isLoad || isLr, 4.U, 6.U)
 
     val AMO_SC_FAILED    = "h0000000000000001".U
@@ -184,7 +184,7 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
         io.commit.bits.disconType := DisconEventType.instrException
         io.commit.bits.nextPc     := io.peekHandlerPc
         io.commit.bits.xepc       := params.pc
-        io.commit.bits.xtval      := vaAddr
+        io.commit.bits.xtval      := vaddr
         io.commit.bits.cause      := cause
     }
 
@@ -225,20 +225,20 @@ class LoadStoreUnit(implicit val c: CoreConfig) extends Module {
                     emitException(alignExcCause)
                 }.elsewhen(isAmo) {
                     io.cacheAmoFlushReq.valid         := true.B
-                    io.cacheAmoFlushReq.bits.vaddr    := vaAddr
+                    io.cacheAmoFlushReq.bits.vaddr    := vaddr
                     io.cacheAmoFlushReq.bits.readLike := isLr
                     when(io.cacheAmoFlushReq.ready) {
                         state := State.sAmoFlushWait
                     }
                 }.elsewhen(isLoad) {
                     io.cacheReadReq.valid      := true.B
-                    io.cacheReadReq.bits.vaddr := vaAddr
+                    io.cacheReadReq.bits.vaddr := vaddr
                     when(io.cacheReadReq.ready) {
                         state := State.sCacheReadWait
                     }
                 }.otherwise {
                     io.cacheWriteReq.valid      := true.B
-                    io.cacheWriteReq.bits.vaddr := vaAddr
+                    io.cacheWriteReq.bits.vaddr := vaddr
                     io.cacheWriteReq.bits.data  := cacheWriteData
                     io.cacheWriteReq.bits.mask  := cacheWriteMask
                     when(io.cacheWriteReq.ready) {

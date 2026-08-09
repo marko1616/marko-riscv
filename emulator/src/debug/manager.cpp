@@ -66,7 +66,7 @@ template<typename D, typename S> static inline void dbg_read(D &dst, S src)
         DBG_READ(e.f_ctrl.discon, dbgIo_rob_buffer_##i##_fCtrl_discon);          \
         DBG_READ(e.f_ctrl.discon_type, dbgIo_rob_buffer_##i##_fCtrl_disconType); \
         DBG_READ(e.f_ctrl.xret_type, dbgIo_rob_buffer_##i##_fCtrl_xretType);     \
-        DBG_READ(e.commited, dbgIo_rob_buffer_##i##_commited);                   \
+        DBG_READ(e.committed, dbgIo_rob_buffer_##i##_committed);                   \
         DBG_READ(e.rename_ckpt_index, dbgIo_rob_buffer_##i##_renameCkptIndex);   \
         DBG_READ(e.f_ctrl.cause, dbgIo_rob_buffer_##i##_fCtrl_cause);            \
         DBG_READ(e.f_ctrl.xtval, dbgIo_rob_buffer_##i##_fCtrl_xtval);            \
@@ -215,14 +215,14 @@ void DebugManager::print_rob()
         // Accumulate stats
         if (e.valid)
             ++valid_count;
-        if (e.commited)
+        if (e.committed)
             ++commit_count;
         if (fc.discon)
             ++discon_count;
 
         // Main summary line
         std::cout << std::format("{:<5x} {:<6} {:<8} {:<6} {:<8} {:<8} {:<6} {:#x}\n", i, e.valid ? "Y" : "N",
-                                 e.commited ? "Y" : "N", exu_str,
+                                 e.committed ? "Y" : "N", exu_str,
                                  e.prd_valid ? std::format("{:#x}", static_cast<uint16_t>(dbg_u(e.prd))) : "-",
                                  e.prd_valid ? std::format("{:#x}", static_cast<uint16_t>(dbg_u(e.prev_prd))) : "-",
                                  e.prd_valid ? "Y" : "N", static_cast<uint8_t>(e.rename_ckpt_index));

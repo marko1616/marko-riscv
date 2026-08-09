@@ -66,7 +66,7 @@ class ROBEntry(implicit val c: CoreConfig) extends Bundle {
     val prevprd  = UInt(log2Ceil(c.regFileSize).W)
 
     val fCtrl           = new ROBDisconField
-    val commited        = Bool()
+    val committed        = Bool()
     val renameCkptIndex = UInt(log2Ceil(c.renameTableSize).W)
 }
 

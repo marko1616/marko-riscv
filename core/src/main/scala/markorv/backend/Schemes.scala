@@ -29,7 +29,7 @@ import markorv.manage.DisconEventType
 object EXUEnum extends ChiselEnum {
     val alu, bru, lsu, mdu, misc = Value
     implicit class EXUEnumOps(x: EXUEnum.Type) {
-        def mayDison(): Bool = x === bru || x === lsu || x === misc
+        def mayDiscon(): Bool = x === bru || x === lsu || x === misc
     }
 }
 

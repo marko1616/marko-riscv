@@ -206,7 +206,7 @@ class MarkoRvCore(implicit val c: CoreConfig) extends Module {
 
     // Issuer Interface
     issuer.io.rsRegReqBits <> reservStation.io.rsRegReqBits
-    issuer.io.robMayDison <> rob.io.robMayDison
+    issuer.io.robMayDiscon <> rob.io.robMayDiscon
     issuer.io.robReq <> rob.io.allocReq
     issuer.io.robResp <> rob.io.allocResp
     issuer.io.robFull <> rob.io.full

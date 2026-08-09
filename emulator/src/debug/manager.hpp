@@ -93,7 +93,7 @@ struct flowCtrl {
 
 struct robEntry {
     rt_index_t rename_ckpt_index = 0;
-    bool commited = false;
+    bool committed = false;
     flowCtrl f_ctrl;
     rf_index_t prev_prd = 0;
     rf_index_t prd = 0;
